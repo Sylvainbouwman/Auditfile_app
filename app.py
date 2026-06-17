@@ -666,6 +666,25 @@ def build_vat_reconciliation(lines: pd.DataFrame, declared_vat: dict | None = No
             "gebruikte_percentages",
         ]
     ].sort_values("vatID")
+def build_vat_rubric_summary(reconciliation: pd.DataFrame) -> pd.DataFrame:
+    if reconciliation.empty or "rubriek" not in reconciliation.columns:
+        return pd.DataFrame({"Melding": ["Geen gegevens beschikbaar"]})
+
+    summary = (
+        reconciliation.groupby("rubriek", dropna=False)
+        .agg(
+            btw_volgens_xaf=("btw_volgens_xaf", "sum"),
+            btw_volgens_aangifte=("btw_volgens_aangifte", "sum"),
+            verschil=("verschil", "sum"),
+        )
+        .reset_index()
+    
+    
+            )
+    summary["btw_volgens_xaf"] = summary["btw_volgens_xaf"].abs()
+    summary["verschil"] = summary["verschil"].abs()
+
+    return summary.sort_values("rubriek")
 
 def build_logical_controls(lines: pd.DataFrame) -> pd.DataFrame:
     columns = ["line_accID", "accDesc", "tx_periodNumber", "line_amnt", "line_amntTp", "bedrag"]
@@ -1079,7 +1098,16 @@ def main() -> None:
             use_container_width=True,
             hide_index=True,
         )
+        st.subheader("Samenvatting per aangifterubriek")
 
+        rubric_summary = build_vat_rubric_summary(reconciliation)
+
+        st.dataframe(
+            rubric_summary,
+            use_container_width=True,
+            hide_index=True,
+        )
+        
         if "btw_volgens_xaf" in reconciliation.columns:
             totaal_xaf = reconciliation["btw_volgens_xaf"].sum()
             totaal_aangifte = reconciliation["btw_volgens_aangifte"].sum()
