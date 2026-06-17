@@ -1094,8 +1094,91 @@ def main() -> None:
         "regels_huidig_jaar",
     ]
 
-    btw_debug_tab = st.tabs(["BTW debug"])[0]
-    with btw_debug_tab:
+    tab_vergelijking, tab_grootboek, tab_btw, tab_controles, tab_export = st.tabs(
+        ["Vergelijking", "Grootboekkaarten", "BTW", "Logische controles", "Export"]
+    )
+
+    with tab_vergelijking:
+        st.subheader("Top 20 grootste afwijkingen")
+        st.dataframe(
+            comparison.head(20)[display_columns],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "beginsaldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+                "mutaties_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+                "eindsaldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+                "beginsaldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+                "mutaties_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+                "eindsaldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+                "saldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+                "saldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+                "verschil_bedrag": st.column_config.NumberColumn(format="€ %,.0f"),
+            },
+        )
+
+        st.subheader("Vergelijking per grootboekrekening")
+        status_filter = st.multiselect(
+            "Status",
+            options=["bestaand", "nieuw", "vervallen"],
+            default=["bestaand", "nieuw", "vervallen"],
+        )
+        filtered_comparison = comparison[comparison["status"].isin(status_filter)].sort_values("rekening")
+        st.dataframe(
+            filtered_comparison[display_columns],
+            use_container_width=True,
+            hide_index=True,
+            height=520,
+            column_config={
+                "beginsaldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+                "mutaties_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+                "eindsaldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+                "beginsaldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+                "mutaties_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+                "eindsaldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+                "saldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+                "saldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+                "verschil_bedrag": st.column_config.NumberColumn(format="€ %,.0f"),
+            },
+        )
+
+    with tab_grootboek:
+        current_saldo = ensure_columns(current_saldo, ["rekening", "accDesc", "saldo"])
+        account_options = (
+            current_saldo.assign(
+                label=lambda df: df.apply(
+                    lambda row: f"{row['rekening']} - {row['accDesc']} ({format_money(row['saldo'])})",
+                    axis=1,
+                )
+            )
+            .sort_values("rekening")
+        )
+
+        if account_options.empty:
+            st.info("Geen grootboekregels gevonden in het huidige jaar.")
+        else:
+            selected_label = st.selectbox("Kies een grootboekrekening", account_options["label"].tolist())
+            selected_account = selected_label.split(" - ", 1)[0]
+
+            card = current_lines[current_lines["line_accID"].astype(str) == selected_account].copy()
+            if card.empty:
+                st.info("Geen boekingsregels gevonden voor deze rekening.")
+            else:
+                card = ensure_columns(card, CARD_COLUMNS)
+                card = card.sort_values(["tx_trDt", "tx_nr", "line_nr"], na_position="last")
+                st.write(
+                    f"Rekening {selected_account} | "
+                    f"Aantal boekingsregels: {len(card):,} | "
+                    f"Saldo huidig jaar: {format_money(card['bedrag'].sum())}"
+                )
+                st.dataframe(
+                    card[CARD_COLUMNS],
+                    use_container_width=True,
+                    hide_index=True,
+                    height=500,
+                )
+
+    with tab_btw:
         st.subheader("BTW-codetabel")
         st.dataframe(
             get_vat_codes(current_lines),
@@ -1114,17 +1197,15 @@ def main() -> None:
                 "totaal_btw_bedrag": st.column_config.NumberColumn(format="€ %,.0f"),
             },
         )
-        st.subheader("BTW-rondrekening")
 
+        st.subheader("BTW-rondrekening")
         st.caption(
             "Vul per aangifterubriek het bedrag in volgens de ingediende BTW-aangifte. "
             "De tool vergelijkt dit met de BTW volgens de auditfile."
         )
 
         st.subheader("Ingediende BTW-aangifte")
-
         declared_by_rubric = {}
-
         for rubric in ["1a", "1e", "2a/5b", "5b"]:
             declared_by_rubric[rubric] = st.number_input(
                 f"Aangiftebedrag rubriek {rubric}",
@@ -1135,7 +1216,6 @@ def main() -> None:
             )
 
         reconciliation = build_vat_reconciliation(current_lines, {})
-
         reconciliation_display = reconciliation.rename(columns={
             "vatID": "BTW-code",
             "vatDesc": "Omschrijving",
@@ -1155,10 +1235,9 @@ def main() -> None:
                 "BTW volgens XAF": st.column_config.NumberColumn(format="€ %,.0f"),
             },
         )
+
         st.subheader("Samenvatting per aangifterubriek")
-
         rubric_summary = build_vat_rubric_summary(reconciliation)
-
         if "rubriek" in rubric_summary.columns:
             rubric_summary["btw_volgens_aangifte"] = rubric_summary["rubriek"].map(
                 lambda r: declared_by_rubric.get(r, 0)
@@ -1190,28 +1269,26 @@ def main() -> None:
                 "Verschil": st.column_config.NumberColumn(format="€ %,.0f"),
             },
         )
+
         if "rubriek" in rubric_summary.columns and "btw_volgens_xaf" in rubric_summary.columns:
             btw_afdracht = rubric_summary.loc[
                 rubric_summary["rubriek"].isin(["1a", "1b", "1c", "1d", "2a", "4a", "4b"]),
                 "btw_volgens_xaf",
-    ].sum()
-
+            ].sum()
             btw_voorbelasting = rubric_summary.loc[
                 rubric_summary["rubriek"].isin(["5b"]),
                 "btw_volgens_xaf",
             ].sum()
-
             netto_btw_xaf = btw_afdracht - btw_voorbelasting
 
             st.subheader("Netto BTW volgens XAF")
-
             col1, col2, col3 = st.columns(3)
             col1.metric("Af te dragen BTW", f"€ {btw_afdracht:,.0f}")
             col2.metric("Voorbelasting", f"€ {btw_voorbelasting:,.0f}")
             col3.metric("Netto te betalen", f"€ {netto_btw_xaf:,.0f}")
-        
-        
+
         if "vatID" in vat_usage.columns and not vat_usage.empty:
+            st.subheader("Drilldown per BTW-code")
             vat_options = vat_usage.assign(
                 label=lambda df: df.apply(
                     lambda row: f"{row['vatID']} - {row.get('vatDesc', '')}",
@@ -1237,107 +1314,27 @@ def main() -> None:
                 summary_b.metric("Totaal grondslagbedrag", format_money(vat_drilldown["bedrag"].sum()))
                 summary_c.metric("Totaal BTW-bedrag", format_money(vat_drilldown["BTW-bedrag"].sum()))
 
-    st.subheader("Logische controles")
-    logical_controls = build_logical_controls(current_lines)
-    st.dataframe(
-        logical_controls,
-        use_container_width=True,
-        hide_index=True,
-        height=420,
-    )
-
-    st.subheader("Excel-export")
-    excel_export = build_excel_export(
-        current_saldo=current_saldo,
-        current_lines=current_lines,
-        comparison=comparison,
-        comparison_columns=display_columns,
-    )
-    st.download_button(
-        label="Download Excel-export",
-        data=excel_export,
-        file_name="auditfile_analyzer_2024_2025.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-
-    st.subheader("Top 20 grootste afwijkingen")
-    st.dataframe(
-        comparison.head(20)[display_columns],
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "beginsaldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-            "mutaties_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-            "eindsaldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-            "beginsaldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-            "mutaties_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-            "eindsaldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-            "saldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-            "saldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-            "verschil_bedrag": st.column_config.NumberColumn(format="€ %,.0f"),
-        },
-    )
-
-    st.subheader("Vergelijking per grootboekrekening")
-    status_filter = st.multiselect(
-        "Status",
-        options=["bestaand", "nieuw", "vervallen"],
-        default=["bestaand", "nieuw", "vervallen"],
-    )
-    filtered_comparison = comparison[comparison["status"].isin(status_filter)].sort_values("rekening")
-    st.dataframe(
-        filtered_comparison[display_columns],
-        use_container_width=True,
-        hide_index=True,
-        height=520,
-        column_config={
-            "beginsaldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-            "mutaties_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-            "eindsaldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-            "beginsaldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-            "mutaties_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-            "eindsaldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-            "saldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-            "saldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-            "verschil_bedrag": st.column_config.NumberColumn(format="€ %,.0f"),
-        },
-    )
-
-    st.subheader("Grootboekkaart huidig jaar")
-    current_saldo = ensure_columns(current_saldo, ["rekening", "accDesc", "saldo"])
-    account_options = (
-        current_saldo.assign(
-            label=lambda df: df.apply(
-                lambda row: f"{row['rekening']} - {row['accDesc']} ({format_money(row['saldo'])})",
-                axis=1,
-            )
-        )
-        .sort_values("rekening")
-    )
-
-    if account_options.empty:
-        st.info("Geen grootboekregels gevonden in het huidige jaar.")
-        st.stop()
-
-    selected_label = st.selectbox("Kies een grootboekrekening", account_options["label"].tolist())
-    selected_account = selected_label.split(" - ", 1)[0]
-
-    card = current_lines[current_lines["line_accID"].astype(str) == selected_account].copy()
-    if card.empty:
-        st.info("Geen boekingsregels gevonden voor deze rekening.")
-    else:
-        card = ensure_columns(card, CARD_COLUMNS)
-        card = card.sort_values(["tx_trDt", "tx_nr", "line_nr"], na_position="last")
-        st.write(
-            f"Rekening {selected_account} | "
-            f"Aantal boekingsregels: {len(card):,} | "
-            f"Saldo huidig jaar: {format_money(card['bedrag'].sum())}"
-        )
+    with tab_controles:
+        logical_controls = build_logical_controls(current_lines)
         st.dataframe(
-            card[CARD_COLUMNS],
+            logical_controls,
             use_container_width=True,
             hide_index=True,
-            height=500,
+            height=420,
+        )
+
+    with tab_export:
+        excel_export = build_excel_export(
+            current_saldo=current_saldo,
+            current_lines=current_lines,
+            comparison=comparison,
+            comparison_columns=display_columns,
+        )
+        st.download_button(
+            label="Download Excel-export",
+            data=excel_export,
+            file_name="auditfile_analyzer_2024_2025.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
 
