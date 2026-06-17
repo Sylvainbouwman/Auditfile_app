@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Over de app
+
+De Auditfile Analyzer is een fiscaal-inhoudelijke analysetool voor de Nederlandse samenstelpraktijk en belastingadvies. De tool laadt twee XAF-auditfiles (vorig jaar + huidig jaar), vergelijkt ze, en voert fiscale controles uit: BTW-rondrekening, logische controles op periodiciteit, jaar-op-jaar vergelijking, en Excel-export. Het einddoel is een automatisch gegenereerd reviewmemorandum met fiscale aandachtspunten.
+
+## Werkwijze
+
+- **Kleine stappen**: één wijziging tegelijk, niet meerdere losse aanpassingen bundelen tenzij expliciet gevraagd.
+- **Eerst voorstel, dan uitvoeren**: bij niet-triviale wijzigingen eerst het voorstel toelichten en wachten op bevestiging voordat code wordt aangepast.
+- **ROADMAP.md is leidend**: nieuwe functies en prioritering worden bepaald door `ROADMAP.md`. Raadpleeg dit bestand bij twijfel over wat als volgende op te pakken.
+
 ## Running the app
 
 ```bash

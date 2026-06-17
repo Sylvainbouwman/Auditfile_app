@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from io import BytesIO
+import json
 from pathlib import Path
+import re
 import xml.etree.ElementTree as ET
 
 import pandas as pd
@@ -323,7 +325,26 @@ def parse_auditfile(file_name: str, file_bytes: bytes) -> tuple[pd.DataFrame, pd
         ]
     ].sort_values("rekening")
 
-    return df_accounts, df_lines, saldo
+    months_nl = ["jan", "feb", "mrt", "apr", "mei", "jun",
+                 "jul", "aug", "sep", "okt", "nov", "dec"]
+    periods_map: dict[int, str] = {}
+    for element in root.iter():
+        if local_name(element.tag) == "period":
+            texts = child_texts(element)
+            num_str = texts.get("periodNumber")
+            start = texts.get("startDatePeriod", "")
+            if num_str is not None:
+                try:
+                    n = int(num_str)
+                    if start and len(start) >= 7:
+                        month_idx = int(start[5:7]) - 1
+                        periods_map[n] = months_nl[month_idx]
+                    else:
+                        periods_map[n] = str(n)
+                except (ValueError, IndexError):
+                    pass
+
+    return df_accounts, df_lines, saldo, periods_map
 
 
 def first_non_empty(row: pd.Series, columns: list[str]) -> str:
@@ -675,6 +696,7 @@ def build_vat_rubric_summary(reconciliation: pd.DataFrame) -> pd.DataFrame:
     summary = (
         reconciliation.groupby("rubriek", dropna=False)
         .agg(
+            totaal_grondslagbedrag=("totaal_grondslagbedrag", "sum"),
             btw_volgens_xaf=("btw_volgens_xaf", "sum"),
             btw_volgens_aangifte=("btw_volgens_aangifte", "sum"),
             verschil=("verschil", "sum"),
@@ -682,6 +704,7 @@ def build_vat_rubric_summary(reconciliation: pd.DataFrame) -> pd.DataFrame:
         .reset_index()
     )
 
+    summary["totaal_grondslagbedrag"] = summary["totaal_grondslagbedrag"].abs().round(0)
     summary["btw_volgens_xaf"] = summary["btw_volgens_xaf"].abs().round(0)
     summary["btw_volgens_aangifte"] = summary["btw_volgens_aangifte"].abs().round(0)
     summary["verschil"] = summary["verschil"].abs().round(0)
@@ -732,10 +755,12 @@ def build_logical_controls(lines: pd.DataFrame) -> pd.DataFrame:
     expected_periods = set(range(1, expected_period_count + 1))
 
     controls = [
-        ("Huur", ["huur", "rent"], True),
+        ("Huur", ["huur", r"\brent\b"], True),
+        ("Leasekosten", ["lease", "leasing"], True),
         ("Lonen / salarissen", ["loon", "salaris", "salarissen", "wages", "payroll"], True),
         ("Afschrijvingen", ["afschrijving", "afschrijvingen", "depreciation"], True),
         ("Verzekeringen", ["verzekering", "verzekeringen", "insurance"], False),
+        ("Rente", ["rentelast", "rentekosten", "rentebat", r"\binterest\b"], False),
     ]
 
     rows = []
@@ -854,6 +879,14 @@ def compact_periods(period_str: str) -> str:
             start = end = n
     ranges.append(str(start) if start == end else f"{start}-{end}")
     return ", ".join(ranges)
+
+
+def add_month_labels(compact: str, period_map: dict) -> str:
+    if not period_map or not compact:
+        return compact
+    def _replace(m: re.Match) -> str:
+        return period_map.get(int(m.group()), m.group())
+    return re.sub(r'\d+', _replace, compact)
 
 
 def export_dataframe(df: pd.DataFrame, columns: list[str] | None = None) -> pd.DataFrame:
@@ -982,6 +1015,7 @@ def build_excel_export(
     current_lines: pd.DataFrame,
     comparison: pd.DataFrame,
     comparison_columns: list[str],
+    declared_by_rubric: dict | None = None,
 ) -> bytes:
     """Bouw het Excelbestand met meerdere tabbladen voor de downloadknop."""
     output = BytesIO()
@@ -1047,6 +1081,17 @@ def build_excel_export(
         na_position="last",
     )
 
+    _declared = declared_by_rubric or {}
+    _recon_export = build_vat_reconciliation(current_lines, {})
+    _rubric_export = build_vat_rubric_summary(_recon_export)
+    if "rubriek" in _rubric_export.columns:
+        _rubric_export["btw_volgens_aangifte"] = _rubric_export["rubriek"].map(
+            lambda r: float(_declared.get(r, 0))
+        )
+        _rubric_export["verschil"] = (
+            _rubric_export["btw_volgens_xaf"] - _rubric_export["btw_volgens_aangifte"]
+        ).abs().round(0)
+
     sheets = {
         "Bedrijfsgegevens": get_company_info(current_lines),
         "Grootboekrekeningen": export_dataframe(current_saldo_export.sort_values("rekening"), grootboek_columns),
@@ -1059,6 +1104,7 @@ def build_excel_export(
         "BTW-codetabel": get_vat_codes(current_lines),
         "BTW-gebruik": build_vat_usage(current_lines),
         "BTW-drilldown": build_all_vat_drilldown(current_lines),
+        "BTW-rondrekening": _rubric_export,
         "Logische controles": build_logical_controls(current_lines),
     }
 
@@ -1107,8 +1153,8 @@ def main() -> None:
         current_bytes = current_file.getvalue()
 
     try:
-        _, previous_lines, previous_saldo = parse_auditfile(previous_name, previous_bytes)
-        _, current_lines, current_saldo = parse_auditfile(current_name, current_bytes)
+        _, previous_lines, previous_saldo, _ = parse_auditfile(previous_name, previous_bytes)
+        _, current_lines, current_saldo, current_periods = parse_auditfile(current_name, current_bytes)
         comparison = compare_saldi(previous_saldo, current_saldo)
     except Exception as exc:
         st.error("Fout bij het verwerken van de auditfiles.")
@@ -1237,15 +1283,32 @@ def main() -> None:
         )
 
         st.subheader("Ingediende BTW-aangifte")
+        _btw_json = Path("testfiles/btw_aangifte.json")
+        _saved_btw: dict = {}
+        if test_mode and _btw_json.exists():
+            try:
+                _saved_btw = json.loads(_btw_json.read_text(encoding="utf-8"))
+            except Exception:
+                _saved_btw = {}
+
         declared_by_rubric = {}
         for rubric in ["1a", "1e", "2a/5b", "5b"]:
+            _init = float(_saved_btw.get(rubric, 0.0))
             declared_by_rubric[rubric] = st.number_input(
                 f"Aangiftebedrag rubriek {rubric}",
-                value=0.00,
+                value=_init,
                 step=1.00,
                 format="%.2f",
                 key=f"declared_rubric_{rubric}",
             )
+
+        if test_mode:
+            try:
+                _btw_json.parent.mkdir(parents=True, exist_ok=True)
+                _btw_json.write_text(json.dumps(declared_by_rubric), encoding="utf-8")
+            except Exception:
+                pass
+        st.session_state["declared_by_rubric_export"] = declared_by_rubric
 
         reconciliation = build_vat_reconciliation(current_lines, {})
         reconciliation_display = reconciliation.rename(columns={
@@ -1282,16 +1345,22 @@ def main() -> None:
 
         rubric_display = rubric_summary.rename(columns={
             "rubriek": "Rubriek",
+            "totaal_grondslagbedrag": "Grondslag",
             "btw_volgens_xaf": "BTW volgens XAF",
             "btw_volgens_aangifte": "Ingediende aangifte",
             "verschil": "Verschil",
             "status": "Status",
         })
         _rubric = rubric_display.copy()
-        for _col in ["BTW volgens XAF", "Ingediende aangifte", "Verschil"]:
+        for _col in ["Grondslag", "BTW volgens XAF", "Ingediende aangifte", "Verschil"]:
             if _col in _rubric.columns:
                 _rubric[_col] = _rubric[_col].apply(format_euro_whole)
         st.dataframe(_rubric, use_container_width=True, hide_index=True)
+        if "rubriek" in rubric_summary.columns and "Onbekend" in rubric_summary["rubriek"].values:
+            st.caption(
+                "⚠️ Eén of meer BTW-codes hebben rubriek 'Onbekend' en zijn niet meegenomen "
+                "in de netto-berekening. Controleer de omschrijving van deze codes."
+            )
 
         if "rubriek" in rubric_summary.columns and "btw_volgens_xaf" in rubric_summary.columns:
             btw_afdracht = rubric_summary.loc[
@@ -1362,7 +1431,9 @@ def main() -> None:
 
         for _col in ["perioden_met_mutaties", "ontbrekende_perioden"]:
             if _col in _controls.columns:
-                _controls[_col] = _controls[_col].apply(compact_periods)
+                _controls[_col] = _controls[_col].apply(compact_periods).apply(
+                    lambda s: add_month_labels(s, current_periods)
+                )
         for _col in ["totaalbedrag", "gemiddeld_bedrag_per_periode", "grootste_afwijking_tov_gemiddelde"]:
             if _col in _controls.columns:
                 _controls[_col] = pd.to_numeric(_controls[_col], errors="coerce").abs().apply(format_euro_whole)
@@ -1379,6 +1450,10 @@ def main() -> None:
             "grootste_afwijking_tov_gemiddelde": "Max. afwijking",
             "conclusie": "Conclusie",
         })
+        if "Controle" in _controls.columns:
+            _controls["Controle"] = _controls["Controle"].where(
+                _controls["Controle"] != _controls["Controle"].shift(), ""
+            )
         st.dataframe(
             _controls,
             use_container_width=True,
@@ -1392,6 +1467,7 @@ def main() -> None:
             current_lines=current_lines,
             comparison=comparison,
             comparison_columns=display_columns,
+            declared_by_rubric=st.session_state.get("declared_by_rubric_export"),
         )
         st.download_button(
             label="Download Excel-export",
