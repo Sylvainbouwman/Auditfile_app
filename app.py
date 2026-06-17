@@ -1099,7 +1099,7 @@ def main() -> None:
         st.subheader("BTW-rondrekening")
 
         st.caption(
-            "Vul per BTW-code het bedrag in volgens de ingediende BTW-aangifte. "
+            "Vul per aangifterubriek het bedrag in volgens de ingediende BTW-aangifte. "
             "De tool vergelijkt dit met de BTW volgens de auditfile."
         )
 
@@ -1118,10 +1118,24 @@ def main() -> None:
 
         reconciliation = build_vat_reconciliation(current_lines, {})
 
+        reconciliation_display = reconciliation.rename(columns={
+            "vatID": "BTW-code",
+            "vatDesc": "Omschrijving",
+            "rubriek": "Rubriek",
+            "aantal_transactieregels": "Aantal regels",
+            "totaal_grondslagbedrag": "Grondslag",
+            "btw_volgens_xaf": "BTW volgens XAF",
+            "gebruikte_percentages": "Percentages",
+        })
+        recon_cols = [c for c in ["BTW-code", "Omschrijving", "Rubriek", "Aantal regels", "Grondslag", "BTW volgens XAF", "Percentages"] if c in reconciliation_display.columns]
         st.dataframe(
-            reconciliation,
+            reconciliation_display[recon_cols],
             use_container_width=True,
             hide_index=True,
+            column_config={
+                "Grondslag": st.column_config.NumberColumn(format="€ %,.2f"),
+                "BTW volgens XAF": st.column_config.NumberColumn(format="€ %,.2f"),
+            },
         )
         st.subheader("Samenvatting per aangifterubriek")
 
@@ -1136,10 +1150,21 @@ def main() -> None:
                 - rubric_summary["btw_volgens_aangifte"]
             ).abs().round(0)
 
+        rubric_display = rubric_summary.rename(columns={
+            "rubriek": "Rubriek",
+            "btw_volgens_xaf": "BTW volgens XAF",
+            "btw_volgens_aangifte": "Ingediende aangifte",
+            "verschil": "Verschil",
+        })
         st.dataframe(
-            rubric_summary,
+            rubric_display,
             use_container_width=True,
             hide_index=True,
+            column_config={
+                "BTW volgens XAF": st.column_config.NumberColumn(format="€ %,.2f"),
+                "Ingediende aangifte": st.column_config.NumberColumn(format="€ %,.2f"),
+                "Verschil": st.column_config.NumberColumn(format="€ %,.2f"),
+            },
         )
         if "rubriek" in rubric_summary.columns and "btw_volgens_xaf" in rubric_summary.columns:
             btw_afdracht = rubric_summary.loc[
