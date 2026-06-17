@@ -1149,12 +1149,18 @@ def main() -> None:
                 rubric_summary["btw_volgens_xaf"]
                 - rubric_summary["btw_volgens_aangifte"]
             ).abs().round(0)
+            rubric_summary["status"] = rubric_summary.apply(
+                lambda row: "—" if row["btw_volgens_aangifte"] == 0
+                else ("✅ Sluit aan" if row["verschil"] < 1 else "⚠️ Verschil"),
+                axis=1,
+            )
 
         rubric_display = rubric_summary.rename(columns={
             "rubriek": "Rubriek",
             "btw_volgens_xaf": "BTW volgens XAF",
             "btw_volgens_aangifte": "Ingediende aangifte",
             "verschil": "Verschil",
+            "status": "Status",
         })
         st.dataframe(
             rubric_display,
