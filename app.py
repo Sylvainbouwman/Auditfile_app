@@ -1093,6 +1093,10 @@ def main() -> None:
             vat_usage,
             use_container_width=True,
             hide_index=True,
+            column_config={
+                "totaal_grondslagbedrag": st.column_config.NumberColumn(format="€ %,.0f"),
+                "totaal_btw_bedrag": st.column_config.NumberColumn(format="€ %,.0f"),
+            },
         )
         st.subheader("BTW-rondrekening")
 
@@ -1131,8 +1135,8 @@ def main() -> None:
             use_container_width=True,
             hide_index=True,
             column_config={
-                "Grondslag": st.column_config.NumberColumn(format="€ %,.2f"),
-                "BTW volgens XAF": st.column_config.NumberColumn(format="€ %,.2f"),
+                "Grondslag": st.column_config.NumberColumn(format="€ %,.0f"),
+                "BTW volgens XAF": st.column_config.NumberColumn(format="€ %,.0f"),
             },
         )
         st.subheader("Samenvatting per aangifterubriek")
@@ -1165,9 +1169,9 @@ def main() -> None:
             use_container_width=True,
             hide_index=True,
             column_config={
-                "BTW volgens XAF": st.column_config.NumberColumn(format="€ %,.2f"),
-                "Ingediende aangifte": st.column_config.NumberColumn(format="€ %,.2f"),
-                "Verschil": st.column_config.NumberColumn(format="€ %,.2f"),
+                "BTW volgens XAF": st.column_config.NumberColumn(format="€ %,.0f"),
+                "Ingediende aangifte": st.column_config.NumberColumn(format="€ %,.0f"),
+                "Verschil": st.column_config.NumberColumn(format="€ %,.0f"),
             },
         )
         if "rubriek" in rubric_summary.columns and "btw_volgens_xaf" in rubric_summary.columns:
@@ -1245,6 +1249,17 @@ def main() -> None:
         comparison.head(20)[display_columns],
         use_container_width=True,
         hide_index=True,
+        column_config={
+            "beginsaldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+            "mutaties_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+            "eindsaldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+            "beginsaldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+            "mutaties_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+            "eindsaldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+            "saldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+            "saldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+            "verschil_bedrag": st.column_config.NumberColumn(format="€ %,.0f"),
+        },
     )
 
     st.subheader("Vergelijking per grootboekrekening")
@@ -1259,6 +1274,17 @@ def main() -> None:
         use_container_width=True,
         hide_index=True,
         height=520,
+        column_config={
+            "beginsaldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+            "mutaties_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+            "eindsaldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+            "beginsaldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+            "mutaties_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+            "eindsaldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+            "saldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+            "saldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
+            "verschil_bedrag": st.column_config.NumberColumn(format="€ %,.0f"),
+        },
     )
 
     st.subheader("Grootboekkaart huidig jaar")
