@@ -666,6 +666,7 @@ def build_vat_reconciliation(lines: pd.DataFrame, declared_vat: dict | None = No
             "gebruikte_percentages",
         ]
     ].sort_values("vatID")
+
 def build_vat_rubric_summary(reconciliation: pd.DataFrame) -> pd.DataFrame:
     if reconciliation.empty or "rubriek" not in reconciliation.columns:
         return pd.DataFrame({"Melding": ["Geen gegevens beschikbaar"]})
@@ -678,13 +679,36 @@ def build_vat_rubric_summary(reconciliation: pd.DataFrame) -> pd.DataFrame:
             verschil=("verschil", "sum"),
         )
         .reset_index()
-    
-    
-            )
-    summary["btw_volgens_xaf"] = summary["btw_volgens_xaf"].abs()
-    summary["verschil"] = summary["verschil"].abs()
+    )
+
+    summary["btw_volgens_xaf"] = summary["btw_volgens_xaf"].abs().round(0)
+    summary["btw_volgens_aangifte"] = summary["btw_volgens_aangifte"].abs().round(0)
+    summary["verschil"] = summary["verschil"].abs().round(0)
 
     return summary.sort_values("rubriek")
+def build_vat_account_analysis(lines: pd.DataFrame) -> pd.DataFrame:
+    lines = ensure_columns(lines.copy(), ["line_accID", "accDesc", "line_desc", "bedrag"])
+
+    btw_mask = (
+        lines["accDesc"].astype(str).str.contains(
+            "btw|omzetbelasting|belastingdienst",
+            case=False,
+            na=False,
+        )
+    )
+
+    result = lines[btw_mask].copy()
+
+    if result.empty:
+        return pd.DataFrame({"Melding": ["Geen BTW-rekeningen gevonden"]})
+
+    summary = (
+        result.groupby(["line_accID", "accDesc"], dropna=False)
+        .size()
+        .reset_index(name="Aantal boekingen")
+    )
+
+    return summary.sort_values("Aantal boekingen", ascending=False)
 
 def build_logical_controls(lines: pd.DataFrame) -> pd.DataFrame:
     columns = ["line_accID", "accDesc", "tx_periodNumber", "line_amnt", "line_amntTp", "bedrag"]
@@ -1054,7 +1078,9 @@ def main() -> None:
         "regels_huidig_jaar",
     ]
 
-    btw_debug_tab = st.tabs(["BTW debug"])[0]
+    btw_debug_tab, vat_detect_tab = st.tabs(
+        ["BTW debug", "BTW-aangifte detectie"]
+    )
     with btw_debug_tab:
         st.subheader("BTW-codetabel")
         st.dataframe(
@@ -1077,21 +1103,20 @@ def main() -> None:
             "De tool vergelijkt dit met de BTW volgens de auditfile."
         )
 
-        declared_vat = {}
+        st.subheader("Ingediende BTW-aangifte")
 
-        for _, row in vat_usage.iterrows():
-            vat_id = str(row.get("vatID", ""))
-            vat_desc = str(row.get("vatDesc", ""))
+        declared_by_rubric = {}
 
-            declared_vat[vat_id] = st.number_input(
-                f"Aangiftebedrag voor BTW-code {vat_id} - {vat_desc}",
+        for rubric in ["1a", "1e", "2a/5b", "5b"]:
+            declared_by_rubric[rubric] = st.number_input(
+                f"Aangiftebedrag rubriek {rubric}",
                 value=0.00,
                 step=1.00,
                 format="%.2f",
-                key=f"declared_vat_{vat_id}",
+                key=f"declared_rubric_{rubric}",
             )
 
-        reconciliation = build_vat_reconciliation(current_lines, declared_vat)
+        reconciliation = build_vat_reconciliation(current_lines, {})
 
         st.dataframe(
             reconciliation,
@@ -1102,22 +1127,41 @@ def main() -> None:
 
         rubric_summary = build_vat_rubric_summary(reconciliation)
 
+        if "rubriek" in rubric_summary.columns:
+            rubric_summary["btw_volgens_aangifte"] = rubric_summary["rubriek"].map(
+                lambda r: declared_by_rubric.get(r, 0)
+            )
+            rubric_summary["verschil"] = (
+                rubric_summary["btw_volgens_xaf"]
+                - rubric_summary["btw_volgens_aangifte"]
+            ).abs().round(0)
+
         st.dataframe(
             rubric_summary,
             use_container_width=True,
             hide_index=True,
         )
-        
-        if "btw_volgens_xaf" in reconciliation.columns:
-            totaal_xaf = reconciliation["btw_volgens_xaf"].sum()
-            totaal_aangifte = reconciliation["btw_volgens_aangifte"].sum()
-            totaal_verschil = reconciliation["verschil"].sum()
+        if "rubriek" in rubric_summary.columns and "btw_volgens_xaf" in rubric_summary.columns:
+            btw_afdracht = rubric_summary.loc[
+                rubric_summary["rubriek"].isin(["1a", "1b", "1c", "1d", "2a", "4a", "4b"]),
+                "btw_volgens_xaf",
+    ].sum()
+
+            btw_voorbelasting = rubric_summary.loc[
+                rubric_summary["rubriek"].isin(["5b"]),
+                "btw_volgens_xaf",
+            ].sum()
+
+            netto_btw_xaf = btw_afdracht - btw_voorbelasting
+
+            st.subheader("Netto BTW volgens XAF")
 
             col1, col2, col3 = st.columns(3)
-            col1.metric("BTW volgens XAF", f"€ {totaal_xaf:,.2f}")
-            col2.metric("BTW volgens aangifte", f"€ {totaal_aangifte:,.2f}")
-            col3.metric("Verschil", f"€ {totaal_verschil:,.2f}")
-
+            col1.metric("Af te dragen BTW", f"€ {btw_afdracht:,.0f}")
+            col2.metric("Voorbelasting", f"€ {btw_voorbelasting:,.0f}")
+            col3.metric("Netto te betalen", f"€ {netto_btw_xaf:,.0f}")
+        
+        
         if "vatID" in vat_usage.columns and not vat_usage.empty:
             vat_options = vat_usage.assign(
                 label=lambda df: df.apply(
@@ -1154,13 +1198,13 @@ def main() -> None:
             height=420,
         )
 
-    st.subheader("Excel-export")
-    excel_export = build_excel_export(
-        current_saldo=current_saldo,
-        current_lines=current_lines,
-        comparison=comparison,
-        comparison_columns=display_columns,
-    )
+        st.subheader("Excel-export")
+        excel_export = build_excel_export(
+            current_saldo=current_saldo,
+            current_lines=current_lines,
+            comparison=comparison,
+            comparison_columns=display_columns,
+        )
     st.download_button(
         label="Download Excel-export",
         data=excel_export,
