@@ -766,11 +766,24 @@ def build_logical_controls(lines: pd.DataFrame) -> pd.DataFrame:
                 and (period_totals - average_amount).abs().max() > abs(average_amount) * 0.5
             )
 
+            pos_periods = period_totals[period_totals > 0.005]
+            neg_periods = period_totals[period_totals < -0.005]
+            n_pos, n_neg = len(pos_periods), len(neg_periods)
+            opposite_periods = []
+            if n_pos > 0 and n_neg > 0:
+                if n_neg >= 2 * n_pos:
+                    opposite_periods = sorted(int(p) for p in pos_periods.index)
+                elif n_pos >= 2 * n_neg:
+                    opposite_periods = sorted(int(p) for p in neg_periods.index)
+
             check_missing_periods = expects_12_periods or period_count >= 10
             missing_periods = sorted(expected_periods - set(periods_with_mutations)) if check_missing_periods else []
 
             if missing_periods:
                 conclusion = "Let op: ontbrekende perioden"
+            elif opposite_periods:
+                periods_str = ", ".join(str(p) for p in opposite_periods)
+                conclusion = f"Let op: tegengestelde boeking in periode {periods_str}"
             elif strong_deviation:
                 conclusion = "Let op: sterke afwijking"
             elif not expects_12_periods and period_count < 10:
@@ -1332,7 +1345,10 @@ def main() -> None:
         _controls = logical_controls.copy()
 
         def _make_toelichting(row) -> str:
-            if row.get("conclusie") != "Let op: sterke afwijking":
+            conclusie = row.get("conclusie", "")
+            if "tegengestelde boeking" in conclusie:
+                return "Één of meer perioden hebben een tegengesteld teken t.o.v. de overige. Controleer of dit een correctie- of afstotingsboeking betreft."
+            if conclusie != "Let op: sterke afwijking":
                 return ""
             gem = abs(pd.to_numeric(row.get("gemiddeld_bedrag_per_periode"), errors="coerce") or 0)
             afwijking = abs(pd.to_numeric(row.get("grootste_afwijking_tov_gemiddelde"), errors="coerce") or 0)
