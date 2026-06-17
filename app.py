@@ -1078,9 +1078,7 @@ def main() -> None:
         "regels_huidig_jaar",
     ]
 
-    btw_debug_tab, vat_detect_tab = st.tabs(
-        ["BTW debug", "BTW-aangifte detectie"]
-    )
+    btw_debug_tab = st.tabs(["BTW debug"])[0]
     with btw_debug_tab:
         st.subheader("BTW-codetabel")
         st.dataframe(
@@ -1219,23 +1217,22 @@ def main() -> None:
                 summary_b.metric("Totaal grondslagbedrag", format_money(vat_drilldown["bedrag"].sum()))
                 summary_c.metric("Totaal BTW-bedrag", format_money(vat_drilldown["BTW-bedrag"].sum()))
 
-    logical_controls_tab = st.tabs(["Logische controles"])[0]
-    with logical_controls_tab:
-        logical_controls = build_logical_controls(current_lines)
-        st.dataframe(
-            logical_controls,
-            use_container_width=True,
-            hide_index=True,
-            height=420,
-        )
+    st.subheader("Logische controles")
+    logical_controls = build_logical_controls(current_lines)
+    st.dataframe(
+        logical_controls,
+        use_container_width=True,
+        hide_index=True,
+        height=420,
+    )
 
-        st.subheader("Excel-export")
-        excel_export = build_excel_export(
-            current_saldo=current_saldo,
-            current_lines=current_lines,
-            comparison=comparison,
-            comparison_columns=display_columns,
-        )
+    st.subheader("Excel-export")
+    excel_export = build_excel_export(
+        current_saldo=current_saldo,
+        current_lines=current_lines,
+        comparison=comparison,
+        comparison_columns=display_columns,
+    )
     st.download_button(
         label="Download Excel-export",
         data=excel_export,
