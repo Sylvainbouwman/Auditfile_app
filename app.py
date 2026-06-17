@@ -614,7 +614,58 @@ def build_all_vat_drilldown(lines: pd.DataFrame) -> pd.DataFrame:
         ]
     ]
     return result.sort_values(["vatID", "datum"], na_position="last")
+def build_vat_reconciliation(lines: pd.DataFrame, declared_vat: dict | None = None) -> pd.DataFrame:
+    usage = build_vat_usage(lines)
 
+    if "vatID" not in usage.columns or usage.empty:
+        return pd.DataFrame({"Melding": ["Geen BTW-gegevens beschikbaar"]})
+
+    declared_vat = declared_vat or {}
+
+    result = usage.copy()
+    def determine_rubric(vat_desc: str) -> str:
+        vat_desc = str(vat_desc).lower()
+
+        if "1a" in vat_desc:
+            return "1a"
+        elif "1b" in vat_desc:
+            return "1b"
+        elif "1e" in vat_desc:
+            return "1e"
+        elif "2a" in vat_desc or "verlegd" in vat_desc:
+            return "2a/5b"
+        elif "5b" in vat_desc or "voorbelasting" in vat_desc:
+            return "5b"
+        else:
+            return "Onbekend"
+
+    result["rubriek"] = result["vatDesc"].apply(determine_rubric)
+    result["btw_volgens_xaf"] = pd.to_numeric(result["totaal_btw_bedrag"], errors="coerce").fillna(0)
+
+    result["btw_volgens_aangifte"] = result["vatID"].astype(str).map(
+        lambda vat_id: float(declared_vat.get(vat_id, 0) or 0)
+    )
+
+    result["verschil"] = result["btw_volgens_xaf"] - result["btw_volgens_aangifte"]
+
+    result["status"] = result["verschil"].apply(
+        lambda x: "✅ Sluit aan" if abs(x) < 1 else "⚠️ Verschil"
+    )
+
+    return result[
+        [
+            "vatID",
+            "vatDesc",
+            "rubriek",
+            "aantal_transactieregels",
+            "totaal_grondslagbedrag",
+            "btw_volgens_xaf",
+            "btw_volgens_aangifte",
+            "verschil",
+            "status",
+            "gebruikte_percentages",
+        ]
+    ].sort_values("vatID")
 
 def build_logical_controls(lines: pd.DataFrame) -> pd.DataFrame:
     columns = ["line_accID", "accDesc", "tx_periodNumber", "line_amnt", "line_amntTp", "bedrag"]
@@ -1000,6 +1051,44 @@ def main() -> None:
             use_container_width=True,
             hide_index=True,
         )
+        st.subheader("BTW-rondrekening")
+
+        st.caption(
+            "Vul per BTW-code het bedrag in volgens de ingediende BTW-aangifte. "
+            "De tool vergelijkt dit met de BTW volgens de auditfile."
+        )
+
+        declared_vat = {}
+
+        for _, row in vat_usage.iterrows():
+            vat_id = str(row.get("vatID", ""))
+            vat_desc = str(row.get("vatDesc", ""))
+
+            declared_vat[vat_id] = st.number_input(
+                f"Aangiftebedrag voor BTW-code {vat_id} - {vat_desc}",
+                value=0.00,
+                step=1.00,
+                format="%.2f",
+                key=f"declared_vat_{vat_id}",
+            )
+
+        reconciliation = build_vat_reconciliation(current_lines, declared_vat)
+
+        st.dataframe(
+            reconciliation,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        if "btw_volgens_xaf" in reconciliation.columns:
+            totaal_xaf = reconciliation["btw_volgens_xaf"].sum()
+            totaal_aangifte = reconciliation["btw_volgens_aangifte"].sum()
+            totaal_verschil = reconciliation["verschil"].sum()
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("BTW volgens XAF", f"€ {totaal_xaf:,.2f}")
+            col2.metric("BTW volgens aangifte", f"€ {totaal_aangifte:,.2f}")
+            col3.metric("Verschil", f"€ {totaal_verschil:,.2f}")
 
         if "vatID" in vat_usage.columns and not vat_usage.empty:
             vat_options = vat_usage.assign(
