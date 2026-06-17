@@ -822,6 +822,27 @@ def format_date_nl(value) -> str:
     return dt.strftime("%d-%m-%Y")
 
 
+def compact_periods(period_str: str) -> str:
+    if not period_str or not str(period_str).strip():
+        return ""
+    try:
+        nums = sorted({int(p.strip()) for p in str(period_str).split(",") if p.strip()})
+    except ValueError:
+        return period_str
+    if not nums:
+        return ""
+    ranges = []
+    start = end = nums[0]
+    for n in nums[1:]:
+        if n == end + 1:
+            end = n
+        else:
+            ranges.append(str(start) if start == end else f"{start}-{end}")
+            start = end = n
+    ranges.append(str(start) if start == end else f"{start}-{end}")
+    return ", ".join(ranges)
+
+
 def export_dataframe(df: pd.DataFrame, columns: list[str] | None = None) -> pd.DataFrame:
     """Maak een veilige kopie voor Excel; lege tabbladen krijgen een melding."""
     export_df = df.copy()
@@ -1308,8 +1329,27 @@ def main() -> None:
 
     with tab_controles:
         logical_controls = build_logical_controls(current_lines)
+        _controls = logical_controls.copy()
+        for _col in ["perioden_met_mutaties", "ontbrekende_perioden"]:
+            if _col in _controls.columns:
+                _controls[_col] = _controls[_col].apply(compact_periods)
+        for _col in ["totaalbedrag", "gemiddeld_bedrag_per_periode", "grootste_afwijking_tov_gemiddelde"]:
+            if _col in _controls.columns:
+                _controls[_col] = pd.to_numeric(_controls[_col], errors="coerce").abs().apply(format_euro_whole)
+        _controls = _controls.rename(columns={
+            "controle": "Controle",
+            "rekeningnummer": "Rekening",
+            "rekeningomschrijving": "Omschrijving",
+            "aantal_perioden_met_mutaties": "# Perioden",
+            "perioden_met_mutaties": "Perioden",
+            "ontbrekende_perioden": "Ontbrekende perioden",
+            "totaalbedrag": "Totaal",
+            "gemiddeld_bedrag_per_periode": "Gem. per periode",
+            "grootste_afwijking_tov_gemiddelde": "Max. afwijking",
+            "conclusie": "Conclusie",
+        })
         st.dataframe(
-            logical_controls,
+            _controls,
             use_container_width=True,
             hide_index=True,
             height=420,
