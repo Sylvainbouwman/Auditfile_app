@@ -22,3 +22,14 @@ venv/
 # Logs and temp files
 *.log
 *.tmp
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Python environment
+.env
+
+# IDE
+*.code-workspace
+*.pyo
+*.bak
