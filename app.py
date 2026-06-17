@@ -812,7 +812,7 @@ def format_euro_whole(value) -> str:
     if pd.isna(number):
         return ""
     formatted = f"{float(number):,.0f}"
-    return "€ " + formatted.replace(",", ".")
+    return formatted.replace(",", ".")
 
 
 def format_date_nl(value) -> str:
@@ -1167,12 +1167,12 @@ def main() -> None:
                 st.write(
                     f"Rekening {selected_account} | "
                     f"Aantal boekingsregels: {len(card):,} | "
-                    f"Saldo huidig jaar: € {format_money(card['bedrag'].sum())}"
+                    f"Saldo huidig jaar: {format_money(card['bedrag'].sum())}"
                 )
                 _card = card[CARD_COLUMNS].copy()
                 _card["tx_trDt"] = _card["tx_trDt"].apply(format_date_nl)
                 _card["line_effDate"] = _card["line_effDate"].apply(format_date_nl)
-                _card["bedrag"] = _card["bedrag"].apply(lambda v: "€ " + format_money(v))
+                _card["bedrag"] = _card["bedrag"].apply(format_money)
                 st.dataframe(
                     _card,
                     use_container_width=True,
@@ -1193,7 +1193,7 @@ def main() -> None:
         _vat_usage = vat_usage.copy()
         for _col in ["totaal_grondslagbedrag", "totaal_btw_bedrag"]:
             if _col in _vat_usage.columns:
-                _vat_usage[_col] = _vat_usage[_col].apply(format_euro_whole)
+                _vat_usage[_col] = pd.to_numeric(_vat_usage[_col], errors="coerce").abs().apply(format_euro_whole)
         st.dataframe(_vat_usage, use_container_width=True, hide_index=True)
 
         st.subheader("BTW-rondrekening")
@@ -1227,7 +1227,7 @@ def main() -> None:
         _recon = reconciliation_display[recon_cols].copy()
         for _col in ["Grondslag", "BTW volgens XAF"]:
             if _col in _recon.columns:
-                _recon[_col] = _recon[_col].apply(format_euro_whole)
+                _recon[_col] = pd.to_numeric(_recon[_col], errors="coerce").abs().apply(format_euro_whole)
         st.dataframe(_recon, use_container_width=True, hide_index=True)
 
         st.subheader("Samenvatting per aangifterubriek")
@@ -1295,16 +1295,16 @@ def main() -> None:
                 if _col in _drilldown.columns:
                     _drilldown[_col] = _drilldown[_col].apply(format_date_nl)
             if "bedrag" in _drilldown.columns:
-                _drilldown["bedrag"] = _drilldown["bedrag"].apply(lambda v: "€ " + format_money(v))
+                _drilldown["bedrag"] = _drilldown["bedrag"].apply(format_money)
             if "BTW-bedrag" in _drilldown.columns:
-                _drilldown["BTW-bedrag"] = _drilldown["BTW-bedrag"].apply(lambda v: "€ " + format_money(v))
+                _drilldown["BTW-bedrag"] = _drilldown["BTW-bedrag"].apply(format_money)
             st.dataframe(_drilldown, use_container_width=True, hide_index=True, height=420)
 
             if "bedrag" in vat_drilldown.columns and "BTW-bedrag" in vat_drilldown.columns:
                 summary_a, summary_b, summary_c = st.columns(3)
                 summary_a.metric("Aantal transacties", f"{len(vat_drilldown):,}")
-                summary_b.metric("Totaal grondslagbedrag", "€ " + format_money(vat_drilldown["bedrag"].sum()))
-                summary_c.metric("Totaal BTW-bedrag", "€ " + format_money(vat_drilldown["BTW-bedrag"].sum()))
+                summary_b.metric("Totaal grondslagbedrag", format_money(vat_drilldown["bedrag"].sum()))
+                summary_c.metric("Totaal BTW-bedrag", format_money(vat_drilldown["BTW-bedrag"].sum()))
 
     with tab_controles:
         logical_controls = build_logical_controls(current_lines)
