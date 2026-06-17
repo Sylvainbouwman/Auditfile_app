@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from pathlib import Path
 import xml.etree.ElementTree as ET
 
 import pandas as pd
@@ -1025,25 +1026,40 @@ def main() -> None:
     st.title("Auditfile Analyzer")
     st.write("Vergelijk twee XAF/XML auditfiles op grootboekrekening en bekijk de grootboekkaart.")
 
-    left, right = st.columns(2)
-    with left:
-        previous_file = st.file_uploader("Upload auditfile vorig jaar", type=["xaf", "xml"], key="previous")
-    with right:
-        current_file = st.file_uploader("Upload auditfile huidig jaar", type=["xaf", "xml"], key="current")
+    test_mode = st.sidebar.checkbox("Testmodus (bestanden uit testfiles/)", value=False)
 
-    if not previous_file or not current_file:
-        st.info("Upload beide auditfiles om de vergelijking te maken.")
-        st.stop()
+    if test_mode:
+        prev_path = Path("testfiles/vorig_jaar.xaf")
+        curr_path = Path("testfiles/huidig_jaar.xaf")
+        if not prev_path.exists() or not curr_path.exists():
+            st.warning(
+                "Testmodus actief maar bestanden niet gevonden. "
+                "Zet je testbestanden in de map `testfiles/` met de namen "
+                "`vorig_jaar.xaf` en `huidig_jaar.xaf`."
+            )
+            st.stop()
+        previous_name = prev_path.name
+        previous_bytes = prev_path.read_bytes()
+        current_name = curr_path.name
+        current_bytes = curr_path.read_bytes()
+    else:
+        left, right = st.columns(2)
+        with left:
+            previous_file = st.file_uploader("Upload auditfile vorig jaar", type=["xaf", "xml"], key="previous")
+        with right:
+            current_file = st.file_uploader("Upload auditfile huidig jaar", type=["xaf", "xml"], key="current")
+
+        if not previous_file or not current_file:
+            st.info("Upload beide auditfiles om de vergelijking te maken.")
+            st.stop()
+        previous_name = previous_file.name
+        previous_bytes = previous_file.getvalue()
+        current_name = current_file.name
+        current_bytes = current_file.getvalue()
 
     try:
-        _, previous_lines, previous_saldo = parse_auditfile(
-            previous_file.name,
-            previous_file.getvalue(),
-        )
-        _, current_lines, current_saldo = parse_auditfile(
-            current_file.name,
-            current_file.getvalue(),
-        )
+        _, previous_lines, previous_saldo = parse_auditfile(previous_name, previous_bytes)
+        _, current_lines, current_saldo = parse_auditfile(current_name, current_bytes)
         comparison = compare_saldi(previous_saldo, current_saldo)
     except Exception as exc:
         st.error("Fout bij het verwerken van de auditfiles.")
