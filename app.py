@@ -807,6 +807,21 @@ def format_money(value: float) -> str:
     return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def format_euro_whole(value) -> str:
+    number = pd.to_numeric(value, errors="coerce")
+    if pd.isna(number):
+        return ""
+    formatted = f"{float(number):,.0f}"
+    return "€ " + formatted.replace(",", ".")
+
+
+def format_date_nl(value) -> str:
+    dt = pd.to_datetime(value, errors="coerce")
+    if pd.isna(dt):
+        return ""
+    return dt.strftime("%d-%m-%Y")
+
+
 def export_dataframe(df: pd.DataFrame, columns: list[str] | None = None) -> pd.DataFrame:
     """Maak een veilige kopie voor Excel; lege tabbladen krijgen een melding."""
     export_df = df.copy()
@@ -1098,24 +1113,19 @@ def main() -> None:
         ["Vergelijking", "Grootboekkaarten", "BTW", "Logische controles", "Export"]
     )
 
+    _vergelijking_bedrag_cols = [
+        "beginsaldo_vorig_jaar", "mutaties_vorig_jaar", "eindsaldo_vorig_jaar",
+        "beginsaldo_huidig_jaar", "mutaties_huidig_jaar", "eindsaldo_huidig_jaar",
+        "saldo_vorig_jaar", "saldo_huidig_jaar", "verschil_bedrag",
+    ]
+
     with tab_vergelijking:
         st.subheader("Top 20 grootste afwijkingen")
-        st.dataframe(
-            comparison.head(20)[display_columns],
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "beginsaldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-                "mutaties_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-                "eindsaldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-                "beginsaldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-                "mutaties_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-                "eindsaldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-                "saldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-                "saldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-                "verschil_bedrag": st.column_config.NumberColumn(format="€ %,.0f"),
-            },
-        )
+        _top20 = comparison.head(20)[display_columns].copy()
+        for _col in _vergelijking_bedrag_cols:
+            if _col in _top20.columns:
+                _top20[_col] = _top20[_col].apply(format_euro_whole)
+        st.dataframe(_top20, use_container_width=True, hide_index=True)
 
         st.subheader("Vergelijking per grootboekrekening")
         status_filter = st.multiselect(
@@ -1124,23 +1134,11 @@ def main() -> None:
             default=["bestaand", "nieuw", "vervallen"],
         )
         filtered_comparison = comparison[comparison["status"].isin(status_filter)].sort_values("rekening")
-        st.dataframe(
-            filtered_comparison[display_columns],
-            use_container_width=True,
-            hide_index=True,
-            height=520,
-            column_config={
-                "beginsaldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-                "mutaties_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-                "eindsaldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-                "beginsaldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-                "mutaties_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-                "eindsaldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-                "saldo_vorig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-                "saldo_huidig_jaar": st.column_config.NumberColumn(format="€ %,.0f"),
-                "verschil_bedrag": st.column_config.NumberColumn(format="€ %,.0f"),
-            },
-        )
+        _vergelijking = filtered_comparison[display_columns].copy()
+        for _col in _vergelijking_bedrag_cols:
+            if _col in _vergelijking.columns:
+                _vergelijking[_col] = _vergelijking[_col].apply(format_euro_whole)
+        st.dataframe(_vergelijking, use_container_width=True, hide_index=True, height=520)
 
     with tab_grootboek:
         current_saldo = ensure_columns(current_saldo, ["rekening", "accDesc", "saldo"])
@@ -1169,10 +1167,14 @@ def main() -> None:
                 st.write(
                     f"Rekening {selected_account} | "
                     f"Aantal boekingsregels: {len(card):,} | "
-                    f"Saldo huidig jaar: {format_money(card['bedrag'].sum())}"
+                    f"Saldo huidig jaar: € {format_money(card['bedrag'].sum())}"
                 )
+                _card = card[CARD_COLUMNS].copy()
+                _card["tx_trDt"] = _card["tx_trDt"].apply(format_date_nl)
+                _card["line_effDate"] = _card["line_effDate"].apply(format_date_nl)
+                _card["bedrag"] = _card["bedrag"].apply(lambda v: "€ " + format_money(v))
                 st.dataframe(
-                    card[CARD_COLUMNS],
+                    _card,
                     use_container_width=True,
                     hide_index=True,
                     height=500,
@@ -1188,15 +1190,11 @@ def main() -> None:
 
         st.subheader("Gebruik per BTW-code")
         vat_usage = build_vat_usage(current_lines)
-        st.dataframe(
-            vat_usage,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "totaal_grondslagbedrag": st.column_config.NumberColumn(format="€ %,.0f"),
-                "totaal_btw_bedrag": st.column_config.NumberColumn(format="€ %,.0f"),
-            },
-        )
+        _vat_usage = vat_usage.copy()
+        for _col in ["totaal_grondslagbedrag", "totaal_btw_bedrag"]:
+            if _col in _vat_usage.columns:
+                _vat_usage[_col] = _vat_usage[_col].apply(format_euro_whole)
+        st.dataframe(_vat_usage, use_container_width=True, hide_index=True)
 
         st.subheader("BTW-rondrekening")
         st.caption(
@@ -1226,15 +1224,11 @@ def main() -> None:
             "gebruikte_percentages": "Percentages",
         })
         recon_cols = [c for c in ["BTW-code", "Omschrijving", "Rubriek", "Aantal regels", "Grondslag", "BTW volgens XAF", "Percentages"] if c in reconciliation_display.columns]
-        st.dataframe(
-            reconciliation_display[recon_cols],
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Grondslag": st.column_config.NumberColumn(format="€ %,.0f"),
-                "BTW volgens XAF": st.column_config.NumberColumn(format="€ %,.0f"),
-            },
-        )
+        _recon = reconciliation_display[recon_cols].copy()
+        for _col in ["Grondslag", "BTW volgens XAF"]:
+            if _col in _recon.columns:
+                _recon[_col] = _recon[_col].apply(format_euro_whole)
+        st.dataframe(_recon, use_container_width=True, hide_index=True)
 
         st.subheader("Samenvatting per aangifterubriek")
         rubric_summary = build_vat_rubric_summary(reconciliation)
@@ -1259,16 +1253,11 @@ def main() -> None:
             "verschil": "Verschil",
             "status": "Status",
         })
-        st.dataframe(
-            rubric_display,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "BTW volgens XAF": st.column_config.NumberColumn(format="€ %,.0f"),
-                "Ingediende aangifte": st.column_config.NumberColumn(format="€ %,.0f"),
-                "Verschil": st.column_config.NumberColumn(format="€ %,.0f"),
-            },
-        )
+        _rubric = rubric_display.copy()
+        for _col in ["BTW volgens XAF", "Ingediende aangifte", "Verschil"]:
+            if _col in _rubric.columns:
+                _rubric[_col] = _rubric[_col].apply(format_euro_whole)
+        st.dataframe(_rubric, use_container_width=True, hide_index=True)
 
         if "rubriek" in rubric_summary.columns and "btw_volgens_xaf" in rubric_summary.columns:
             btw_afdracht = rubric_summary.loc[
@@ -1283,9 +1272,9 @@ def main() -> None:
 
             st.subheader("Netto BTW volgens XAF")
             col1, col2, col3 = st.columns(3)
-            col1.metric("Af te dragen BTW", f"€ {btw_afdracht:,.0f}")
-            col2.metric("Voorbelasting", f"€ {btw_voorbelasting:,.0f}")
-            col3.metric("Netto te betalen", f"€ {netto_btw_xaf:,.0f}")
+            col1.metric("Af te dragen BTW", format_euro_whole(btw_afdracht))
+            col2.metric("Voorbelasting", format_euro_whole(btw_voorbelasting))
+            col3.metric("Netto te betalen", format_euro_whole(netto_btw_xaf))
 
         if "vatID" in vat_usage.columns and not vat_usage.empty:
             st.subheader("Drilldown per BTW-code")
@@ -1301,18 +1290,21 @@ def main() -> None:
 
             show_all_vat_rows = st.checkbox("Toon alle regels", value=False)
             displayed_vat_drilldown = vat_drilldown if show_all_vat_rows else vat_drilldown.head(100)
-            st.dataframe(
-                displayed_vat_drilldown,
-                use_container_width=True,
-                hide_index=True,
-                height=420,
-            )
+            _drilldown = displayed_vat_drilldown.copy()
+            for _col in ["tx_trDt", "line_effDate"]:
+                if _col in _drilldown.columns:
+                    _drilldown[_col] = _drilldown[_col].apply(format_date_nl)
+            if "bedrag" in _drilldown.columns:
+                _drilldown["bedrag"] = _drilldown["bedrag"].apply(lambda v: "€ " + format_money(v))
+            if "BTW-bedrag" in _drilldown.columns:
+                _drilldown["BTW-bedrag"] = _drilldown["BTW-bedrag"].apply(lambda v: "€ " + format_money(v))
+            st.dataframe(_drilldown, use_container_width=True, hide_index=True, height=420)
 
             if "bedrag" in vat_drilldown.columns and "BTW-bedrag" in vat_drilldown.columns:
                 summary_a, summary_b, summary_c = st.columns(3)
                 summary_a.metric("Aantal transacties", f"{len(vat_drilldown):,}")
-                summary_b.metric("Totaal grondslagbedrag", format_money(vat_drilldown["bedrag"].sum()))
-                summary_c.metric("Totaal BTW-bedrag", format_money(vat_drilldown["BTW-bedrag"].sum()))
+                summary_b.metric("Totaal grondslagbedrag", "€ " + format_money(vat_drilldown["bedrag"].sum()))
+                summary_c.metric("Totaal BTW-bedrag", "€ " + format_money(vat_drilldown["BTW-bedrag"].sum()))
 
     with tab_controles:
         logical_controls = build_logical_controls(current_lines)
