@@ -1330,6 +1330,20 @@ def main() -> None:
     with tab_controles:
         logical_controls = build_logical_controls(current_lines)
         _controls = logical_controls.copy()
+
+        def _make_toelichting(row) -> str:
+            if row.get("conclusie") != "Let op: sterke afwijking":
+                return ""
+            gem = abs(pd.to_numeric(row.get("gemiddeld_bedrag_per_periode"), errors="coerce") or 0)
+            afwijking = abs(pd.to_numeric(row.get("grootste_afwijking_tov_gemiddelde"), errors="coerce") or 0)
+            if gem < 0.005:
+                return ""
+            pct = round(afwijking / gem * 100)
+            return f"Grootste afwijking: {format_euro_whole(afwijking)} ({pct}% van gemiddelde {format_euro_whole(gem)}, drempel: 50%)"
+
+        if "conclusie" in _controls.columns:
+            _controls["toelichting"] = _controls.apply(_make_toelichting, axis=1)
+
         for _col in ["perioden_met_mutaties", "ontbrekende_perioden"]:
             if _col in _controls.columns:
                 _controls[_col] = _controls[_col].apply(compact_periods)
@@ -1337,6 +1351,7 @@ def main() -> None:
             if _col in _controls.columns:
                 _controls[_col] = pd.to_numeric(_controls[_col], errors="coerce").abs().apply(format_euro_whole)
         _controls = _controls.rename(columns={
+            "toelichting": "Toelichting",
             "controle": "Controle",
             "rekeningnummer": "Rekening",
             "rekeningomschrijving": "Omschrijving",
