@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 
-APP_VERSION = "1.4"
+APP_VERSION = "1.5"
 st.set_page_config(page_title=f"Auditfile Analyzer v{APP_VERSION}", layout="wide")
 
 ACCOUNT_COLUMNS = ["accID", "accDesc", "accTp", "RGScode"]
@@ -1453,43 +1453,56 @@ def main() -> None:
     st.markdown(
         """
         <style>
-        /*
-         * Streamlit scroll-model omzetten naar body-scroll.
-         * Standaard scrollt stMain intern (overflow:auto), waardoor
-         * position:sticky niet werkt voor elementen erin.
-         * Door alles op visible/auto te zetten, scrollt de body zelf
-         * en werkt sticky wel.
-         */
-        html, body {
-            height: auto !important;
-            overflow: auto !important;
-        }
-        .stApp {
-            height: auto !important;
-            overflow: visible !important;
-        }
-        [data-testid="stAppViewContainer"] {
-            height: auto !important;
-            overflow: visible !important;
-            min-height: 100vh;
-        }
-        [data-testid="stMain"] {
-            overflow: visible !important;
-            height: auto !important;
-        }
-        [data-testid="stMain"] > div {
-            overflow: visible !important;
-        }
-        /* Sticky tabbalk — werkt nu body als scroll-container heeft */
         div[data-testid="stTabs"] > div:first-child {
-            position: sticky !important;
-            top: 0 !important;
-            z-index: 999 !important;
-            background-color: white !important;
-            padding-bottom: 0.25rem !important;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+            padding-bottom: 0.25rem;
         }
         </style>
+        <script>
+        (function () {
+            function init() {
+                var tabs = document.querySelector('[data-testid="stTabs"]');
+                if (!tabs || tabs._stickyOk) return;
+                var bar = tabs.firstElementChild;
+                if (!bar) return;
+                tabs._stickyOk = true;
+
+                /* Sentinel: onzichtbaar blokje net boven de tabbalk.
+                   Zodra het uit het viewport scrollt, weten we dat de
+                   tabbalk voorbij het scherm is en schakelen we over op fixed. */
+                var sentinel = document.createElement('div');
+                sentinel.style.cssText = 'height:1px;margin-bottom:-1px;pointer-events:none;';
+                tabs.parentNode.insertBefore(sentinel, tabs);
+
+                var leftPx = Math.round(bar.getBoundingClientRect().left) + 'px';
+
+                var observer = new IntersectionObserver(function (entries) {
+                    var b = document.querySelector('[data-testid="stTabs"]');
+                    b = b && b.firstElementChild;
+                    if (!b) return;
+                    if (!entries[0].isIntersecting) {
+                        b.style.setProperty('position', 'fixed', 'important');
+                        b.style.setProperty('top', '0', 'important');
+                        b.style.setProperty('left', leftPx, 'important');
+                        b.style.setProperty('right', '0', 'important');
+                        b.style.setProperty('z-index', '9999', 'important');
+                        b.style.setProperty('background-color', 'white', 'important');
+                        b.style.setProperty('box-shadow', '0 2px 6px rgba(0,0,0,0.10)', 'important');
+                        b.style.setProperty('padding-bottom', '4px', 'important');
+                        b.parentElement.style.paddingTop = b.offsetHeight + 'px';
+                    } else {
+                        b.style.cssText = '';
+                        b.parentElement.style.paddingTop = '';
+                    }
+                }, { threshold: 0 });
+
+                observer.observe(sentinel);
+            }
+
+            /* Opnieuw initialiseren bij elke Streamlit re-render */
+            new MutationObserver(init).observe(document.body, { childList: true, subtree: true });
+            init();
+        })();
+        </script>
         """,
         unsafe_allow_html=True,
     )
