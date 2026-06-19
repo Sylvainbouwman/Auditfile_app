@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 
-APP_VERSION = "1.3"
+APP_VERSION = "1.4"
 st.set_page_config(page_title=f"Auditfile Analyzer v{APP_VERSION}", layout="wide")
 
 ACCOUNT_COLUMNS = ["accID", "accDesc", "accTp", "RGScode"]
@@ -1453,20 +1453,41 @@ def main() -> None:
     st.markdown(
         """
         <style>
-        /* Verwijder overflow-beperking die sticky verhindert */
-        section[data-testid="stMain"] {
-            overflow-y: auto !important;
+        /*
+         * Streamlit scroll-model omzetten naar body-scroll.
+         * Standaard scrollt stMain intern (overflow:auto), waardoor
+         * position:sticky niet werkt voor elementen erin.
+         * Door alles op visible/auto te zetten, scrollt de body zelf
+         * en werkt sticky wel.
+         */
+        html, body {
+            height: auto !important;
+            overflow: auto !important;
         }
-        section[data-testid="stMain"] > div {
+        .stApp {
+            height: auto !important;
             overflow: visible !important;
         }
-        /* Sticky tabbalk */
+        [data-testid="stAppViewContainer"] {
+            height: auto !important;
+            overflow: visible !important;
+            min-height: 100vh;
+        }
+        [data-testid="stMain"] {
+            overflow: visible !important;
+            height: auto !important;
+        }
+        [data-testid="stMain"] > div {
+            overflow: visible !important;
+        }
+        /* Sticky tabbalk — werkt nu body als scroll-container heeft */
         div[data-testid="stTabs"] > div:first-child {
             position: sticky !important;
             top: 0 !important;
             z-index: 999 !important;
             background-color: white !important;
             padding-bottom: 0.25rem !important;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.06);
         }
         </style>
         """,
