@@ -25,7 +25,6 @@ De tool loopt de volgende onderdelen automatisch af:
 **Balans en debiteuren**
 - Debiteurensaldo — ouderdomsanalyse
 - Crediteurensaldo
-- Intercompany rekening-courant — afstemming en renteberekening
 - Overlopende activa en passiva — afgrenzing boekjaar
 
 **Kosten en lonen**
