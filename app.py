@@ -837,6 +837,245 @@ def build_logical_controls(lines: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values(["controle", "rekeningnummer"])
 
 
+def build_btw_positie_1800(saldo: pd.DataFrame) -> pd.DataFrame:
+    saldo = ensure_columns(saldo.copy(), ["rekening", "accDesc", "accTp", "beginsaldo", "mutaties_boekjaar", "eindsaldo"])
+    mask = (
+        saldo["rekening"].astype(str).str.startswith("1800")
+        | saldo["accDesc"].astype(str).str.contains(
+            r"omzetbelasting|btw te betalen|btw te vorderen|te betalen btw|te vorderen btw",
+            case=False, na=False, regex=True,
+        )
+    )
+    result = saldo[mask].copy()
+    if result.empty:
+        return pd.DataFrame({"Melding": ["Geen BTW-balansrekening gevonden (zoekt op 1800 en omzetbelasting)"]})
+    result["positie"] = result["eindsaldo"].apply(
+        lambda x: "Te betalen" if x < -0.005 else ("Te vorderen" if x > 0.005 else "Nihil")
+    )
+    return result[["rekening", "accDesc", "beginsaldo", "mutaties_boekjaar", "eindsaldo", "positie"]].sort_values("rekening")
+
+
+def build_kosten_zonder_btw(lines: pd.DataFrame) -> pd.DataFrame:
+    lines = ensure_columns(lines.copy(), ["line_accID", "accDesc", "accTp", "vat_vatID", "line_vatID", "bedrag"])
+    cost_mask = lines["accTp"].astype(str).str.upper().eq("P")
+    exclude = r"loon|salaris|salarissen|wages|payroll|afschrijving|depreciation|rentelast|rentekosten|rentebat|\binterest\b"
+    cost_lines = lines[
+        cost_mask
+        & ~lines["accDesc"].astype(str).str.contains(exclude, case=False, na=False, regex=True)
+    ].copy()
+    no_vat = (
+        cost_lines["vat_vatID"].astype(str).str.strip().eq("")
+        & cost_lines["line_vatID"].astype(str).str.strip().eq("")
+    )
+    result_lines = cost_lines[no_vat].copy()
+    if result_lines.empty:
+        return pd.DataFrame({"Melding": ["Geen kostenboekingen zonder BTW-code gevonden"]})
+    result = (
+        result_lines.groupby(["line_accID", "accDesc"], dropna=False)
+        .agg(aantal_regels=("bedrag", "count"), totaalbedrag=("bedrag", "sum"))
+        .reset_index()
+        .rename(columns={"line_accID": "rekening", "accDesc": "omschrijving"})
+    )
+    result["totaalbedrag"] = result["totaalbedrag"].abs()
+    return result.sort_values("totaalbedrag", ascending=False).reset_index(drop=True)
+
+
+def build_crediteurensaldo(saldo: pd.DataFrame) -> pd.DataFrame:
+    saldo = ensure_columns(saldo.copy(), ["rekening", "accDesc", "accTp", "eindsaldo"])
+    mask = (
+        saldo["rekening"].astype(str).str.match(r"^1[46]")
+        | saldo["accDesc"].astype(str).str.contains(
+            r"crediteur|leverancier|accounts payable|te betalen",
+            case=False, na=False, regex=True,
+        )
+    ) & saldo["accTp"].astype(str).str.upper().eq("B")
+    result = saldo[mask].copy()
+    if result.empty:
+        return pd.DataFrame({"Melding": ["Geen crediteurenrekeningen gevonden (zoekt op 14x, 16x en keywords)"]})
+    result["signaal"] = result["eindsaldo"].apply(
+        lambda x: "Let op: debetsaldo" if x > 0.005 else ""
+    )
+    return result[["rekening", "accDesc", "eindsaldo", "signaal"]].sort_values("rekening")
+
+
+def build_transitoria(saldo: pd.DataFrame) -> pd.DataFrame:
+    saldo = ensure_columns(saldo.copy(), ["rekening", "accDesc", "accTp", "eindsaldo"])
+    mask = (
+        saldo["rekening"].astype(str).str.match(r"^2[89]")
+        | saldo["accDesc"].astype(str).str.contains(
+            r"overloop|transitor|vooruitbetaal|vooruitontvan|nog te betalen|nog te ontvangen|afgrenzing",
+            case=False, na=False, regex=True,
+        )
+    ) & saldo["accTp"].astype(str).str.upper().eq("B")
+    result = saldo[mask].copy()
+    if result.empty:
+        return pd.DataFrame({"Melding": ["Geen overlopende posten gevonden (zoekt op 28x, 29x en keywords)"]})
+    result["type"] = result["rekening"].astype(str).apply(
+        lambda r: "Overlopende activa" if r.startswith("28") else ("Overlopende passiva" if r.startswith("29") else "Overig")
+    )
+    result["signaal"] = result.apply(
+        lambda row: "Let op: onverwacht teken" if (
+            (row["type"] == "Overlopende activa" and row["eindsaldo"] < -0.005)
+            or (row["type"] == "Overlopende passiva" and row["eindsaldo"] > 0.005)
+        ) else "",
+        axis=1,
+    )
+    return result[["rekening", "accDesc", "type", "eindsaldo", "signaal"]].sort_values("rekening")
+
+
+def build_personeel_omvang(lines: pd.DataFrame) -> pd.DataFrame:
+    lines = ensure_columns(lines.copy(), ["line_accID", "accDesc", "tx_periodNumber", "bedrag"])
+    salary_pattern = r"loon|salaris|salarissen|wages|payroll|nettoloon|brutoloon"
+    salary_lines = lines[
+        lines["accDesc"].astype(str).str.contains(salary_pattern, case=False, na=False, regex=True)
+    ].copy()
+    if salary_lines.empty:
+        return pd.DataFrame({"Melding": ["Geen salarisrekeningen gevonden"]})
+    salary_lines["periode"] = pd.to_numeric(salary_lines["tx_periodNumber"], errors="coerce")
+    salary_lines = salary_lines[salary_lines["periode"].notna()].copy()
+    salary_lines["periode"] = salary_lines["periode"].astype(int)
+    monthly = (
+        salary_lines.groupby("periode")
+        .agg(totaal_salarissen=("bedrag", "sum"))
+        .reset_index()
+    )
+    monthly["totaal_salarissen"] = monthly["totaal_salarissen"].abs()
+    monthly["geschatte_fte"] = (monthly["totaal_salarissen"] / 4000).round(1)
+    return monthly.sort_values("periode").reset_index(drop=True)
+
+
+def build_cbo_omzet(lines: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    lines = ensure_columns(lines.copy(), ["line_accID", "accDesc", "RGScode", "tx_periodNumber", "bedrag"])
+    revenue_mask = (
+        lines["RGScode"].astype(str).str.startswith("WOmz")
+        | lines["line_accID"].astype(str).str.match(r"^8")
+        | lines["accDesc"].astype(str).str.contains(
+            r"omzet|verkoop|opbrengst|provisie|\brevenue\b",
+            case=False, na=False, regex=True,
+        )
+    )
+    revenue_lines = lines[revenue_mask].copy()
+    if revenue_lines.empty:
+        empty = pd.DataFrame({"Melding": ["Geen omzetrekeningen gevonden"]})
+        return empty, empty
+    revenue_lines["periode"] = pd.to_numeric(revenue_lines["tx_periodNumber"], errors="coerce")
+    revenue_lines = revenue_lines[revenue_lines["periode"].notna()].copy()
+    revenue_lines["periode"] = revenue_lines["periode"].astype(int)
+    monthly = (
+        revenue_lines.groupby("periode")
+        .agg(omzet=("bedrag", "sum"))
+        .reset_index()
+    )
+    monthly["omzet"] = monthly["omzet"].abs()
+    top_accounts = (
+        revenue_lines.groupby(["line_accID", "accDesc"], dropna=False)
+        .agg(omzet=("bedrag", "sum"))
+        .reset_index()
+        .rename(columns={"line_accID": "rekening", "accDesc": "omschrijving"})
+    )
+    top_accounts["omzet"] = top_accounts["omzet"].abs()
+    top_accounts = top_accounts.sort_values("omzet", ascending=False).reset_index(drop=True)
+    return monthly, top_accounts
+
+
+def build_lease_analyse(lines: pd.DataFrame, saldo: pd.DataFrame) -> pd.DataFrame:
+    lines = ensure_columns(lines.copy(), ["line_accID", "accDesc", "accTp", "bedrag"])
+    saldo = ensure_columns(saldo.copy(), ["rekening", "accDesc", "accTp", "eindsaldo"])
+    lease_pattern = r"lease|leasing"
+    pl_lease = (
+        lines[
+            lines["accDesc"].astype(str).str.contains(lease_pattern, case=False, na=False, regex=True)
+        ]
+        .groupby(["line_accID", "accDesc"], dropna=False)
+        .agg(bedrag=("bedrag", "sum"))
+        .reset_index()
+        .rename(columns={"line_accID": "rekening", "accDesc": "omschrijving"})
+    )
+    pl_lease["classificatie"] = "Operationele lease (kosten P&L)"
+    pl_lease["bedrag"] = pl_lease["bedrag"].abs()
+    bs_lease = saldo[
+        saldo["accDesc"].astype(str).str.contains(lease_pattern, case=False, na=False, regex=True)
+        & saldo["accTp"].astype(str).str.upper().eq("B")
+    ].copy()
+    bs_lease = bs_lease.rename(columns={"eindsaldo": "bedrag", "accDesc": "omschrijving"})
+    bs_lease["classificatie"] = "Financiële lease (balans)"
+    bs_lease = bs_lease[["rekening", "omschrijving", "bedrag", "classificatie"]].copy()
+    bs_lease["bedrag"] = bs_lease["bedrag"].abs()
+    if pl_lease.empty and bs_lease.empty:
+        return pd.DataFrame({"Melding": ["Geen leaserekeningen gevonden"]})
+    result = pd.concat([pl_lease, bs_lease], ignore_index=True)
+    return result[["classificatie", "rekening", "omschrijving", "bedrag"]].sort_values(["classificatie", "rekening"])
+
+
+def build_huurverplichting(lines: pd.DataFrame, saldo: pd.DataFrame) -> pd.DataFrame:
+    lines = ensure_columns(lines.copy(), ["line_accID", "accDesc", "bedrag"])
+    saldo = ensure_columns(saldo.copy(), ["rekening", "accDesc", "accTp", "eindsaldo"])
+    huur_lines = lines[
+        lines["accDesc"].astype(str).str.contains(r"\bhuur\b|pacht", case=False, na=False, regex=True)
+    ].copy()
+    if huur_lines.empty:
+        return pd.DataFrame({"Melding": ["Geen huurkosten gevonden"]})
+    huur_kosten = (
+        huur_lines.groupby(["line_accID", "accDesc"], dropna=False)
+        .agg(totaal_huurkosten=("bedrag", "sum"))
+        .reset_index()
+        .rename(columns={"line_accID": "rekening", "accDesc": "omschrijving"})
+    )
+    huur_kosten["totaal_huurkosten"] = huur_kosten["totaal_huurkosten"].abs()
+    huurschuld_bs = saldo[
+        saldo["accDesc"].astype(str).str.contains(
+            r"huurschuld|leaseschuld|huurverplichting|lease.*schuld|financieel.*lease",
+            case=False, na=False, regex=True,
+        )
+        & saldo["accTp"].astype(str).str.upper().eq("B")
+    ]
+    heeft_huurschuld = not huurschuld_bs.empty
+    huur_kosten["huurschuld_op_balans"] = "Ja" if heeft_huurschuld else "Nee"
+    huur_kosten["signaal"] = "" if heeft_huurschuld else "Let op: geen huurverplichting op balans"
+    return huur_kosten.sort_values("totaal_huurkosten", ascending=False).reset_index(drop=True)
+
+
+def build_juridische_kosten(lines: pd.DataFrame) -> pd.DataFrame:
+    lines = ensure_columns(lines.copy(), ["line_accID", "accDesc", "bedrag"])
+    legal_lines = lines[
+        lines["accDesc"].astype(str).str.contains(
+            r"juridisch|advocaat|notaris|rechtbank|geschil|raadsman|proceskosten",
+            case=False, na=False, regex=True,
+        )
+    ].copy()
+    if legal_lines.empty:
+        return pd.DataFrame({"Melding": ["Geen juridische kosten gevonden"]})
+    result = (
+        legal_lines.groupby(["line_accID", "accDesc"], dropna=False)
+        .agg(totaalbedrag=("bedrag", "sum"), aantal_regels=("bedrag", "count"))
+        .reset_index()
+        .rename(columns={"line_accID": "rekening", "accDesc": "omschrijving"})
+    )
+    result["totaalbedrag"] = result["totaalbedrag"].abs()
+    return result.sort_values("totaalbedrag", ascending=False).reset_index(drop=True)
+
+
+def build_boetes_dwangsommen(lines: pd.DataFrame) -> pd.DataFrame:
+    lines = ensure_columns(lines.copy(), ["line_accID", "accDesc", "bedrag"])
+    fine_lines = lines[
+        lines["accDesc"].astype(str).str.contains(
+            r"boete|dwangsom|sanctie|bekeuring",
+            case=False, na=False, regex=True,
+        )
+    ].copy()
+    if fine_lines.empty:
+        return pd.DataFrame({"Melding": ["Geen boetes of dwangsommen gevonden"]})
+    result = (
+        fine_lines.groupby(["line_accID", "accDesc"], dropna=False)
+        .agg(totaalbedrag=("bedrag", "sum"), aantal_regels=("bedrag", "count"))
+        .reset_index()
+        .rename(columns={"line_accID": "rekening", "accDesc": "omschrijving"})
+    )
+    result["totaalbedrag"] = result["totaalbedrag"].abs()
+    result["toelichting"] = "Niet aftrekbaar VPB (art. 3.14 Wet IB)"
+    return result.sort_values("totaalbedrag", ascending=False).reset_index(drop=True)
+
+
 def format_money(value: float) -> str:
     number = pd.to_numeric(value, errors="coerce")
     if pd.isna(number):
@@ -1189,8 +1428,8 @@ def main() -> None:
         "regels_huidig_jaar",
     ]
 
-    tab_vergelijking, tab_grootboek, tab_btw, tab_controles, tab_export = st.tabs(
-        ["Vergelijking", "Grootboekkaarten", "BTW", "Logische controles", "Export"]
+    tab_vergelijking, tab_grootboek, tab_btw, tab_controles, tab_uc03, tab_export = st.tabs(
+        ["Vergelijking", "Grootboekkaarten", "BTW", "Logische controles", "UC03 Checklist", "Export"]
     )
 
     _vergelijking_bedrag_cols = [
@@ -1460,6 +1699,126 @@ def main() -> None:
             hide_index=True,
             height=420,
         )
+
+    with tab_uc03:
+        st.subheader("BTW")
+
+        st.markdown("**BTW-positie rekening 1800**")
+        btw_pos = build_btw_positie_1800(current_saldo)
+        if "Melding" not in btw_pos.columns:
+            for _, _row in btw_pos.iterrows():
+                if _row.get("positie") == "Te betalen":
+                    st.info(f"Te betalen: {format_euro_whole(abs(_row['eindsaldo']))}")
+                elif _row.get("positie") == "Te vorderen":
+                    st.info(f"Te vorderen: {format_euro_whole(_row['eindsaldo'])}")
+        _btw_pos = btw_pos.copy()
+        for _col in ["beginsaldo", "mutaties_boekjaar", "eindsaldo"]:
+            if _col in _btw_pos.columns:
+                _btw_pos[_col] = pd.to_numeric(_btw_pos[_col], errors="coerce").apply(format_euro_whole)
+        st.dataframe(_btw_pos, use_container_width=True, hide_index=True)
+
+        st.markdown("**Kostenboekingen zonder BTW-code**")
+        st.caption("P&L-rekeningen zonder BTW-code, exclusief lonen, afschrijvingen en rente.")
+        kosten_geen_btw = build_kosten_zonder_btw(current_lines)
+        _kgb = kosten_geen_btw.copy()
+        if "totaalbedrag" in _kgb.columns:
+            _kgb["totaalbedrag"] = _kgb["totaalbedrag"].apply(format_euro_whole)
+        st.dataframe(_kgb, use_container_width=True, hide_index=True)
+
+        st.subheader("Balans en debiteuren")
+
+        _col_cred, _col_trans = st.columns(2)
+        with _col_cred:
+            st.markdown("**Crediteurensaldo**")
+            cred = build_crediteurensaldo(current_saldo)
+            _cred = cred.copy()
+            if "eindsaldo" in _cred.columns:
+                _cred["eindsaldo"] = pd.to_numeric(_cred["eindsaldo"], errors="coerce").apply(format_euro_whole)
+            if "signaal" in cred.columns and "Melding" not in cred.columns:
+                n_cred_signals = (cred["signaal"] != "").sum()
+                if n_cred_signals > 0:
+                    st.warning(f"{n_cred_signals} rekening(en) met debetsaldo")
+            st.dataframe(_cred, use_container_width=True, hide_index=True)
+
+        with _col_trans:
+            st.markdown("**Overlopende activa en passiva**")
+            trans = build_transitoria(current_saldo)
+            _trans = trans.copy()
+            if "eindsaldo" in _trans.columns:
+                _trans["eindsaldo"] = pd.to_numeric(_trans["eindsaldo"], errors="coerce").apply(format_euro_whole)
+            if "signaal" in trans.columns and "Melding" not in trans.columns:
+                n_trans_signals = (trans["signaal"] != "").sum()
+                if n_trans_signals > 0:
+                    st.warning(f"{n_trans_signals} rekening(en) met onverwacht teken")
+            st.dataframe(_trans, use_container_width=True, hide_index=True)
+
+        st.subheader("Kosten en lonen")
+
+        st.markdown("**Salarissen — indicatie personeelsomvang per maand**")
+        st.caption("Schatting FTE op basis van salariskosten ÷ € 4.000 (indicatief gemiddeld bruto).")
+        personeel = build_personeel_omvang(current_lines)
+        _pers = personeel.copy()
+        if "totaal_salarissen" in _pers.columns:
+            _pers["totaal_salarissen"] = _pers["totaal_salarissen"].apply(format_euro_whole)
+        st.dataframe(_pers, use_container_width=True, hide_index=True)
+
+        st.markdown("**CBO — omzetstromen huidig jaar**")
+        cbo_monthly, cbo_accounts = build_cbo_omzet(current_lines)
+        _col_cbo_m, _col_cbo_a = st.columns(2)
+        with _col_cbo_m:
+            st.caption("Omzet per maand")
+            _cbo_m = cbo_monthly.copy()
+            if "omzet" in _cbo_m.columns:
+                _cbo_m["omzet"] = _cbo_m["omzet"].apply(format_euro_whole)
+            st.dataframe(_cbo_m, use_container_width=True, hide_index=True)
+        with _col_cbo_a:
+            st.caption("Omzet per rekening")
+            _cbo_a = cbo_accounts.copy()
+            if "omzet" in _cbo_a.columns:
+                _cbo_a["omzet"] = _cbo_a["omzet"].apply(format_euro_whole)
+            st.dataframe(_cbo_a, use_container_width=True, hide_index=True)
+
+        st.subheader("MVA en lease")
+
+        st.markdown("**Lease-analyse (financieel vs. operationeel)**")
+        lease = build_lease_analyse(current_lines, current_saldo)
+        _lease = lease.copy()
+        if "bedrag" in _lease.columns:
+            _lease["bedrag"] = _lease["bedrag"].apply(format_euro_whole)
+        st.dataframe(_lease, use_container_width=True, hide_index=True)
+
+        st.markdown("**Huurverplichtingen buiten balans**")
+        huur = build_huurverplichting(current_lines, current_saldo)
+        _huur = huur.copy()
+        if "totaal_huurkosten" in _huur.columns:
+            _huur["totaal_huurkosten"] = _huur["totaal_huurkosten"].apply(format_euro_whole)
+        if "signaal" in huur.columns and "Melding" not in huur.columns:
+            if (huur["signaal"] != "").any():
+                st.warning("Huurkosten aangetroffen maar geen leaseschuld op de balans. Controleer of operationele leaseverplichtingen buiten balans zijn gehouden.")
+        st.dataframe(_huur, use_container_width=True, hide_index=True)
+
+        st.subheader("Overige signalen")
+
+        _col_jur, _col_bot = st.columns(2)
+        with _col_jur:
+            st.markdown("**Juridische kosten**")
+            jur = build_juridische_kosten(current_lines)
+            _jur = jur.copy()
+            if "totaalbedrag" in _jur.columns:
+                _jur["totaalbedrag"] = _jur["totaalbedrag"].apply(format_euro_whole)
+            if "Melding" not in jur.columns:
+                st.warning("Juridische kosten aangetroffen — controleer op mogelijke voorziening of contingente verplichting.")
+            st.dataframe(_jur, use_container_width=True, hide_index=True)
+
+        with _col_bot:
+            st.markdown("**Boetes en dwangsommen (art. 3.14 Wet IB)**")
+            boetes = build_boetes_dwangsommen(current_lines)
+            _boetes = boetes.copy()
+            if "totaalbedrag" in _boetes.columns:
+                _boetes["totaalbedrag"] = _boetes["totaalbedrag"].apply(format_euro_whole)
+            if "Melding" not in boetes.columns:
+                st.warning("Boetes of dwangsommen aangetroffen — niet aftrekbaar voor de VPB (art. 3.14 Wet IB).")
+            st.dataframe(_boetes, use_container_width=True, hide_index=True)
 
     with tab_export:
         excel_export = build_excel_export(
