@@ -8,9 +8,10 @@ import xml.etree.ElementTree as ET
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 
-APP_VERSION = "1.5"
+APP_VERSION = "1.6"
 st.set_page_config(page_title=f"Auditfile Analyzer v{APP_VERSION}", layout="wide")
 
 ACCOUNT_COLUMNS = ["accID", "accDesc", "accTp", "RGScode"]
@@ -1451,33 +1452,36 @@ def main() -> None:
     ]
 
     st.markdown(
-        """
-        <style>
-        div[data-testid="stTabs"] > div:first-child {
-            padding-bottom: 0.25rem;
-        }
-        </style>
-        <script>
+        "<style>div[data-testid='stTabs'] > div:first-child { padding-bottom: 0.25rem; }</style>",
+        unsafe_allow_html=True,
+    )
+    tab_vergelijking, tab_grootboek, tab_btw, tab_controles, tab_uc03, tab_export = st.tabs(
+        ["Vergelijking", "Grootboekkaarten", "BTW", "Logische controles", "UC03 Checklist", "Export"]
+    )
+    # st.markdown filtert <script> tags eruit — JavaScript injecteren via components.html
+    # dat wél uitvoert via een iframe op dezelfde origin (window.parent.document).
+    components.html(
+        """<script>
         (function () {
+            var win = window.parent;
+            var doc = win.document;
+
             function init() {
-                var tabs = document.querySelector('[data-testid="stTabs"]');
+                var tabs = doc.querySelector('[data-testid="stTabs"]');
                 if (!tabs || tabs._stickyOk) return;
                 var bar = tabs.firstElementChild;
                 if (!bar) return;
                 tabs._stickyOk = true;
 
-                /* Sentinel: onzichtbaar blokje net boven de tabbalk.
-                   Zodra het uit het viewport scrollt, weten we dat de
-                   tabbalk voorbij het scherm is en schakelen we over op fixed. */
-                var sentinel = document.createElement('div');
+                var sentinel = doc.createElement('div');
                 sentinel.style.cssText = 'height:1px;margin-bottom:-1px;pointer-events:none;';
                 tabs.parentNode.insertBefore(sentinel, tabs);
 
                 var leftPx = Math.round(bar.getBoundingClientRect().left) + 'px';
 
-                var observer = new IntersectionObserver(function (entries) {
-                    var b = document.querySelector('[data-testid="stTabs"]');
-                    b = b && b.firstElementChild;
+                var observer = new win.IntersectionObserver(function (entries) {
+                    var t = doc.querySelector('[data-testid="stTabs"]');
+                    var b = t && t.firstElementChild;
                     if (!b) return;
                     if (!entries[0].isIntersecting) {
                         b.style.setProperty('position', 'fixed', 'important');
@@ -1498,16 +1502,11 @@ def main() -> None:
                 observer.observe(sentinel);
             }
 
-            /* Opnieuw initialiseren bij elke Streamlit re-render */
-            new MutationObserver(init).observe(document.body, { childList: true, subtree: true });
+            new win.MutationObserver(init).observe(doc.body, { childList: true, subtree: true });
             init();
         })();
-        </script>
-        """,
-        unsafe_allow_html=True,
-    )
-    tab_vergelijking, tab_grootboek, tab_btw, tab_controles, tab_uc03, tab_export = st.tabs(
-        ["Vergelijking", "Grootboekkaarten", "BTW", "Logische controles", "UC03 Checklist", "Export"]
+        </script>""",
+        height=0,
     )
 
     _vergelijking_bedrag_cols = [
