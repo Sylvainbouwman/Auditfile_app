@@ -10,7 +10,8 @@ import pandas as pd
 import streamlit as st
 
 
-st.set_page_config(page_title="Auditfile Analyzer", layout="wide")
+APP_VERSION = "1.1"
+st.set_page_config(page_title=f"Auditfile Analyzer v{APP_VERSION}", layout="wide")
 
 ACCOUNT_COLUMNS = ["accID", "accDesc", "accTp", "RGScode"]
 TRANSACTION_COLUMNS = ["tx_nr", "tx_desc", "tx_periodNumber", "tx_trDt", "tx_jrnID", "tx_jrn_desc"]
@@ -1356,8 +1357,17 @@ def build_excel_export(
     return output.getvalue()
 
 
+def _company_info_value(lines: pd.DataFrame, key: str) -> str:
+    ci = lines.attrs.get("company_info")
+    if not isinstance(ci, pd.DataFrame):
+        return ""
+    rows = ci[ci["Onderdeel"] == key]
+    return str(rows.iloc[0]["Waarde"]) if not rows.empty else ""
+
+
 def main() -> None:
     st.title("Auditfile Analyzer")
+    _klant_header = st.empty()
     st.write("Vergelijk twee XAF/XML auditfiles op grootboekrekening en bekijk de grootboekkaart.")
 
     test_mode = st.sidebar.checkbox("Testmodus (bestanden uit testfiles/)", value=False)
@@ -1400,6 +1410,18 @@ def main() -> None:
         st.exception(exc)
         st.stop()
 
+    _klantnaam = _company_info_value(current_lines, "Bedrijfsnaam")
+    _jaar_huidig = _company_info_value(current_lines, "Boekjaar")
+    _jaar_vorig = _company_info_value(previous_lines, "Boekjaar")
+    if _klantnaam or _jaar_huidig:
+        _klant_header.markdown(
+            f'<p style="color:#1E2D4E; font-size:0.95rem; margin:-0.25rem 0 0.75rem 0;">'
+            f'Klant: <strong>{_klantnaam}</strong>&nbsp;&nbsp;·&nbsp;&nbsp;'
+            f'Huidig jaar: <strong>{_jaar_huidig}</strong>&nbsp;&nbsp;·&nbsp;&nbsp;'
+            f'Vergeleken met: <strong>{_jaar_vorig}</strong>'
+            f'</p>',
+            unsafe_allow_html=True,
+        )
     st.success("Beide auditfiles zijn ingelezen.")
 
     metric_a, metric_b, metric_c, metric_d = st.columns(4)
