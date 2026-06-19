@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 
-APP_VERSION = "1.2"
+APP_VERSION = "1.3"
 st.set_page_config(page_title=f"Auditfile Analyzer v{APP_VERSION}", layout="wide")
 
 ACCOUNT_COLUMNS = ["accID", "accDesc", "accTp", "RGScode"]
@@ -1453,13 +1453,20 @@ def main() -> None:
     st.markdown(
         """
         <style>
+        /* Verwijder overflow-beperking die sticky verhindert */
+        section[data-testid="stMain"] {
+            overflow-y: auto !important;
+        }
+        section[data-testid="stMain"] > div {
+            overflow: visible !important;
+        }
+        /* Sticky tabbalk */
         div[data-testid="stTabs"] > div:first-child {
-            position: sticky;
-            top: 0;
-            z-index: 999;
-            background-color: white;
-            padding-top: 0.5rem;
-            padding-bottom: 0.25rem;
+            position: sticky !important;
+            top: 0 !important;
+            z-index: 999 !important;
+            background-color: white !important;
+            padding-bottom: 0.25rem !important;
         }
         </style>
         """,
