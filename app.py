@@ -8,10 +8,9 @@ import xml.etree.ElementTree as ET
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 
-APP_VERSION = "1.6"
+APP_VERSION = "2.0"
 st.set_page_config(page_title=f"Auditfile Analyzer v{APP_VERSION}", layout="wide")
 
 ACCOUNT_COLUMNS = ["accID", "accDesc", "accTp", "RGScode"]
@@ -1367,11 +1366,17 @@ def _company_info_value(lines: pd.DataFrame, key: str) -> str:
 
 
 def main() -> None:
-    st.title("Auditfile Analyzer")
-    _klant_header = st.empty()
-    st.write("Vergelijk twee XAF/XML auditfiles op grootboekrekening en bekijk de grootboekkaart.")
+    _logo_path = Path("logo.png")
+    if _logo_path.exists():
+        st.sidebar.image(str(_logo_path), use_container_width=True)
+    else:
+        st.sidebar.markdown("**Join Administraties**")
+    st.sidebar.markdown("---")
 
     test_mode = st.sidebar.checkbox("Testmodus (bestanden uit testfiles/)", value=False)
+
+    st.title("Auditfile Analyzer")
+    st.write("Vergelijk twee XAF/XML auditfiles op grootboekrekening en bekijk de grootboekkaart.")
 
     if test_mode:
         prev_path = Path("testfiles/vorig_jaar.xaf")
@@ -1415,14 +1420,23 @@ def main() -> None:
     _jaar_huidig = _company_info_value(current_lines, "Boekjaar")
     _jaar_vorig = _company_info_value(previous_lines, "Boekjaar")
     if _klantnaam or _jaar_huidig:
-        _klant_header.markdown(
-            f'<p style="color:#1E2D4E; font-size:0.95rem; margin:-0.25rem 0 0.75rem 0;">'
-            f'Klant: <strong>{_klantnaam}</strong>&nbsp;&nbsp;·&nbsp;&nbsp;'
-            f'Huidig jaar: <strong>{_jaar_huidig}</strong>&nbsp;&nbsp;·&nbsp;&nbsp;'
+        st.sidebar.markdown("---")
+        st.sidebar.markdown(
+            f'<p style="color:#1E2D4E; font-size:0.85rem; line-height:1.5; margin:0;">'
+            f'<strong>{_klantnaam}</strong><br>'
+            f'Huidig jaar: <strong>{_jaar_huidig}</strong><br>'
             f'Vergeleken met: <strong>{_jaar_vorig}</strong>'
             f'</p>',
             unsafe_allow_html=True,
         )
+
+    st.sidebar.markdown("---")
+    nav = st.sidebar.radio(
+        "Navigatie",
+        ["Vergelijking", "Grootboekkaarten", "BTW", "Logische controles", "UC03 Checklist", "Export"],
+        label_visibility="collapsed",
+    )
+
     st.success("Beide auditfiles zijn ingelezen.")
 
     metric_a, metric_b, metric_c, metric_d = st.columns(4)
@@ -1451,71 +1465,13 @@ def main() -> None:
         "regels_huidig_jaar",
     ]
 
-    st.markdown(
-        "<style>div[data-testid='stTabs'] > div:first-child { padding-bottom: 0.25rem; }</style>",
-        unsafe_allow_html=True,
-    )
-    tab_vergelijking, tab_grootboek, tab_btw, tab_controles, tab_uc03, tab_export = st.tabs(
-        ["Vergelijking", "Grootboekkaarten", "BTW", "Logische controles", "UC03 Checklist", "Export"]
-    )
-    # st.markdown filtert <script> tags eruit — JavaScript injecteren via components.html
-    # dat wél uitvoert via een iframe op dezelfde origin (window.parent.document).
-    components.html(
-        """<script>
-        (function () {
-            var win = window.parent;
-            var doc = win.document;
-
-            function init() {
-                var tabs = doc.querySelector('[data-testid="stTabs"]');
-                if (!tabs || tabs._stickyOk) return;
-                var bar = tabs.firstElementChild;
-                if (!bar) return;
-                tabs._stickyOk = true;
-
-                var sentinel = doc.createElement('div');
-                sentinel.style.cssText = 'height:1px;margin-bottom:-1px;pointer-events:none;';
-                tabs.parentNode.insertBefore(sentinel, tabs);
-
-                var leftPx = Math.round(bar.getBoundingClientRect().left) + 'px';
-
-                var observer = new win.IntersectionObserver(function (entries) {
-                    var t = doc.querySelector('[data-testid="stTabs"]');
-                    var b = t && t.firstElementChild;
-                    if (!b) return;
-                    if (!entries[0].isIntersecting) {
-                        b.style.setProperty('position', 'fixed', 'important');
-                        b.style.setProperty('top', '0', 'important');
-                        b.style.setProperty('left', leftPx, 'important');
-                        b.style.setProperty('right', '0', 'important');
-                        b.style.setProperty('z-index', '9999', 'important');
-                        b.style.setProperty('background-color', 'white', 'important');
-                        b.style.setProperty('box-shadow', '0 2px 6px rgba(0,0,0,0.10)', 'important');
-                        b.style.setProperty('padding-bottom', '4px', 'important');
-                        b.parentElement.style.paddingTop = b.offsetHeight + 'px';
-                    } else {
-                        b.style.cssText = '';
-                        b.parentElement.style.paddingTop = '';
-                    }
-                }, { threshold: 0 });
-
-                observer.observe(sentinel);
-            }
-
-            new win.MutationObserver(init).observe(doc.body, { childList: true, subtree: true });
-            init();
-        })();
-        </script>""",
-        height=0,
-    )
-
     _vergelijking_bedrag_cols = [
         "beginsaldo_vorig_jaar", "mutaties_vorig_jaar", "eindsaldo_vorig_jaar",
         "beginsaldo_huidig_jaar", "mutaties_huidig_jaar", "eindsaldo_huidig_jaar",
         "saldo_vorig_jaar", "saldo_huidig_jaar", "verschil_bedrag",
     ]
 
-    with tab_vergelijking:
+    if nav == "Vergelijking":
         st.subheader("Top 20 grootste afwijkingen")
         _top20 = comparison.head(20)[display_columns].copy()
         for _col in _vergelijking_bedrag_cols:
@@ -1536,7 +1492,7 @@ def main() -> None:
                 _vergelijking[_col] = _vergelijking[_col].apply(format_euro_whole)
         st.dataframe(_vergelijking, use_container_width=True, hide_index=True, height=520)
 
-    with tab_grootboek:
+    elif nav == "Grootboekkaarten":
         current_saldo = ensure_columns(current_saldo, ["rekening", "accDesc", "saldo"])
         account_options = (
             current_saldo.assign(
@@ -1576,7 +1532,7 @@ def main() -> None:
                     height=500,
                 )
 
-    with tab_btw:
+    elif nav == "BTW":
         st.subheader("BTW-codetabel")
         st.dataframe(
             get_vat_codes(current_lines),
@@ -1725,7 +1681,7 @@ def main() -> None:
                 summary_b.metric("Totaal grondslagbedrag", format_money(vat_drilldown["bedrag"].sum()))
                 summary_c.metric("Totaal BTW-bedrag", format_money(vat_drilldown["BTW-bedrag"].sum()))
 
-    with tab_controles:
+    elif nav == "Logische controles":
         logical_controls = build_logical_controls(current_lines)
         _controls = logical_controls.copy()
 
@@ -1777,7 +1733,7 @@ def main() -> None:
             height=420,
         )
 
-    with tab_uc03:
+    elif nav == "UC03 Checklist":
         st.subheader("BTW")
 
         st.markdown("**BTW-positie rekening 1800**")
@@ -1897,7 +1853,7 @@ def main() -> None:
                 st.warning("Boetes of dwangsommen aangetroffen — niet aftrekbaar voor de VPB (art. 3.14 Wet IB).")
             st.dataframe(_boetes, use_container_width=True, hide_index=True)
 
-    with tab_export:
+    elif nav == "Export":
         excel_export = build_excel_export(
             current_saldo=current_saldo,
             current_lines=current_lines,
