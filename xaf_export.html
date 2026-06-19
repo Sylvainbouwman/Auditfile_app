@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <title>XAF Raw Export</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 60px auto; padding: 0 24px; color: #1a1a1a; }
+    h1 { font-size: 1.4rem; color: #1E2D4E; margin-bottom: 4px; }
+    p.sub { color: #555; font-size: 0.9rem; margin: 0 0 32px; }
+    label.drop {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      border: 2px dashed #bbb; border-radius: 10px; padding: 48px 24px;
+      cursor: pointer; color: #666; transition: border-color .2s, background .2s;
+    }
+    label.drop:hover { border-color: #1E2D4E; background: #f4f6fa; }
+    label.drop span { font-size: 2rem; margin-bottom: 8px; }
+    input[type=file] { display: none; }
+    #status { margin-top: 20px; font-size: 0.9rem; min-height: 1.4em; }
+    #status.ok  { color: #1a7a3c; }
+    #status.err { color: #b00020; }
+    button {
+      margin-top: 20px; padding: 10px 24px; background: #1E2D4E; color: white;
+      border: none; border-radius: 6px; font-size: 0.95rem; cursor: pointer;
+      display: none;
+    }
+    button:hover { background: #16233c; }
+    #info { margin-top: 20px; font-size: 0.85rem; color: #444; }
+  </style>
+</head>
+<body>
+  <h1>XAF Raw Export</h1>
+  <p class="sub">Laad één XAF-auditfile — exporteert ruwe data naar Excel.</p>
+
+  <label class="drop" for="fileInput">
+    <span>📂</span>
+    Klik of sleep een .xaf / .xml bestand
+  </label>
+  <input type="file" id="fileInput" accept=".xaf,.xml">
+
+  <div id="status"></div>
+  <div id="info"></div>
+  <button id="exportBtn">Download Excel</button>
+
+  <script>
+  (function () {
+    var parsed = null;
+
+    // ── helpers ────────────────────────────────────────────────────────────
+    function ln(el) { return el.localName; }
+
+    function childTexts(el) {
+      var out = {};
+      for (var i = 0; i < el.children.length; i++) {
+        var c = el.children[i];
+        if (c.children.length === 0) out[ln(c)] = c.textContent.trim();
+      }
+      return out;
+    }
+
+    function signed(amnt, tp) {
+      var v = parseFloat(amnt) || 0;
+      return (tp || '').trim().toUpperCase() === 'C' ? -v : v;
+    }
+
+    function allByLocalName(root, name) {
+      var result = [];
+      var all = root.getElementsByTagName('*');
+      for (var i = 0; i < all.length; i++) {
+        if (ln(all[i]) === name) result.push(all[i]);
+      }
+      return result;
+    }
+
+    // ── parser ────────────────────────────────────────────────────────────
+    function parseXAF(xmlDoc) {
+      var root = xmlDoc.documentElement;
+
+      // Bedrijfsgegevens
+      var headerEl  = allByLocalName(root, 'header')[0]  || null;
+      var companyEl = allByLocalName(root, 'company')[0] || null;
+      var hi = headerEl  ? childTexts(headerEl)  : {};
+      var ci = companyEl ? childTexts(companyEl) : {};
+      var bedrijfsgegevens = [
+        ['Onderdeel', 'Waarde'],
+        ['Bedrijfsnaam',  ci.companyName              || ''],
+        ['KvK-nummer',    ci.Commercenr               || ''],
+        ['BTW-nummer',    ci.taxRegIdent              || ''],
+        ['BTW-land',      ci.taxRegistrationCountry   || ''],
+        ['Boekjaar',      hi.fiscalYear               || ''],
+        ['Startdatum',    hi.startDate                || ''],
+        ['Einddatum',     hi.endDate                  || ''],
+        ['Valuta',        hi.curCode                  || ''],
+        ['Aangemaakt op', hi.dateCreated              || ''],
+        ['Software',      hi.softwareDesc             || ''],
+        ['Softwareversie',hi.softwareVersion          || ''],
+        ['RGS-versie',    hi.RGSVersion               || ''],
+      ];
+
+      // Grootboekrekeningen
+      var accHeaders = ['accID', 'accDesc', 'accTp', 'RGScode'];
+      var accounts = [accHeaders];
+      allByLocalName(root, 'ledgerAccount').forEach(function (el) {
+        var t = childTexts(el);
+        accounts.push(accHeaders.map(function (k) { return t[k] || ''; }));
+      });
+
+      // BTW-codes
+      var vatHeaders = ['vatID', 'vatDesc', 'vatToPayAccID', 'vatToClaimAccID'];
+      var vatCodes = [vatHeaders];
+      allByLocalName(root, 'vatCode').forEach(function (el) {
+        var t = childTexts(el);
+        vatCodes.push(vatHeaders.map(function (k) { return t[k] || ''; }));
+      });
+
+      // Beginsaldi
+      var obHeaders = ['nr', 'accID', 'amnt', 'amntTp', 'bedrag'];
+      var obLines = [obHeaders];
+      allByLocalName(root, 'obLine').forEach(function (el) {
+        var t = childTexts(el);
+        obLines.push([
+          t.nr     || '',
+          t.accID  || '',
+          parseFloat(t.amnt) || 0,
+          t.amntTp || '',
+          signed(t.amnt, t.amntTp),
+        ]);
+      });
+
+      // Mutaties (journal > transaction > trLine [> vat])
+      var lineHeaders = [
+        'jrnID', 'jrn_desc', 'jrnTp',
+        'tx_nr', 'tx_desc', 'tx_periodNumber', 'tx_trDt',
+        'line_nr', 'line_accID', 'line_docRef', 'line_effDate',
+        'line_desc', 'line_amnt', 'line_amntTp', 'bedrag',
+        'vatID', 'vatAmnt', 'vatPerc',
+      ];
+      var lines = [lineHeaders];
+
+      allByLocalName(root, 'journal').forEach(function (jrnEl) {
+        var jt = childTexts(jrnEl);
+        var jrnID    = jt.jrnID  || '';
+        var jrnDesc  = jt.desc   || '';
+        var jrnTp    = jt.jrnTp  || '';
+
+        for (var t = 0; t < jrnEl.children.length; t++) {
+          var txEl = jrnEl.children[t];
+          if (ln(txEl) !== 'transaction') continue;
+          var tx = childTexts(txEl);
+
+          for (var l = 0; l < txEl.children.length; l++) {
+            var trEl = txEl.children[l];
+            if (ln(trEl) !== 'trLine') continue;
+            var li = childTexts(trEl);
+
+            var vatInfo = {};
+            for (var v = 0; v < trEl.children.length; v++) {
+              if (ln(trEl.children[v]) === 'vat') {
+                vatInfo = childTexts(trEl.children[v]);
+                break;
+              }
+            }
+
+            lines.push([
+              jrnID,
+              jrnDesc,
+              jrnTp,
+              tx.nr            || '',
+              tx.desc          || '',
+              tx.periodNumber  || '',
+              tx.trDt          || '',
+              li.nr            || '',
+              li.accID         || '',
+              li.docRef        || '',
+              li.effDate       || '',
+              li.desc          || '',
+              parseFloat(li.amnt) || 0,
+              li.amntTp        || '',
+              signed(li.amnt, li.amntTp),
+              vatInfo.vatID    || '',
+              parseFloat(vatInfo.vatAmnt) || 0,
+              vatInfo.vatPerc  || '',
+            ]);
+          }
+        }
+      });
+
+      return { bedrijfsgegevens, accounts, vatCodes, obLines, lines };
+    }
+
+    // ── export ────────────────────────────────────────────────────────────
+    function toExcel(data, filename) {
+      var wb = XLSX.utils.book_new();
+      function addSheet(name, aoa) {
+        var ws = XLSX.utils.aoa_to_sheet(aoa);
+        // Auto column width (rough estimate)
+        var cols = aoa[0].map(function (_, ci) {
+          var max = 10;
+          aoa.forEach(function (row) {
+            var v = row[ci] != null ? String(row[ci]) : '';
+            if (v.length > max) max = v.length;
+          });
+          return { wch: Math.min(max + 2, 60) };
+        });
+        ws['!cols'] = cols;
+        XLSX.utils.book_append_sheet(wb, ws, name);
+      }
+      addSheet('Bedrijfsgegevens',   data.bedrijfsgegevens);
+      addSheet('Grootboekrekeningen',data.accounts);
+      addSheet('BTW-codes',          data.vatCodes);
+      addSheet('Beginsaldi',         data.obLines);
+      addSheet('Mutaties',           data.lines);
+      XLSX.writeFile(wb, filename);
+    }
+
+    // ── UI ────────────────────────────────────────────────────────────────
+    var fileInput  = document.getElementById('fileInput');
+    var status     = document.getElementById('status');
+    var info       = document.getElementById('info');
+    var exportBtn  = document.getElementById('exportBtn');
+    var fileName   = '';
+
+    function setStatus(msg, cls) {
+      status.textContent = msg;
+      status.className = cls || '';
+    }
+
+    fileInput.addEventListener('change', function () {
+      var file = fileInput.files[0];
+      if (!file) return;
+      fileName = file.name.replace(/\.(xaf|xml)$/i, '');
+      setStatus('Bezig met inlezen…');
+      info.textContent = '';
+      exportBtn.style.display = 'none';
+      parsed = null;
+
+      var reader = new FileReader();
+      reader.onload = function (e) {
+        try {
+          var parser = new DOMParser();
+          var xmlDoc = parser.parseFromString(e.target.result, 'application/xml');
+          var err = xmlDoc.querySelector('parsererror');
+          if (err) throw new Error('XML parse fout: ' + err.textContent.slice(0, 120));
+
+          parsed = parseXAF(xmlDoc);
+
+          var nLines   = parsed.lines.length   - 1;
+          var nAcc     = parsed.accounts.length - 1;
+          var nOb      = parsed.obLines.length  - 1;
+          var nVat     = parsed.vatCodes.length  - 1;
+          setStatus('Ingelezen.', 'ok');
+          info.textContent =
+            nAcc + ' rekeningen · ' +
+            nOb  + ' beginsaldoregels · ' +
+            nLines + ' mutatieregels · ' +
+            nVat + ' BTW-codes';
+          exportBtn.style.display = 'inline-block';
+        } catch (ex) {
+          setStatus('Fout: ' + ex.message, 'err');
+        }
+      };
+      reader.onerror = function () { setStatus('Bestand kon niet worden gelezen.', 'err'); };
+      reader.readAsText(file, 'UTF-8');
+    });
+
+    exportBtn.addEventListener('click', function () {
+      if (!parsed) return;
+      toExcel(parsed, fileName + '_raw.xlsx');
+    });
+  })();
+  </script>
+</body>
+</html>
