@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 
-APP_VERSION = "1.1"
+APP_VERSION = "1.2"
 st.set_page_config(page_title=f"Auditfile Analyzer v{APP_VERSION}", layout="wide")
 
 ACCOUNT_COLUMNS = ["accID", "accDesc", "accTp", "RGScode"]
@@ -1450,6 +1450,21 @@ def main() -> None:
         "regels_huidig_jaar",
     ]
 
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stTabs"] > div:first-child {
+            position: sticky;
+            top: 0;
+            z-index: 999;
+            background-color: white;
+            padding-top: 0.5rem;
+            padding-bottom: 0.25rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     tab_vergelijking, tab_grootboek, tab_btw, tab_controles, tab_uc03, tab_export = st.tabs(
         ["Vergelijking", "Grootboekkaarten", "BTW", "Logische controles", "UC03 Checklist", "Export"]
     )
