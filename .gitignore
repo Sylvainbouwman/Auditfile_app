@@ -33,3 +33,22 @@ Desktop.ini
 *.code-workspace
 *.pyo
 *.bak
+
+# Accountancy databestanden
+*.XAF
+*.xls
+*.xml
+*.pdf
+*.docx
+
+# Configuratie en secrets
+.env.local
+*.key
+*.pem
+
+# Runtime/infra
+node_modules/
+.wrangler/
+supabase/.temp/
+*.db
+*.sqlite
