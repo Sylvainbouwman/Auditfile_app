@@ -2,6 +2,9 @@
 __pycache__/
 *.pyc
 
+# Pytest
+.pytest_cache/
+
 # Virtual environments
 .venv/
 venv/
@@ -52,3 +55,7 @@ node_modules/
 supabase/.temp/
 *.db
 *.sqlite
+
+# Lokale runtime-/testdata (kan klant-afgeleide gegevens bevatten, nooit tracken)
+.local-testdata/
+testfiles/btw_aangifte.json

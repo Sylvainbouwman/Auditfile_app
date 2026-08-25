@@ -13,6 +13,12 @@ import streamlit as st
 APP_VERSION = "2.0"
 st.set_page_config(page_title=f"Auditfile Analyzer v{APP_VERSION}", layout="wide")
 
+# Runtime-invoer zoals ingevoerde aangiftebedragen kan klant-afgeleide gegevens bevatten
+# en wordt daarom uitsluitend in een door Git genegeerde lokale datamap bewaard,
+# nooit in een door Git gevolgd bestand.
+LOCAL_DATA_DIR = Path(".local-testdata")
+BTW_AANGIFTE_PATH = LOCAL_DATA_DIR / "btw_aangifte.json"
+
 ACCOUNT_COLUMNS = ["accID", "accDesc", "accTp", "RGScode"]
 TRANSACTION_COLUMNS = ["tx_nr", "tx_desc", "tx_periodNumber", "tx_trDt", "tx_jrnID", "tx_jrn_desc"]
 LINE_COLUMNS = [
@@ -1365,6 +1371,34 @@ def _company_info_value(lines: pd.DataFrame, key: str) -> str:
     return str(rows.iloc[0]["Waarde"]) if not rows.empty else ""
 
 
+def load_declared_vat(path: Path = BTW_AANGIFTE_PATH) -> dict:
+    """Lees eerder opgeslagen aangiftebedragen uit de lokale datamap.
+
+    Retourneert een lege dict wanneer het bestand ontbreekt, onleesbaar is of
+    geen object bevat. Leest uitsluitend; veroorzaakt geen Git-wijziging.
+    """
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_declared_vat(declared: dict, path: Path = BTW_AANGIFTE_PATH) -> None:
+    """Schrijf aangiftebedragen naar de door Git genegeerde lokale datamap.
+
+    De bovenliggende map wordt zo nodig aangemaakt. Fouten worden stil
+    geslikt zodat een schrijfprobleem de app niet onderbreekt.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(declared), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def main() -> None:
     _logo_path = Path("logo.png")
     if _logo_path.exists():
@@ -1555,13 +1589,8 @@ def main() -> None:
         )
 
         st.subheader("Ingediende BTW-aangifte")
-        _btw_json = Path("testfiles/btw_aangifte.json")
-        _saved_btw: dict = {}
-        if test_mode and _btw_json.exists():
-            try:
-                _saved_btw = json.loads(_btw_json.read_text(encoding="utf-8"))
-            except Exception:
-                _saved_btw = {}
+        _btw_json = BTW_AANGIFTE_PATH
+        _saved_btw: dict = load_declared_vat(_btw_json) if test_mode else {}
 
         declared_by_rubric = {}
         for rubric in ["1a", "1e", "2a/5b", "5b"]:
@@ -1575,11 +1604,7 @@ def main() -> None:
             )
 
         if test_mode:
-            try:
-                _btw_json.parent.mkdir(parents=True, exist_ok=True)
-                _btw_json.write_text(json.dumps(declared_by_rubric), encoding="utf-8")
-            except Exception:
-                pass
+            save_declared_vat(declared_by_rubric, _btw_json)
         st.session_state["declared_by_rubric_export"] = declared_by_rubric
 
         reconciliation = build_vat_reconciliation(current_lines, {})
