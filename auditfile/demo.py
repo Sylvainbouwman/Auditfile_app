@@ -590,8 +590,12 @@ def eenvoudige_spec(versie: str = "4.0") -> AuditfileSpec:
             "INK",
             "Inkoopboek",
             [
+                # Elke maand een eigen transactienummer. Twaalf boekingen die
+                # allemaal "I001" heten zou het pakket-hergebruik van een
+                # transactienummer nabootsen, en dan valt in de subadministratie
+                # niet meer te zien dat het twaalf afzonderlijke facturen zijn.
                 Transaction(
-                    "I001",
+                    f"I{maand:03d}",
                     f"2025-{maand:02d}-15",
                     maand,
                     [
