@@ -23,17 +23,12 @@ from auditfile.integrity import IN_ORDE, KRITIEK, WAARSCHUWING, controleer_audit
 from auditfile.model import Auditfile
 from auditfile.parsing import parse_auditfile
 from auditfile.settings import (
-    BTW_AANGIFTE_PATH,
-    BTW_MAPPING_PATH,
-    LOCAL_DATA_DIR,
-    load_declared_base,
-    load_declared_vat,
-    load_vat_deduction,
-    load_vat_mapping,
-    save_declared_base,
-    save_declared_vat,
-    save_vat_deduction,
-    save_vat_mapping,
+    DOSSIER_DIR,
+    DossierOpslag,
+    bekende_dossiers,
+    lees_oude_invoer,
+    oude_invoer_aanwezig,
+    verwijder_oude_invoer,
 )
 from auditfile.vat_rubrics import (
     AFTREKBAAR_IN_5B,
@@ -324,6 +319,11 @@ def toon_voorstelwaarschuwing(gebruik: pd.DataFrame, verwijs: bool = True) -> No
     st.warning(bericht)
 
 
+def huidige_opslag() -> DossierOpslag:
+    """De lokale opslag van het dossier dat nu geladen is."""
+    return DossierOpslag.voor(st.session_state.get("dossier_sleutel", ""))
+
+
 def huidige_mapping() -> dict[str, str]:
     return st.session_state.get("btw_mapping", {})
 
@@ -340,11 +340,105 @@ def huidige_grondslagen() -> dict[str, float]:
     return st.session_state.get("btw_grondslagen", {})
 
 
+def stel_dossier_in(huidig: Auditfile) -> DossierOpslag:
+    """Laad de invoer van dit dossier, en niets van een ander.
+
+    Wordt een ander auditfile geladen, dan hoort de invoer van het vorige
+    dossier te verdwijnen: uit de sessie én uit de invulvelden. Anders staat de
+    beoordeling van de ene klant bij de andere in beeld.
+    """
+    opslag = DossierOpslag.voor(huidig.dossier_sleutel)
+    if st.session_state.get("dossier_sleutel") == opslag.sleutel:
+        return opslag
+
+    st.session_state["dossier_sleutel"] = opslag.sleutel
+    st.session_state["btw_mapping"] = opslag.lees_mapping()
+    st.session_state["btw_aangifte"] = opslag.lees_aangifte()
+    st.session_state["btw_aftrekbaarheid"] = opslag.lees_aftrekbaarheid()
+    st.session_state["btw_grondslagen"] = opslag.lees_grondslagen()
+    # De widgets houden hun eigen waarde vast; die moet mee met het dossier.
+    for sleutel in [
+        naam
+        for naam in st.session_state
+        if str(naam).startswith(("btw_mapping_editor", "btw_aftrek_editor", "aangifte_", "grondslag_"))
+    ]:
+        st.session_state.pop(sleutel, None)
+    return opslag
+
+
+def bewaar_invoer(opslag: DossierOpslag, huidig: Auditfile, **onderdelen) -> bool:
+    """Bewaar invoer in de map van dit dossier, met het label erbij.
+
+    Het label wordt hier geschreven en niet bij het openen van een bestand: het
+    inlezen van een auditfile hoort geen spoor op schijf achter te laten.
+    """
+    if not opslag.bruikbaar:
+        return False
+    gelukt = opslag.schrijf_label(huidig.bedrijfsnaam, huidig.boekjaar)
+    schrijvers = {
+        "mapping": opslag.schrijf_mapping,
+        "aftrekbaarheid": opslag.schrijf_aftrekbaarheid,
+        "aangifte": opslag.schrijf_aangifte,
+        "grondslagen": opslag.schrijf_grondslagen,
+    }
+    for naam, inhoud in onderdelen.items():
+        gelukt = schrijvers[naam](inhoud) and gelukt
+    return gelukt
+
+
+def toon_oude_invoer(opslag: DossierOpslag, huidig: Auditfile) -> None:
+    """Bied invoer uit de versie zonder dossierscheiding aan om over te nemen.
+
+    Die invoer stond op één vaste plek en hoort dus bij een onbekend dossier.
+    Hem stilzwijgend aan het eerst geopende bestand toekennen zou precies de
+    vermenging opleveren die de scheiding moet voorkomen. Daarom vraagt de tool
+    het, in plaats van te kiezen.
+    """
+    if not oude_invoer_aanwezig():
+        return
+    with st.container(border=True):
+        st.warning(
+            "Er staat invoer uit een eerdere versie van de tool, die nog niet aan een "
+            "dossier was gekoppeld. Die wordt niet meer gebruikt. Neem hem over in dit "
+            "dossier als hij bij deze onderneming en dit boekjaar hoort, of verwijder hem."
+        )
+        overnemen, verwijderen, _ = st.columns([1, 1, 3])
+        if overnemen.button(
+            "Overnemen in dit dossier",
+            disabled=not opslag.bruikbaar,
+            help="Zet de oude invoer over naar de map van dit dossier.",
+        ):
+            oud = lees_oude_invoer()
+            st.session_state["btw_mapping"] = oud["mapping"]
+            st.session_state["btw_aftrekbaarheid"] = oud["aftrekbaarheid"]
+            st.session_state["btw_aangifte"] = oud["aangifte"]
+            st.session_state["btw_grondslagen"] = oud["grondslagen"]
+            if bewaar_invoer(opslag, huidig, **oud):
+                verwijder_oude_invoer()
+            else:
+                st.warning(f"De invoer kon niet worden bewaard in {opslag.map}.")
+            st.rerun()
+        if verwijderen.button("Oude invoer verwijderen"):
+            if not verwijder_oude_invoer():
+                st.warning("De oude invoer kon niet worden verwijderd.")
+            st.rerun()
+
+
 def pagina_btw(huidig: Auditfile) -> None:
     gebruik_ruw = vat.build_vat_usage(huidig)
     if gebruik_ruw.empty:
         st.warning("Dit auditfile bevat geen boekingsregels met een btw-code.")
         return
+
+    opslag = huidige_opslag()
+    if not opslag.bruikbaar:
+        st.warning(
+            "Dit auditfile vermeldt geen btw-nummer, KvK-nummer of naam, of geen boekjaar. "
+            "De invoer op deze pagina is daardoor niet aan een dossier te koppelen en wordt "
+            "niet bewaard: bij het volgende bestand zou hij bij de verkeerde klant kunnen "
+            "opduiken. De analyse zelf werkt gewoon."
+        )
+    toon_oude_invoer(opslag, huidig)
 
     tabs = st.tabs(
         ["Codes en rubrieken", "Aangifte", "Rondrekening", "Signalen", "Boekingen per code"]
@@ -413,7 +507,7 @@ def pagina_btw(huidig: Auditfile) -> None:
                 "zekerheid": st.column_config.TextColumn("Zekerheid", width="small"),
                 "reden": st.column_config.TextColumn("Waarop het voorstel berust", width="large"),
             },
-            key="btw_mapping_editor",
+            key=f"btw_mapping_editor_{opslag.sleutel}",
         )
 
         # De indeling wordt pas bewaard als de gebruiker daarvoor kiest. Zou het
@@ -469,7 +563,7 @@ def pagina_btw(huidig: Auditfile) -> None:
                         required=True,
                     ),
                 },
-                key="btw_aftrek_editor",
+                key=f"btw_aftrek_editor_{opslag.sleutel}",
             )
             nieuwe_aftrek = {
                 str(code): float(aandeel)
@@ -503,8 +597,10 @@ def pagina_btw(huidig: Auditfile) -> None:
         ):
             st.session_state["btw_mapping"] = nieuwe_mapping
             st.session_state["btw_aftrekbaarheid"] = nieuwe_aftrek
-            if not (save_vat_mapping(nieuwe_mapping) and save_vat_deduction(nieuwe_aftrek)):
-                st.warning(f"De koppeling kon niet worden bewaard in {BTW_MAPPING_PATH}.")
+            if not bewaar_invoer(
+                opslag, huidig, mapping=nieuwe_mapping, aftrekbaarheid=nieuwe_aftrek
+            ):
+                st.warning(f"De koppeling kon niet worden bewaard in {opslag.map}.")
             st.rerun()
 
         if wissen.button(
@@ -514,10 +610,10 @@ def pagina_btw(huidig: Auditfile) -> None:
         ):
             st.session_state["btw_mapping"] = {}
             st.session_state["btw_aftrekbaarheid"] = {}
-            st.session_state.pop("btw_mapping_editor", None)
-            st.session_state.pop("btw_aftrek_editor", None)
-            if not (save_vat_mapping({}) and save_vat_deduction({})):
-                st.warning(f"De koppeling kon niet worden gewist in {BTW_MAPPING_PATH}.")
+            st.session_state.pop(f"btw_mapping_editor_{opslag.sleutel}", None)
+            st.session_state.pop(f"btw_aftrek_editor_{opslag.sleutel}", None)
+            if not bewaar_invoer(opslag, huidig, mapping={}, aftrekbaarheid={}):
+                st.warning(f"De koppeling kon niet worden gewist in {opslag.map}.")
             st.rerun()
 
         with melding:
@@ -602,7 +698,7 @@ def pagina_btw(huidig: Auditfile) -> None:
                         format="%.2f",
                         placeholder="niet ingevuld",
                         help=f"{rubriek(code).omschrijving}. {herkomst}",
-                        key=f"{soort}_{code}",
+                        key=f"{soort}_{opslag.sleutel}_{code}",
                     )
                     if waarde is not None:
                         ingevoerd[code] = float(waarde)
@@ -640,10 +736,10 @@ def pagina_btw(huidig: Auditfile) -> None:
         if bewaren:
             st.session_state["btw_aangifte"] = ingevoerd
             st.session_state["btw_grondslagen"] = ingevoerde_grondslagen
-            if not (
-                save_declared_vat(ingevoerd) and save_declared_base(ingevoerde_grondslagen)
+            if not bewaar_invoer(
+                opslag, huidig, aangifte=ingevoerd, grondslagen=ingevoerde_grondslagen
             ):
-                st.warning(f"De aangiftebedragen konden niet worden bewaard in {BTW_AANGIFTE_PATH}.")
+                st.warning(f"De aangiftebedragen konden niet worden bewaard in {opslag.map}.")
             st.rerun()
 
         rubrieken = vat.build_rubric_summary(gebruik, huidige_aangifte(), huidige_grondslagen())
@@ -895,6 +991,46 @@ def pagina_export(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataFram
         )
 
 
+def toon_lokale_opslag(opslag: DossierOpslag) -> None:
+    """Laat zien wat er lokaal is bewaard, en laat het wissen.
+
+    Opslag die niet te overzien is, is niet te beheren: wie niet ziet welke
+    dossiers op zijn computer staan, kan ze ook niet opruimen.
+    """
+    dossiers = bekende_dossiers()
+    with st.sidebar.expander(f"Lokale opslag ({len(dossiers)})"):
+        st.caption(
+            f"Eigen invoer staat per dossier in `{DOSSIER_DIR}`. Auditfiles worden nooit "
+            "bewaard; die verdwijnen bij het afsluiten."
+        )
+        if not dossiers:
+            st.caption("Er is nog niets bewaard.")
+        for dossier in dossiers:
+            dit = " (dit dossier)" if dossier["sleutel"] == opslag.sleutel else ""
+            naam = dossier["naam"] or "onbekende onderneming"
+            jaar = dossier["boekjaar"] or "onbekend jaar"
+            st.write(f"- {naam}, {jaar}{dit}")
+        if opslag.heeft_invoer and st.button(
+            "Invoer van dit dossier wissen",
+            help=(
+                "Verwijdert de rubriekindeling, het aftrekbare aandeel, de "
+                "aangiftebedragen en de grondslagen van dit dossier."
+            ),
+        ):
+            if opslag.wis():
+                for sleutel in [
+                    naam
+                    for naam in st.session_state
+                    if str(naam).startswith(
+                        ("btw_", "dossier_sleutel", "aangifte_", "grondslag_")
+                    )
+                ]:
+                    st.session_state.pop(sleutel, None)
+                st.rerun()
+            else:
+                st.warning(f"De invoer kon niet worden verwijderd uit {opslag.map}.")
+
+
 # --- Hoofdprogramma ---------------------------------------------------------
 
 
@@ -938,25 +1074,21 @@ def main() -> None:
             f"vorig jaar {vorig.boekjaar}. Zijn de bestanden verwisseld?"
         )
 
-    if "btw_mapping" not in st.session_state:
-        st.session_state["btw_mapping"] = load_vat_mapping()
-    if "btw_aangifte" not in st.session_state:
-        st.session_state["btw_aangifte"] = load_declared_vat()
-    if "btw_aftrekbaarheid" not in st.session_state:
-        st.session_state["btw_aftrekbaarheid"] = load_vat_deduction()
-    if "btw_grondslagen" not in st.session_state:
-        st.session_state["btw_grondslagen"] = load_declared_base()
+    opslag = stel_dossier_in(huidig)
 
     st.sidebar.markdown(
         f"**{huidig.bedrijfsnaam or 'Onbekende onderneming'}**  \n"
         f"Boekjaar {huidig.boekjaar} tegenover {vorig.boekjaar}"
     )
+    if opslag.bruikbaar:
+        st.sidebar.caption(f"Dossier `{opslag.sleutel}`")
+    else:
+        st.sidebar.caption("Dossier niet te bepalen; eigen invoer wordt niet bewaard.")
     st.sidebar.markdown("---")
     pagina = st.sidebar.radio("Onderdeel", PAGINAS, label_visibility="collapsed")
     st.sidebar.markdown("---")
-    st.sidebar.caption(
-        f"Versie {APP_VERSIE} · invoer wordt lokaal bewaard in `{LOCAL_DATA_DIR}`"
-    )
+    toon_lokale_opslag(opslag)
+    st.sidebar.caption(f"Versie {APP_VERSIE}")
 
     vergelijking = maak_vergelijking(vorig, huidig, vergelijkingssleutel(vorig, huidig))
 

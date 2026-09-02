@@ -102,9 +102,21 @@ staan in [`docs/btw-bronnen.md`](docs/btw-bronnen.md).
 ## Privacy
 
 De repository is publiek. Er staat geen klantdata in en die mag er ook niet in
-komen, ook niet als voorbeeld. Eigen invoer (aangiftebedragen en de koppeling van
-btw-codes aan rubrieken) wordt bewaard in `.local-testdata/`, dat door Git wordt
-genegeerd. `tests/test_runtime_data_not_tracked.py` bewaakt die scheiding.
+komen, ook niet als voorbeeld. Eigen invoer (aangiftebedragen, grondslagen, de
+koppeling van btw-codes aan rubrieken en het aftrekbare aandeel per code) wordt
+bewaard in `.local-testdata/`, dat door Git wordt genegeerd.
+`tests/test_runtime_data_not_tracked.py` bewaakt die scheiding.
+
+Die invoer staat per dossier apart, in `.local-testdata/dossiers/<sleutel>`. De
+sleutel is een korte hash van onderneming plus boekjaar, zodat er geen klantnaam
+of nummer in een mapnaam op schijf staat; binnen de map staat naam en boekjaar in
+`dossier.json`, zodat in de app te zien is wat er lokaal ligt. Zo kan de
+beoordeling van de ene klant niet bij de andere opduiken, ook niet wanneer daar
+dezelfde btw-codes voorkomen. Vermeldt een auditfile geen onderneming of geen
+boekjaar, dan is er geen dossier en wordt er niets bewaard. Het openen van een
+auditfile schrijft niets weg; dat gebeurt pas als je invoer bewaart. In de
+zijbalk staat onder "Lokale opslag" welke dossiers er zijn, met een knop om de
+invoer van het huidige dossier te wissen.
 
 Waar de gegevens blijven, hangt af van waar de app draait. Streamlit bestaat uit
 een browser en een Python-proces: `st.file_uploader` stuurt het gekozen bestand

@@ -7,6 +7,13 @@
       "bron": "Vaste placeholder in auditfile/demo.py (AuditfileSpec.tax_reg_ident) voor het synthetische demobedrijf 'Testbedrijf Synthetisch BV'. Uitsluitend nullen in het nummerdeel, dus het is geen uitgegeven btw-identificatienummer. De privacyscan herkent deze waarde zowel als btw-id als naar vorm als IBAN.",
       "url": null,
       "gecontroleerd": "2026-09-02"
+    },
+    {
+      "nummer": "NL000000000B02",
+      "herkomst": "synthetisch",
+      "bron": "Tweede placeholder in tests/test_dossier.py, om te toetsen dat twee ondernemingen een verschillende dossiersleutel krijgen. Uitsluitend nullen in het nummerdeel, dus geen uitgegeven btw-identificatienummer.",
+      "url": null,
+      "gecontroleerd": "2026-09-02"
     }
   ],
   "rekeningnummers": [

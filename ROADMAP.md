@@ -13,7 +13,11 @@ Een fiscaal-inhoudelijke auditfile-analysetool die verder gaat dan bestaande sof
 - Verlegging, invoer en verwerving: verschuldigd in 2a, 4a of 4b én aftrekbaar in
   5b, met een aftrekbaar aandeel per btw-code (gereed)
 - Alle rubrieken invulbaar, btw én grondslag, ook rubrieken die niet in het
-  auditfile voorkomen (gereed). Nog niet per aangiftetijdvak, alleen per jaar.
+  auditfile voorkomen (gereed)
+- Vergelijking per boekjaar, niet per aangiftetijdvak. **Bewuste keuze**: de tool
+  ondersteunt de assistent die met de jaarrekening begint en wil weten waar de
+  aandachtspunten zitten, niet de aangiftecontrole per tijdvak. Een uitsplitsing
+  per maand of kwartaal staat daarom niet op de rol.
 - Samenvatting en verschillenanalyse
 - Suppletie-indicatie bij afwijking
 

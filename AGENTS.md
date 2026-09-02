@@ -82,6 +82,11 @@ rekenlogica dus nooit in `app.py`.
   is sorteren en filteren stuk.
 - **Signalen, geen oordelen** — controles benoemen wat er is gezien en wat beoordeeld
   moet worden. Fiscale conclusies horen bij de gebruiker.
+- **Voorstel is geen vastlegging** — een voorstel van de tool telt mee in de berekening
+  omdat er anders niets te zien is, maar heet dan `voorstel` en de uitkomst wordt als
+  rekenvoorbeeld gemarkeerd. Vastleggen gebeurt alleen op een handeling van de
+  gebruiker. Schrijf nooit invoer weg als bijwerking van het openen van een pagina;
+  `st.tabs` voert de code van álle tabbladen uit.
 
 ## Data en privacy
 
@@ -89,10 +94,15 @@ rekenlogica dus nooit in `app.py`.
   klantwaarde of een daarvan afgeleid gegeven in terechtkomen — ook niet in een
   voorbeeld, een test of een schermafdruk.
 - Runtime-invoer (zoals ingevoerde aangiftebedragen) mag nooit in een gevolgd bestand
-  belanden. `tests/test_runtime_data_not_tracked.py` borgt dat: het controleert dat het
-  wegschrijfpad door Git wordt genegeerd, dat het eerder gevolgde
+  belanden. `tests/test_runtime_data_not_tracked.py` borgt dat: het controleert elk
+  schrijfpad van een dossier op genegeerd en niet-gevolgd, dat het eerder gevolgde
   `testfiles/btw_aangifte.json` niet meer wordt gevolgd, en dat een echte schrijf-/
-  leesronde via de app-helpers in `.local-testdata/` landt zonder Git-wijziging.
+  leesronde via `DossierOpslag` in `.local-testdata/` landt zonder Git-wijziging.
+- **Eén dossier, één map.** Eigen invoer hoort bij één onderneming en één boekjaar en
+  staat in `.local-testdata/dossiers/<sleutel>`, met `sleutel` een korte hash van
+  onderneming plus boekjaar (`Auditfile.dossier_sleutel`). Zet nooit een klantnaam of
+  nummer in een pad; zonder sleutel wordt er niets bewaard. Komt er een nieuw soort
+  invoer bij, zet die dan in `DossierOpslag` en voeg het pad toe aan de privacytest.
   Draai die test vóór elke commit die aan opslag of paden raakt.
 
 ## Publicatie en gereed

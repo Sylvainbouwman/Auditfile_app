@@ -1,22 +1,23 @@
-"""Regressietest voor punt 12 uit de review.
+"""Runtime-invoer mag nooit in Git terechtkomen, en niet in het verkeerde dossier.
 
-Runtime-invoer (zoals ingevoerde aangiftebedragen) mag nooit in een door Git
-gevolgd bestand terechtkomen. Deze test borgt dat:
+Eigen invoer (aangiftebedragen, grondslagen, de koppeling van btw-codes aan
+rubrieken en het aftrekbare aandeel per code) is klant-afgeleid: de btw-codes
+komen uit het auditfile van een klant. Deze test borgt twee dingen:
 
-1. het pad waar de app aangiftebedragen wegschrijft door Git genegeerd is;
-2. het eerder gevolgde ``testfiles/btw_aangifte.json`` niet langer wordt getrackt;
-3. dat pad in de aangewezen lokale datamap ligt;
-4. een echte synthetische write/read via de app-helpers naar een unieke testfile
-   onder ``.local-testdata/`` gaat en geen Git-wijziging veroorzaakt (het echte
-   runtimebestand wordt daarbij nooit overschreven).
+1. **Git.** Elk pad waar de app naar schrijft ligt in de aangewezen lokale
+   datamap, wordt door Git genegeerd en wordt niet gevolgd. Een echte
+   schrijf-/leesronde met synthetische waarden verandert de Git-status niet.
+2. **Dossierscheiding.** Invoer van het ene dossier is niet te lezen vanuit het
+   andere, en een auditfile zonder identificatie levert geen opslag op.
 
-Alle Git-subprocessaanroepen controleren expliciet hun returncode.
-Er worden uitsluitend synthetische waarden gebruikt.
+Alle Git-subprocessaanroepen controleren expliciet hun returncode. Er worden
+uitsluitend synthetische waarden gebruikt.
 
 Draaibaar met pytest of direct:  python tests/test_runtime_data_not_tracked.py
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +26,18 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 import app  # noqa: E402
+from auditfile import settings  # noqa: E402
+from auditfile.demo import AuditfileSpec, build_xaf  # noqa: E402
+from auditfile.parsing import parse_auditfile  # noqa: E402
+
+# Git geeft `ls-files --error-unmatch` exact returncode 1 wanneer het pad NIET
+# getrackt wordt; 0 betekent getrackt en andere codes (bv. 128/129) duiden op een
+# echte Git-fout die de test moet laten falen.
+GIT_NIET_GETRACKT = 1
+
+# Sleutel voor het testdossier. Geen echte hash, zodat hij niet met een dossier
+# van een klant kan samenvallen.
+TESTSLEUTEL = "pytest-synthetisch"
 
 
 def _git(*args: str) -> subprocess.CompletedProcess:
@@ -37,21 +50,40 @@ def _git(*args: str) -> subprocess.CompletedProcess:
     )
 
 
-def test_runtime_btw_pad_is_git_ignored() -> None:
-    """Het pad waar de app aangiftebedragen wegschrijft, moet door Git genegeerd zijn."""
-    pad = app.BTW_AANGIFTE_PATH
-    result = _git("check-ignore", pad.as_posix())
-    # returncode 0 = genegeerd, 1 = niet genegeerd, >1 = Git-fout.
-    assert result.returncode == 0, (
-        f"Runtime-pad '{pad}' is NIET git-ignored (returncode={result.returncode}); "
-        f"aangiftebedragen kunnen in Git belanden."
+def _controleer_pad(pad: Path) -> None:
+    """Het pad ligt in de lokale datamap, is genegeerd en wordt niet gevolgd."""
+    assert settings.LOCAL_DATA_DIR in pad.parents, (
+        f"Schrijfpad '{pad}' ligt niet in '{settings.LOCAL_DATA_DIR}'."
+    )
+    genegeerd = _git("check-ignore", pad.as_posix())
+    assert genegeerd.returncode == 0, (
+        f"Schrijfpad '{pad}' is NIET git-ignored (returncode={genegeerd.returncode})."
+    )
+    getrackt = _git("ls-files", "--error-unmatch", pad.as_posix())
+    assert getrackt.returncode == GIT_NIET_GETRACKT, (
+        f"Schrijfpad '{pad}' wordt door Git gevolgd of Git gaf een fout "
+        f"(returncode={getrackt.returncode}, verwacht {GIT_NIET_GETRACKT})."
     )
 
 
-# Git geeft `ls-files --error-unmatch` exact returncode 1 wanneer het pad NIET
-# getrackt wordt; 0 betekent getrackt en andere codes (bv. 128/129) duiden op een
-# echte Git-fout die de test moet laten falen.
-GIT_NIET_GETRACKT = 1
+def test_alle_schrijfpaden_van_een_dossier_zijn_genegeerd() -> None:
+    """Elk bestand dat de app in een dossier schrijft, blijft buiten Git."""
+    opslag = settings.DossierOpslag.voor(TESTSLEUTEL)
+    bestanden = (
+        settings.AANGIFTE_BESTAND,
+        settings.MAPPING_BESTAND,
+        settings.AFTREK_BESTAND,
+        settings.GRONDSLAG_BESTAND,
+        settings.DOSSIER_BESTAND,
+    )
+    for bestand in bestanden:
+        _controleer_pad(opslag.pad(bestand))
+
+
+def test_oude_paden_blijven_genegeerd() -> None:
+    """De paden van vóór de dossierscheiding worden nog gelezen bij overname."""
+    for pad in settings.OUDE_PADEN:
+        _controleer_pad(pad)
 
 
 def test_oud_bestand_niet_meer_getrackt() -> None:
@@ -63,71 +95,20 @@ def test_oud_bestand_niet_meer_getrackt() -> None:
     )
 
 
-def test_runtime_pad_ligt_in_lokale_datamap() -> None:
-    """De app schrijft naar de aangewezen lokale datamap, niet naar testfiles/."""
-    assert app.LOCAL_DATA_DIR in app.BTW_AANGIFTE_PATH.parents, (
-        f"Runtime-pad '{app.BTW_AANGIFTE_PATH}' ligt niet in '{app.LOCAL_DATA_DIR}'."
-    )
-
-
-def test_alle_schrijfpaden_zijn_genegeerd() -> None:
-    """Elk pad waar de app naar schrijft moet door Git genegeerd zijn.
-
-    Niet alleen de aangiftebedragen: de btw-koppeling en het aftrekbare aandeel
-    per code zijn even klant-afgeleid, want de btw-codes komen uit het auditfile
-    van een klant. Komt er een schrijfpad bij, dan hoort het hier ook in.
-    """
-    from auditfile import settings
-
-    paden = [
-        settings.BTW_AANGIFTE_PATH,
-        settings.BTW_MAPPING_PATH,
-        settings.BTW_AFTREK_PATH,
-        settings.BTW_GRONDSLAG_PATH,
-    ]
-    for pad in paden:
-        assert settings.LOCAL_DATA_DIR in pad.parents, (
-            f"Schrijfpad '{pad}' ligt niet in '{settings.LOCAL_DATA_DIR}'."
-        )
-        result = _git("check-ignore", pad.as_posix())
-        assert result.returncode == 0, (
-            f"Schrijfpad '{pad}' is NIET git-ignored (returncode={result.returncode})."
-        )
-        getrackt = _git("ls-files", "--error-unmatch", pad.as_posix())
-        assert getrackt.returncode == GIT_NIET_GETRACKT, (
-            f"Schrijfpad '{pad}' wordt door Git gevolgd "
-            f"(returncode={getrackt.returncode}, verwacht {GIT_NIET_GETRACKT})."
-        )
-
-
 def test_synthetische_write_read_zonder_git_wijziging() -> None:
-    """Schrijf en lees synthetische aangiftebedragen via de app-helpers.
+    """Schrijf en lees synthetische invoer via de opslag van een testdossier.
 
-    Gebruikt een UNIEKE synthetische testfile onder de genegeerde lokale datamap en
-    raakt het echte runtimebestand ``BTW_AANGIFTE_PATH`` uitsluitend aan via pad- en
-    ignorecontroles, zodat lokale runtime-inhoud nooit overschreven kan worden.
-    Verifieert dat de round-trip klopt en dat de write geen Git-wijziging veroorzaakt.
+    Gebruikt een eigen dossiersleutel onder de genegeerde datamap, zodat de
+    opslag van een echt dossier nooit wordt aangeraakt.
     """
-    # Pad-/ignorecontroles op het ECHTE runtimebestand (nooit lezen/schrijven).
-    runtime_pad = app.BTW_AANGIFTE_PATH
-    assert app.LOCAL_DATA_DIR in runtime_pad.parents, (
-        f"Runtime-pad '{runtime_pad}' ligt niet in '{app.LOCAL_DATA_DIR}'."
-    )
-    runtime_genegeerd = _git("check-ignore", runtime_pad.as_posix())
-    assert runtime_genegeerd.returncode == 0, (
-        f"Runtime-pad '{runtime_pad}' is niet git-ignored "
-        f"(returncode={runtime_genegeerd.returncode})."
-    )
+    opslag = settings.DossierOpslag.voor(TESTSLEUTEL)
+    assert opslag.bruikbaar
+    aangifte = {"1a": 12.34, "1b": 0.0, "5b": 90.0}
+    mapping = {"SYN1": "1a", "SYN2": "5b"}
 
-    # Unieke synthetische testfile onder dezelfde genegeerde map — NIET het echte bestand.
-    test_pad = app.LOCAL_DATA_DIR / "pytest_synthetic_btw.json"
-    assert test_pad != runtime_pad, "De testfile mag niet het echte runtimebestand zijn."
-    synthetische_bedragen = {"1a": 12.34, "1e": 0.0, "2a/5b": 56.78, "5b": 90.0}
-
-    # Oorspronkelijke staat vastleggen; een eventueel stale eigen artefact opruimen.
-    map_bestond = app.LOCAL_DATA_DIR.exists()
-    if test_pad.exists():
-        test_pad.unlink()
+    map_bestond = settings.LOCAL_DATA_DIR.exists()
+    if opslag.map.exists():
+        shutil.rmtree(opslag.map)
 
     status_voor = _git("status", "--porcelain")
     assert status_voor.returncode == 0, (
@@ -135,31 +116,28 @@ def test_synthetische_write_read_zonder_git_wijziging() -> None:
     )
 
     try:
-        app.save_declared_vat(synthetische_bedragen, test_pad)
+        assert opslag.schrijf_aangifte(aangifte)
+        assert opslag.schrijf_mapping(mapping)
+        assert opslag.schrijf_label("Synthetisch Testdossier", "2025")
 
-        # 1) Er is daadwerkelijk naar de lokale datamap geschreven.
-        assert test_pad.exists(), f"Testbestand '{test_pad}' is niet geschreven."
+        # 1) Er is daadwerkelijk naar de dossiermap geschreven.
+        assert opslag.pad(settings.AANGIFTE_BESTAND).exists()
+        assert opslag.heeft_invoer
 
-        # 2) De round-trip via de leeshelper levert exact dezelfde waarden op.
-        gelezen = app.load_declared_vat(test_pad)
-        assert gelezen == synthetische_bedragen, (
-            "Gelezen waarden wijken af van de geschreven synthetische waarden."
-        )
+        # 2) De round-trip levert exact dezelfde waarden op.
+        assert opslag.lees_aangifte() == aangifte
+        assert opslag.lees_mapping() == mapping
+        assert opslag.lees_label()["boekjaar"] == "2025"
 
-        # 3) Het geschreven bestand is en blijft door Git genegeerd.
-        genegeerd = _git("check-ignore", test_pad.as_posix())
-        assert genegeerd.returncode == 0, (
-            f"Testbestand '{test_pad}' is niet git-ignored (returncode={genegeerd.returncode})."
-        )
+        # 3) Elk geschreven bestand blijft buiten Git.
+        for bestand in (
+            settings.AANGIFTE_BESTAND,
+            settings.MAPPING_BESTAND,
+            settings.DOSSIER_BESTAND,
+        ):
+            _controleer_pad(opslag.pad(bestand))
 
-        # 4) Het geschreven bestand wordt niet door Git gevolgd (exact returncode 1).
-        getrackt = _git("ls-files", "--error-unmatch", test_pad.as_posix())
-        assert getrackt.returncode == GIT_NIET_GETRACKT, (
-            f"Testbestand '{test_pad}' wordt door Git gevolgd of Git gaf een fout "
-            f"(returncode={getrackt.returncode}, verwacht {GIT_NIET_GETRACKT})."
-        )
-
-        # 5) De write heeft de Git-status niet veranderd.
+        # 4) De writes hebben de Git-status niet veranderd.
         status_na = _git("status", "--porcelain")
         assert status_na.returncode == 0, (
             f"'git status' faalde na de write (returncode={status_na.returncode})."
@@ -167,16 +145,56 @@ def test_synthetische_write_read_zonder_git_wijziging() -> None:
         assert status_na.stdout == status_voor.stdout, (
             "De synthetische write veroorzaakte een Git-wijziging in de werkboom."
         )
+
+        # 5) Wissen ruimt het dossier volledig op.
+        assert opslag.wis()
+        assert not opslag.map.exists()
     finally:
-        # Uitsluitend het eigen testartefact opruimen; de map alleen verwijderen
-        # wanneer die door deze test is aangemaakt en leeg is.
-        if test_pad.exists():
-            test_pad.unlink()
-        if not map_bestond and app.LOCAL_DATA_DIR.exists():
-            try:
-                app.LOCAL_DATA_DIR.rmdir()
-            except OSError:
-                pass
+        if opslag.map.exists():
+            shutil.rmtree(opslag.map)
+        for map_ in (settings.DOSSIER_DIR, settings.LOCAL_DATA_DIR):
+            if not map_bestond and map_.exists():
+                try:
+                    map_.rmdir()
+                except OSError:
+                    pass
+
+
+def test_invoer_van_het_ene_dossier_is_onzichtbaar_in_het_andere() -> None:
+    """De kern van de scheiding: dossier A mag niets van dossier B zien."""
+    eerste = settings.DossierOpslag.voor(f"{TESTSLEUTEL}-a")
+    tweede = settings.DossierOpslag.voor(f"{TESTSLEUTEL}-b")
+    try:
+        assert eerste.schrijf_mapping({"SYN1": "1a"})
+        assert tweede.schrijf_mapping({"SYN1": "5b"})
+
+        assert eerste.lees_mapping() == {"SYN1": "1a"}
+        assert tweede.lees_mapping() == {"SYN1": "5b"}
+        assert eerste.map != tweede.map
+    finally:
+        for opslag in (eerste, tweede):
+            if opslag.map.exists():
+                shutil.rmtree(opslag.map)
+
+
+def test_dossier_zonder_identificatie_bewaart_niets() -> None:
+    """Zonder onderneming of boekjaar is er geen sleutel en dus geen opslag.
+
+    Bewaren onder een lege sleutel zou de invoer bij het volgende naamloze
+    bestand weer tevoorschijn laten komen, en dat is precies de vermenging die
+    deze scheiding moet voorkomen.
+    """
+    spec = AuditfileSpec(
+        company_name="", tax_reg_ident="", commerce_nr="", fiscal_year="", accounts=[], journals=[]
+    )
+    af = parse_auditfile("naamloos.xaf", build_xaf(spec))
+    assert af.dossier_sleutel == ""
+
+    opslag = settings.DossierOpslag.voor(af.dossier_sleutel)
+    assert not opslag.bruikbaar
+    assert opslag.schrijf_mapping({"SYN1": "1a"}) is False
+    assert opslag.lees_mapping() == {}
+    assert opslag.heeft_invoer is False
 
 
 if __name__ == "__main__":

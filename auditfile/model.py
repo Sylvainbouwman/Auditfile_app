@@ -7,6 +7,7 @@ bij ``copy()``, ``merge()`` en het pickelen door de Streamlit-cache.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 
 import pandas as pd
 
@@ -115,6 +116,50 @@ class Auditfile:
     @property
     def bedrijfsnaam(self) -> str:
         return self.company.get("companyName", "")
+
+    @property
+    def valuta(self) -> str:
+        return self.header.get("curCode", "")
+
+    @property
+    def dossier_identiteit(self) -> str:
+        """De sterkste identificatie van de onderneming die het bestand geeft.
+
+        Het btw-identificatienummer gaat voor, dan het KvK-nummer, dan de naam.
+        Een naam is de zwakste: die verandert bij een statutaire wijziging en kan
+        anders gespeld zijn. Daarom wordt hij pas gebruikt als de nummers
+        ontbreken.
+        """
+        kandidaten = (
+            self.company.get("taxRegIdent", ""),
+            self.company.get("Commercenr", ""),
+            self.company.get("companyIdent", ""),
+            self.company.get("companyName", ""),
+        )
+        for kandidaat in kandidaten:
+            schoon = str(kandidaat).strip()
+            if schoon:
+                return schoon
+        return ""
+
+    @property
+    def dossier_sleutel(self) -> str:
+        """Sleutel voor onderneming plus boekjaar, om invoer aan te hangen.
+
+        Eigen invoer hoort bij één onderneming en één boekjaar, niet bij een
+        bestand: levert de klant een gecorrigeerd auditfile over hetzelfde jaar,
+        dan blijft de beoordeling geldig. De sleutel is een korte hash, zodat er
+        geen ondernemingsnaam of nummer in een mapnaam op schijf komt te staan.
+
+        Zonder identificatie en zonder boekjaar is er geen sleutel: dan valt de
+        invoer nergens aan te hangen en zegt de tool dat liever dan iets te
+        bewaren onder een sleutel die morgen bij een ander dossier hoort.
+        """
+        identiteit = self.dossier_identiteit
+        if not identiteit or not self.boekjaar:
+            return ""
+        ruw = f"{identiteit}|{self.boekjaar}".encode("utf-8")
+        return hashlib.blake2b(ruw, digest_size=8).hexdigest()
 
     @property
     def period_labels(self) -> dict[int, str]:
