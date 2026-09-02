@@ -2,8 +2,8 @@
 
 Fiscaal-inhoudelijke analysetool voor de Nederlandse samenstelpraktijk en het
 belastingadvies. De tool leest twee XAF-auditfiles (vorig jaar en huidig jaar),
-vergelijkt ze en voert een reeks controles uit. Alle verwerking gebeurt lokaal;
-er gaan geen gegevens naar een server.
+vergelijkt ze en voert een reeks controles uit. De tool is bedoeld om lokaal te
+draaien; bij lokale uitvoering blijven de auditfiles op de eigen computer.
 
 ## Wat doet de tool?
 
@@ -94,6 +94,20 @@ De repository is publiek. Er staat geen klantdata in en die mag er ook niet in
 komen, ook niet als voorbeeld. Eigen invoer (aangiftebedragen en de koppeling van
 btw-codes aan rubrieken) wordt bewaard in `.local-testdata/`, dat door Git wordt
 genegeerd. `tests/test_runtime_data_not_tracked.py` bewaakt die scheiding.
+
+Waar de gegevens blijven, hangt af van waar de app draait. Streamlit bestaat uit
+een browser en een Python-proces: `st.file_uploader` stuurt het gekozen bestand
+naar dat proces. Draait de app op de eigen computer, dan komt het bestand niet
+verder dan die computer. Draait de app op een server, dan gaat het bestand naar
+die server, ook als de browser lokaal staat. Zet de tool daarom niet op een
+gedeelde omgeving zonder die afweging te maken.
+
+Twee dingen om te weten bij lokaal gebruik:
+
+- Ingelezen auditfiles staan in de Streamlit-cache van het draaiende proces en
+  verdwijnen bij het afsluiten.
+- Aangiftebedragen en btw-koppelingen blijven daarna op schijf staan in
+  `.local-testdata/`. Verwijder die map om ze te wissen.
 
 ## Roadmap
 

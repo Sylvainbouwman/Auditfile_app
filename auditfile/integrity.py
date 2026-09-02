@@ -29,6 +29,10 @@ TOLERANTIE = 0.005
 
 BEVINDING_COLUMNS = ["ernst", "controle", "bevinding", "aantal", "verschil"]
 
+# Bij een dubbeling worden de betrokken identificaties genoemd, maar niet
+# eindeloos: een bevindingregel moet leesbaar blijven.
+MAXIMAAL_GENOEMD = 10
+
 
 def _bevinding(ernst: str, controle: str, bevinding: str, aantal=None, verschil=None) -> dict:
     return {
@@ -320,20 +324,32 @@ def _controleer_regels(af: Auditfile) -> list[dict]:
 def _controleer_stamgegevens(af: Auditfile) -> list[dict]:
     bevindingen = []
 
-    # Dubbele rekeningnummers in het schema; de parser houdt de eerste aan.
-    dubbel = af.accounts["accID"].duplicated().sum()
-    if dubbel:
-        bevindingen.append(
-            _bevinding(
-                WAARSCHUWING,
-                "Rekeningschema zonder dubbelingen",
-                f"{dubbel} rekeningnummer(s) komen meer dan eens voor; de eerste omschrijving is aangehouden.",
-                aantal=int(dubbel),
+    # Dubbele stamgegevens. De parser houdt per identificatie het eerste record
+    # aan; welke identificaties dubbel voorkwamen is daarom bij het inlezen
+    # vastgelegd. Deze controle op de opgeschoonde tabellen uitvoeren zou altijd
+    # nul opleveren.
+    if af.duplicaten:
+        for soort, waarden in af.duplicaten.items():
+            genoemd = ", ".join(waarden[:MAXIMAAL_GENOEMD])
+            if len(waarden) > MAXIMAAL_GENOEMD:
+                genoemd += f" en {len(waarden) - MAXIMAAL_GENOEMD} andere"
+            bevindingen.append(
+                _bevinding(
+                    WAARSCHUWING,
+                    "Stamgegevens zonder dubbelingen",
+                    f"{len(waarden)} {soort} komen meer dan eens voor in het bestand; "
+                    f"het eerste record is aangehouden: {genoemd}.",
+                    aantal=len(waarden),
+                )
             )
-        )
     else:
         bevindingen.append(
-            _bevinding(IN_ORDE, "Rekeningschema zonder dubbelingen", "Elk rekeningnummer komt eenmaal voor.", aantal=0)
+            _bevinding(
+                IN_ORDE,
+                "Stamgegevens zonder dubbelingen",
+                "Rekeningen, btw-codes, relaties en perioden komen elk eenmaal voor.",
+                aantal=0,
+            )
         )
 
     # Rekeningen zonder bruikbaar type kunnen niet in balans of resultaat worden ingedeeld.

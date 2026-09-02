@@ -70,8 +70,21 @@ def lees_auditfile(bestandsnaam: str, inhoud: bytes) -> Auditfile:
 
 @st.cache_data(show_spinner=False)
 def maak_vergelijking(_vorig: Auditfile, _huidig: Auditfile, sleutel: str) -> pd.DataFrame:
+    """Vergelijk twee auditfiles; ``sleutel`` bepaalt de cache.
+
+    Streamlit slaat argumenten met een underscore over bij het berekenen van de
+    cachesleutel, want een ``Auditfile`` is niet te hashen. De sleutel moet de
+    inhoud van beide bestanden dus zelf vastleggen. Met de bestandsnaam alleen
+    zou een tweede dossier met gelijknamige bestanden de vergelijking van het
+    eerste terugkrijgen; daarom de vingerafdruk van de inhoud.
+    """
     del sleutel
     return compare_saldi(_vorig, _huidig)
+
+
+def vergelijkingssleutel(vorig: Auditfile, huidig: Auditfile) -> str:
+    """Cachesleutel voor de vergelijking van twee auditfiles."""
+    return f"{vorig.vingerafdruk}|{huidig.vingerafdruk}"
 
 
 def kop(titel: str, uitleg: str = "") -> None:
@@ -390,7 +403,7 @@ def pagina_btw(huidig: Auditfile) -> None:
         kop(
             "Vergelijk met de ingediende aangiften",
             "Vul per rubriek het totaal in van de aangiften over het boekjaar. De bedragen "
-            "worden lokaal bewaard en komen niet in Git terecht.",
+            "worden bewaard op de computer waar de app draait en komen niet in Git terecht.",
         )
         rubrieken_in_gebruik = [
             code for code in gebruik["rubriek"].unique() if code != ONBEKEND and rubriek(code).heeft_btw
@@ -666,13 +679,14 @@ def main() -> None:
 
     logo = Path("logo.png")
     if logo.exists():
-        st.sidebar.image(str(logo), use_container_width=True)
+        st.sidebar.image(str(logo), width="stretch")
     st.sidebar.markdown("---")
 
     st.title("Auditfile Analyzer")
     st.caption(
-        "Fiscaal-inhoudelijke analyse van twee XAF-auditfiles. Alle verwerking gebeurt "
-        "lokaal; er gaan geen gegevens naar een server."
+        "Fiscaal-inhoudelijke analyse van twee XAF-auditfiles. Bij lokale uitvoering "
+        "blijven de bestanden op deze computer; draait de app op een server, dan gaan "
+        "de gekozen bestanden naar die server."
     )
 
     bestanden = haal_bestanden_op()
@@ -716,7 +730,7 @@ def main() -> None:
         f"Versie {APP_VERSIE} · invoer wordt lokaal bewaard in `{LOCAL_DATA_DIR}`"
     )
 
-    vergelijking = maak_vergelijking(vorig, huidig, f"{naam_vorig}|{naam_huidig}")
+    vergelijking = maak_vergelijking(vorig, huidig, vergelijkingssleutel(vorig, huidig))
 
     if pagina == "Overzicht":
         pagina_overzicht(vorig, huidig, vergelijking)

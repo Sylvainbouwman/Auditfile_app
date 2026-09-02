@@ -69,6 +69,22 @@ def _leeg_of_data(df: pd.DataFrame) -> pd.DataFrame:
     return df.copy()
 
 
+def _neutraliseer_formules(worksheet) -> None:
+    """Voorkom dat tekst uit het auditfile een werkende formule wordt.
+
+    Openpyxl leidt het celtype af uit de waarde: een tekst die met "=" begint
+    wordt als formule weggeschreven. Een rekeningomschrijving, relatienaam of
+    ondernemingsnaam uit een auditfile is invoer van buiten en mag in de export
+    geen actieve inhoud worden. De waarde blijft ongewijzigd; alleen het
+    celtype wordt op tekst vastgezet, zodat de export laat zien wat er in het
+    bestand staat.
+    """
+    for rij in worksheet.iter_rows():
+        for cel in rij:
+            if isinstance(cel.value, str) and cel.value.startswith("="):
+                cel.data_type = "s"
+
+
 def _opmaak(worksheet, df: pd.DataFrame) -> None:
     """Zet filter, vaste kop, kolombreedtes en getalnotatie."""
     from openpyxl.utils import get_column_letter
@@ -186,6 +202,7 @@ def build_excel_export(
             tabblad = _veilige_tabbladnaam(naam, gebruikte_namen)
             data.to_excel(writer, sheet_name=tabblad, index=False)
             _opmaak(writer.sheets[tabblad], data)
+            _neutraliseer_formules(writer.sheets[tabblad])
 
     return uitvoer.getvalue()
 

@@ -24,6 +24,7 @@ bestanden een onbalans van miljoenen euro's.
 """
 from __future__ import annotations
 
+import hashlib
 from io import BytesIO
 import xml.etree.ElementTree as ET
 
@@ -43,6 +44,18 @@ from .model import (
 )
 
 MONTHS_NL = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
+
+
+def vingerafdruk(file_bytes: bytes) -> str:
+    """Korte vingerafdruk van de inhoud van een bestand.
+
+    Dient als sleutel voor caches en voor de dossieridentiteit: de bestandsnaam
+    zegt niets over de inhoud, twee klanten kunnen hetzelfde bestand noemen.
+    Blake2b in plaats van SHA-256 omdat dit bij het inlezen over het volledige
+    bestand loopt en snelheid hier telt; het gaat niet om een
+    beveiligingsgarantie.
+    """
+    return hashlib.blake2b(file_bytes, digest_size=16).hexdigest()
 
 
 def local_name(tag: str) -> str:
@@ -103,6 +116,19 @@ def signed_amount_series(amounts: pd.Series, amount_types: pd.Series) -> pd.Seri
     return pd.Series(np.where(is_credit, -values, values), index=amounts.index, dtype="float64")
 
 
+def _dubbele_waarden(df: pd.DataFrame, kolom: str) -> list[str]:
+    """Identificaties die in het bronbestand meer dan eens voorkomen.
+
+    Moet worden vastgesteld *voordat* de stamgegevens worden opgeschoond: na de
+    deduplicatie is niet meer te zien dat er een dubbeling was, en een controle
+    daarna vindt altijd nul.
+    """
+    if df.empty or kolom not in df.columns:
+        return []
+    waarden = df[kolom].astype(str).str.strip()
+    return sorted({waarde for waarde in waarden[waarden.duplicated()] if waarde})
+
+
 def _control_totals(element: ET.Element | None) -> ControlTotals:
     """Lees de controletotalen die het bestand zelf opgeeft."""
     if element is None:
@@ -133,7 +159,7 @@ def _xaf_version(root: ET.Element) -> str:
     return namespace
 
 
-def _parse_accounts(company: ET.Element | None) -> pd.DataFrame:
+def _parse_accounts(company: ET.Element | None) -> tuple[pd.DataFrame, list[str]]:
     rows = []
     if company is not None:
         for element in company.iter():
@@ -150,11 +176,12 @@ def _parse_accounts(company: ET.Element | None) -> pd.DataFrame:
     heeft_rgs = df["RGScode"] != ""
     df["RGSbron"] = np.where(heeft_rgs, "RGScode", np.where(df["leadReference"] != "", "leadReference", ""))
     df["RGScode"] = np.where(heeft_rgs, df["RGScode"], df["leadReference"])
+    dubbel = _dubbele_waarden(df, "accID")
     df = df.drop_duplicates(subset=["accID"], keep="first")
-    return df[ACCOUNT_COLUMNS].reset_index(drop=True)
+    return df[ACCOUNT_COLUMNS].reset_index(drop=True), dubbel
 
 
-def _parse_vat_codes(company: ET.Element | None) -> pd.DataFrame:
+def _parse_vat_codes(company: ET.Element | None) -> tuple[pd.DataFrame, list[str]]:
     rows = []
     if company is not None:
         for element in company.iter():
@@ -163,10 +190,12 @@ def _parse_vat_codes(company: ET.Element | None) -> pd.DataFrame:
     df = ensure_columns(pd.DataFrame(rows), VAT_CODE_COLUMNS)
     for column in VAT_CODE_COLUMNS:
         df[column] = df[column].fillna("").astype(str).str.strip()
-    return df.drop_duplicates(subset=["vatID"], keep="first")[VAT_CODE_COLUMNS].reset_index(drop=True)
+    dubbel = _dubbele_waarden(df, "vatID")
+    schoon = df.drop_duplicates(subset=["vatID"], keep="first")
+    return schoon[VAT_CODE_COLUMNS].reset_index(drop=True), dubbel
 
 
-def _parse_relations(company: ET.Element | None) -> pd.DataFrame:
+def _parse_relations(company: ET.Element | None) -> tuple[pd.DataFrame, list[str]]:
     """Debiteuren en crediteuren uit customersSuppliers."""
     rows = []
     if company is not None:
@@ -185,10 +214,12 @@ def _parse_relations(company: ET.Element | None) -> pd.DataFrame:
     df = ensure_columns(pd.DataFrame(rows), columns)
     for column in columns:
         df[column] = df[column].fillna("").astype(str).str.strip()
-    return df.drop_duplicates(subset=["custSupID"], keep="first")[columns].reset_index(drop=True)
+    dubbel = _dubbele_waarden(df, "custSupID")
+    schoon = df.drop_duplicates(subset=["custSupID"], keep="first")
+    return schoon[columns].reset_index(drop=True), dubbel
 
 
-def _parse_periods(company: ET.Element | None) -> pd.DataFrame:
+def _parse_periods(company: ET.Element | None) -> tuple[pd.DataFrame, list[str]]:
     columns = ["periodNumber", "startDatePeriod", "endDatePeriod", "maand"]
     rows = []
     if company is not None:
@@ -215,13 +246,15 @@ def _parse_periods(company: ET.Element | None) -> pd.DataFrame:
                 }
             )
     if not rows:
-        return pd.DataFrame(columns=columns)
-    return (
-        pd.DataFrame(rows)
-        .drop_duplicates(subset=["periodNumber"])
+        return pd.DataFrame(columns=columns), []
+    df = pd.DataFrame(rows)
+    dubbel = _dubbele_waarden(df, "periodNumber")
+    schoon = (
+        df.drop_duplicates(subset=["periodNumber"])
         .sort_values("periodNumber")
         .reset_index(drop=True)
     )
+    return schoon, dubbel
 
 
 def _parse_opening_balance(company: ET.Element | None) -> tuple[pd.DataFrame, ControlTotals]:
@@ -332,10 +365,20 @@ def parse_auditfile(file_name: str, file_bytes: bytes) -> Auditfile:
     header = find_descendant(root, "header")
     company = find_descendant(root, "company")
 
-    accounts = _parse_accounts(company)
-    vat_codes = _parse_vat_codes(company)
-    relations = _parse_relations(company)
-    periods = _parse_periods(company)
+    accounts, dubbele_rekeningen = _parse_accounts(company)
+    vat_codes, dubbele_btw_codes = _parse_vat_codes(company)
+    relations, dubbele_relaties = _parse_relations(company)
+    periods, dubbele_perioden = _parse_periods(company)
+    duplicaten = {
+        soort: waarden
+        for soort, waarden in (
+            ("rekeningen", dubbele_rekeningen),
+            ("btw-codes", dubbele_btw_codes),
+            ("relaties", dubbele_relaties),
+            ("perioden", dubbele_perioden),
+        )
+        if waarden
+    }
     opening_balance, opening_totals = _parse_opening_balance(company)
     lines, transaction_totals = _parse_lines(company)
 
@@ -377,6 +420,7 @@ def parse_auditfile(file_name: str, file_bytes: bytes) -> Auditfile:
     return Auditfile(
         bestandsnaam=file_name,
         xaf_versie=_xaf_version(root),
+        vingerafdruk=vingerafdruk(file_bytes),
         company=child_texts(company) if company is not None else {},
         header=child_texts(header) if header is not None else {},
         accounts=accounts,
@@ -388,4 +432,5 @@ def parse_auditfile(file_name: str, file_bytes: bytes) -> Auditfile:
         periods=periods,
         opening_totals=opening_totals,
         transaction_totals=transaction_totals,
+        duplicaten=duplicaten,
     )

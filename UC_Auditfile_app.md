@@ -31,7 +31,7 @@ Auditfile-analyse gebeurt handmatig in Excel: exporteren, kolommen aanmaken, ver
 1. Medewerker laadt twee XAF-auditfiles in de tool (vorig jaar + huidig jaar)
 2. Tool vergelijkt de bestanden automatisch en signaleert afwijkingen
 3. Automatische fiscale controles op basis van de UC03-checklist (bijv. crediteuren/debiteuren-checks, ongebruikelijke boekingen, BTW-aansluitingen)
-4. Alle verwerking gebeurt client-side — geen data gaat naar een server (privacy-compliant)
+4. De tool draait lokaal op de computer van de medewerker; de auditfiles verlaten die computer niet
 5. Exportmogelijkheid naar Excel voor verdere verwerking of dossiervorming
 
 ## Waarde

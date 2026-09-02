@@ -160,3 +160,49 @@ def test_exportnaam_bevat_geen_klantnaam(af_40):
     naam = exportnaam(af_40, af_40)
     assert af_40.bedrijfsnaam not in naam
     assert naam.endswith(".xlsx")
+
+
+def test_tekst_met_isgelijkteken_wordt_geen_formule():
+    """Tekst uit het auditfile mag in de export geen actieve formule worden.
+
+    Een omschrijving of naam is invoer van buiten. Openpyxl leidt het celtype af
+    uit de waarde, dus een tekst die met "=" begint zou als formule in het
+    werkblad terechtkomen.
+    """
+    spec = AuditfileSpec(
+        company_name="=1+1",
+        accounts=[Account("1000", "=HYPERLINK(\"x\")", "B"), Account("8000", "Omzet", "P")],
+        journals=[
+            Journal(
+                "MEM",
+                "Memoriaal",
+                [
+                    Transaction(
+                        "M1",
+                        "2025-01-01",
+                        1,
+                        [Line("1000", "100.00", "D", "=SUM(A1)"), Line("8000", "100.00", "C")],
+                    )
+                ],
+            )
+        ],
+    )
+    af = parse_auditfile("formule.xaf", build_xaf(spec))
+    vergelijking = compare_saldi(af, af)
+    werkboek = openpyxl.load_workbook(BytesIO(build_excel_export(af, af, vergelijking)))
+
+    formules = [
+        (blad.title, cel.coordinate, cel.value)
+        for blad in werkboek.worksheets
+        for rij in blad.iter_rows()
+        for cel in rij
+        if cel.data_type == "f"
+    ]
+    assert not formules, f"formules in de export: {formules}"
+
+    # De waarde zelf moet ongewijzigd blijven; alleen het celtype is tekst.
+    grootboek = werkboek["Grootboek 2025"]
+    koppen = [cel.value for cel in grootboek[1]]
+    kolom = koppen.index("accDesc") + 1
+    waarden = [grootboek.cell(row=rij, column=kolom).value for rij in range(2, grootboek.max_row + 1)]
+    assert '=HYPERLINK("x")' in waarden

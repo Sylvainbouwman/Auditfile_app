@@ -87,6 +87,10 @@ class Auditfile:
 
     bestandsnaam: str = ""
     xaf_versie: str = ""
+    # Vingerafdruk van de bytes van het bronbestand. Twee bestanden met dezelfde
+    # naam maar andere inhoud zijn hieraan te onderscheiden; de bestandsnaam
+    # alleen is geen betrouwbare sleutel.
+    vingerafdruk: str = ""
     company: dict[str, str] = field(default_factory=dict)
     header: dict[str, str] = field(default_factory=dict)
     accounts: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(columns=ACCOUNT_COLUMNS))
@@ -98,6 +102,11 @@ class Auditfile:
     periods: pd.DataFrame = field(default_factory=pd.DataFrame)
     opening_totals: ControlTotals = field(default_factory=ControlTotals)
     transaction_totals: ControlTotals = field(default_factory=ControlTotals)
+    # Stamgegevens die in het bronbestand meer dan eens voorkwamen, per soort de
+    # betrokken identificaties. De parser houdt het eerste record aan; zonder
+    # deze vastlegging vóór het opschonen zou de controle op dubbelingen altijd
+    # nul vinden en daarmee de indruk wekken dat er geen dubbeling is.
+    duplicaten: dict[str, list[str]] = field(default_factory=dict)
 
     @property
     def boekjaar(self) -> str:
