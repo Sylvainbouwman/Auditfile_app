@@ -68,10 +68,18 @@ verwachte kant, en hoe verlopen omzet en loonkosten per periode.
 
 **Relaties.** Wat er per relatie in het boekjaar is gefactureerd en afgewikkeld
 op de debiteuren- en crediteurenrekeningen, inclusief btw, met de concentratie
-over de grootste relaties. Dit is geen omzet en geen openstaande-postenlijst: een
-auditfile bevat geen ouderdom, geen vervaldatum en geen aansluiting op de
-subadministratie. De netto mutatie is de verandering van het saldo in dit jaar,
-zonder beginsaldo, en dus niet het openstaande bedrag.
+over de grootste relaties. Dit is geen omzet en geen openstaande-postenlijst; de
+netto mutatie is de verandering van het saldo in dit jaar, zonder beginsaldo, en
+dus niet het openstaande bedrag.
+
+Openstaande posten met een ouderdom zijn niet principieel onmogelijk uit een
+auditfile, maar hangen aan de versie en aan het boekhoudpakket. XAF 3.2 heeft een
+optionele subadministratie (`obSbLine` en `sbLine`) met factuurdatum, vervaldatum
+en afletterkenmerk; XAF 4.0 heeft die blokken geschrapt en geeft per relatie een
+openstaand bedrag bij begin en einde van het boekjaar (`opBalDesc`/`clBalDesc`).
+Let op: `settDate` in 4.0 is géén vervaldatum maar de leverdatum, en `effDate` is
+de mutatiedatum in 3.2 en de factuurdatum in 4.0. Deze tool leest die blokken nog
+niet; zie `ROADMAP.md`.
 
 **Fiscale signalen.** Posten die om een beoordeling vragen: boetes en
 dwangsommen, juridische kosten, representatie en horeca, rekening-courant met de

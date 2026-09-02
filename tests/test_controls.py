@@ -484,3 +484,21 @@ def test_relatieanalyse_kijkt_alleen_naar_de_relatierekeningen():
     assert list(debiteuren["relatie"]) == ["D001"]
     assert list(crediteuren["relatie"]) == ["C001"]
     assert round(crediteuren.iloc[0]["gefactureerd"], 2) == 700.00
+
+
+def test_relatieanalyse_werkt_zonder_relatietabel():
+    """Een ontbrekende relatietabel mag de analyse niet blokkeren.
+
+    De relatietabel en de relatie-id's op de boekingsregels komen los van elkaar
+    voor. Staan de id's er wel en de tabel niet, dan is de analyse te maken;
+    alleen de namen ontbreken.
+    """
+    spec = _relatiebestand()
+    spec.relations = []
+    af = parse_auditfile("zonder_relatietabel.xaf", build_xaf(spec))
+
+    assert af.relations.empty
+    debiteuren = build_relatie_analyse(af, "debiteur")
+    assert list(debiteuren["relatie"]) == ["D001"]
+    assert debiteuren.iloc[0]["naam"] == ""
+    assert round(debiteuren.iloc[0]["gefactureerd"], 2) == 1000.00

@@ -1218,17 +1218,36 @@ def pagina_controles(huidig: Auditfile) -> None:
 
 
 def pagina_relaties(huidig: Auditfile) -> None:
-    if huidig.relations.empty:
-        st.info("Dit auditfile bevat geen debiteuren- en crediteurengegevens.")
+    # De relatietabel en de relatie-id's op de boekingsregels komen los van
+    # elkaar voor. Ontbreekt de tabel maar staan de id's er wel, dan is de
+    # analyse gewoon te maken; alleen de namen ontbreken dan. Blokkeren op een
+    # lege tabel gooide bruikbare gegevens weg.
+    heeft_relatie_ids = (
+        not huidig.lines.empty
+        and "line_custSupID" in huidig.lines.columns
+        and (huidig.lines["line_custSupID"].astype(str).str.strip() != "").any()
+    )
+    if huidig.relations.empty and not heeft_relatie_ids:
+        st.info(
+            "Dit auditfile bevat geen debiteuren- en crediteurengegevens: geen "
+            "relatietabel en geen relatie-id op de boekingsregels."
+        )
         return
+    if huidig.relations.empty:
+        st.warning(
+            "Dit auditfile heeft geen relatietabel, maar de boekingsregels dragen wel "
+            "relatie-id's. De analyse werkt daarmee; alleen de namen ontbreken."
+        )
 
     st.info(
         "Wat hier staat is wat er in dit boekjaar per relatie is gefactureerd en "
         "afgewikkeld op de debiteuren- en crediteurenrekeningen, inclusief btw. Het is "
-        "geen omzet en geen openstaande-postenlijst: een auditfile bevat geen ouderdom, "
-        "geen vervaldatum en geen aansluiting op de subadministratie. De netto mutatie "
-        "is de verandering van het saldo in dit jaar, zonder het beginsaldo, en dus niet "
-        "het openstaande bedrag."
+        "geen omzet en geen openstaande-postenlijst. De netto mutatie is de verandering "
+        "van het saldo in dit jaar, zonder het beginsaldo, en dus niet het openstaande "
+        "bedrag. Een auditfile kán openstaande posten met een vervaldatum bevatten, maar "
+        "alleen in XAF 3.2 en alleen wanneer het boekhoudpakket die subadministratie "
+        "vult; XAF 4.0 heeft die velden geschrapt en geeft in plaats daarvan een "
+        "openstaand bedrag per relatie. Deze tool leest die blokken nog niet."
     )
 
     kop(
