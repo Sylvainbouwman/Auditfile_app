@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from xml.sax.saxutils import escape
 
 NAMESPACES = {
@@ -103,6 +104,81 @@ class OpeningLine:
 
 
 @dataclass
+class ObSubledgerLine:
+    """Een openstaande post bij het begin van het boekjaar (``obSbLine``).
+
+    De rekening staat er niet op: ``obLineNr`` verwijst naar het nummer van een
+    regel van de beginbalans, en daar staat de rekening. Zonder die verwijzing is
+    de post niet aan het grootboek te koppelen.
+    """
+
+    obLineNr: str
+    amnt: str
+    amntTp: str
+    desc: str = ""
+    docRef: str = ""
+    matchKeyID: str = ""
+    custSupID: str = ""
+    invRef: str = ""
+    invPurSalTp: str = ""
+    invTp: str = ""
+    invDt: str = ""
+    invDueDt: str = ""
+    mutTp: str = ""
+
+
+@dataclass
+class SbLine:
+    """Een mutatie in de subadministratie (``sbLine``).
+
+    Koppelt aan de grootboekboeking met ``jrnID``, ``trNr`` en ``trLineNr``.
+    ``trLineNr`` is het nummer van de boekingsregel binnen de transactie, dus
+    1 voor de eerste regel.
+    """
+
+    jrnID: str
+    trNr: str
+    trLineNr: str
+    amnt: str
+    amntTp: str
+    desc: str = ""
+    docRef: str = ""
+    matchKeyID: str = ""
+    custSupID: str = ""
+    invRef: str = ""
+    invPurSalTp: str = ""
+    invTp: str = ""
+    invDt: str = ""
+    invDueDt: str = ""
+    mutTp: str = ""
+
+
+@dataclass
+class ObSubledger:
+    """Een subadministratie bij de beginbalans, met haar eigen controletotalen.
+
+    ``sbType`` is CS, CU, SU of ZZ volgens de XSD. Wat die codes betekenen is
+    niet uit een gezaghebbende bron vast te stellen, dus de generator schrijft de
+    code onveranderd weg en de tool leidt er niets uit af.
+    """
+
+    lines: list[ObSubledgerLine]
+    sbType: str = "CS"
+    sbDesc: str = ""
+    totals_override: tuple[int, str, str] | None = None
+
+
+@dataclass
+class Subledger:
+    """Een subadministratie bij de transacties, met haar eigen controletotalen."""
+
+    lines: list[SbLine]
+    sbType: str = "CS"
+    sbDesc: str = ""
+    totals_override: tuple[int, str, str] | None = None
+
+
+@dataclass
 class AuditfileSpec:
     """Volledige beschrijving van een te genereren auditfile."""
 
@@ -121,6 +197,10 @@ class AuditfileSpec:
     # opBalDesc, dezelfde naam die XAF 4.0 gebruikt voor een bedrag per relatie.
     # Nodig om te kunnen testen dat die twee niet worden verward.
     opening_balance_desc: str = ""
+    # De subadministratie van XAF 3.2. Bij versie 4.0 worden deze blokken niet
+    # weggeschreven; die versie kent ze niet.
+    ob_subledgers: list[ObSubledger] = field(default_factory=list)
+    subledgers: list[Subledger] = field(default_factory=list)
     journals: list[Journal] = field(default_factory=list)
     period_count: int = 12
     # Eigen periodetabel als (nummer, begindatum, einddatum). Nodig om een
@@ -158,6 +238,58 @@ def _totals(lines: list[tuple[str, str]]) -> tuple[int, str, str]:
     return len(lines), f"{debit:.2f}", f"{credit:.2f}"
 
 
+# De velden van een subadministratieregel in de volgorde die de XSD voorschrijft.
+# Een andere volgorde maakt het bestand ongeldig, dus de fixture houdt zich
+# eraan. ``nr`` en de verwijzingen worden apart weggeschreven, omdat die per
+# regelsoort verschillen.
+SUBADMINISTRATIE_VELDORDE: tuple[str, ...] = (
+    "desc",
+    "amnt",
+    "amntTp",
+    "docRef",
+    "matchKeyID",
+    "custSupID",
+    "invRef",
+    "invPurSalTp",
+    "invTp",
+    "invDt",
+    "invDueDt",
+    "mutTp",
+)
+
+
+def _subadministratie_xml(
+    subledgers: list,
+    bloknaam: str,
+    subnaam: str,
+    lijnnaam: str,
+    verwijzingen: tuple[str, ...],
+    indent: int,
+) -> list[str]:
+    """Schrijf een subadministratieblok weg, met controletotalen per subledger."""
+    out = [f"{' ' * indent}<{bloknaam}>\n"]
+    for subledger in subledgers:
+        paren = [(regel.amnt, regel.amntTp) for regel in subledger.lines]
+        count, debit, credit = subledger.totals_override or _totals(paren)
+        out.append(f"{' ' * (indent + 2)}<{subnaam}>\n")
+        out.append(_tag("sbType", subledger.sbType, indent + 4))
+        out.append(_tag("sbDesc", subledger.sbDesc, indent + 4))
+        out.append(_tag("linesCount", str(count), indent + 4))
+        out.append(_tag("totalDebit", debit, indent + 4))
+        out.append(_tag("totalCredit", credit, indent + 4))
+        for nummer, regel in enumerate(subledger.lines, start=1):
+            out.append(f"{' ' * (indent + 4)}<{lijnnaam}>\n")
+            out.append(_tag("nr", str(nummer), indent + 6))
+            for veld in verwijzingen:
+                out.append(_tag(veld, getattr(regel, veld), indent + 6))
+            for veld in SUBADMINISTRATIE_VELDORDE:
+                out.append(_tag(veld, getattr(regel, veld), indent + 6))
+            out.append(f"{' ' * (indent + 4)}</{lijnnaam}>\n")
+        out.append(f"{' ' * (indent + 2)}</{subnaam}>\n")
+    out.append(f"{' ' * indent}</{bloknaam}>\n")
+    return out
+
+
 def build_xaf(spec: AuditfileSpec) -> bytes:
     """Genereer een XAF-bestand als bytes."""
     namespace = NAMESPACES[spec.versie]
@@ -178,13 +310,20 @@ def build_xaf(spec: AuditfileSpec) -> bytes:
     out.append("  </header>\n")
 
     out.append("  <company>\n")
-    out.append(_tag("companyName", spec.company_name, 4))
     if is_40:
+        out.append(_tag("companyName", spec.company_name, 4))
         out.append(_tag("Commercenr", spec.commerce_nr, 4))
+        out.append(_tag("taxRegIdent", spec.tax_reg_ident, 4))
+        out.append(_tag("taxRegistrationCountry", "NL", 4))
     else:
+        # De XSD van 3.2 legt de volgorde vast als companyIdent, companyName,
+        # taxRegistrationCountry, taxRegIdent. De parser leest elke volgorde,
+        # maar een fixture die niet tegen het schema valideert is geen
+        # representatief bestand.
         out.append(_tag("companyIdent", spec.commerce_nr, 4))
-    out.append(_tag("taxRegIdent", spec.tax_reg_ident, 4))
-    out.append(_tag("taxRegistrationCountry", "NL", 4))
+        out.append(_tag("companyName", spec.company_name, 4))
+        out.append(_tag("taxRegistrationCountry", "NL", 4))
+        out.append(_tag("taxRegIdent", spec.tax_reg_ident, 4))
 
     if spec.relations:
         out.append("    <customersSuppliers>\n")
@@ -252,7 +391,10 @@ def build_xaf(spec: AuditfileSpec) -> bytes:
     opening_pairs = [(line.amnt, line.amntTp) for line in spec.opening_lines]
     count, debit, credit = spec.opening_totals_override or _totals(opening_pairs)
     out.append("    <openingBalance>\n")
-    if not is_40 and spec.opening_balance_desc:
+    if not is_40:
+        # opBalDate is in 3.2 verplicht. opBalDesc is de optionele omschrijving
+        # van de beginbalans van het grootboek, en dus iets anders dan de tag
+        # met dezelfde naam in 4.0.
         out.append(_tag("opBalDate", spec.start_date, 6))
         out.append(_tag("opBalDesc", spec.opening_balance_desc, 6))
     out.append(_tag("linesCount", str(count), 6))
@@ -265,6 +407,17 @@ def build_xaf(spec: AuditfileSpec) -> bytes:
         out.append(_tag("amnt", line.amnt, 8))
         out.append(_tag("amntTp", line.amntTp, 8))
         out.append("      </obLine>\n")
+    if not is_40 and spec.ob_subledgers:
+        out.extend(
+            _subadministratie_xml(
+                spec.ob_subledgers,
+                "obSubledgers",
+                "obSubledger",
+                "obSbLine",
+                ("obLineNr",),
+                6,
+            )
+        )
     out.append("    </openingBalance>\n")
 
     all_pairs = [
@@ -293,7 +446,14 @@ def build_xaf(spec: AuditfileSpec) -> bytes:
                 out.append("          <trLine>\n")
                 out.append(_tag("nr", str(index), 12))
                 out.append(_tag("accID", line.accID, 12))
-                out.append(_tag("docRef", line.docRef, 12))
+                # docRef is in 3.2 verplicht en in 4.0 optioneel. Blijft hij
+                # in een 3.2-bestand leeg, dan valideert het bestand niet tegen
+                # het schema, en een fixture die dat niet doet is geen
+                # representatief bestand.
+                referentie = line.docRef
+                if not referentie and not is_40:
+                    referentie = f"{transaction.nr}-{index}"
+                out.append(_tag("docRef", referentie, 12))
                 out.append(_tag("effDate", line.effDate, 12))
                 out.append(_tag("desc", line.desc, 12))
                 out.append(_tag("amnt", line.amnt, 12))
@@ -310,6 +470,17 @@ def build_xaf(spec: AuditfileSpec) -> bytes:
                 out.append("          </trLine>\n")
             out.append("        </transaction>\n")
         out.append("      </journal>\n")
+    if not is_40 and spec.subledgers:
+        out.extend(
+            _subadministratie_xml(
+                spec.subledgers,
+                "subledgers",
+                "subledger",
+                "sbLine",
+                ("jrnID", "trNr", "trLineNr"),
+                6,
+            )
+        )
     out.append("    </transactions>\n")
     out.append("  </company>\n")
     out.append("</auditfile>\n")
@@ -574,6 +745,99 @@ def vul_relatiesaldi(spec: AuditfileSpec) -> AuditfileSpec:
     return kopie
 
 
+# De betalingstermijn waarmee de demo haar vervaldatums berekent. Een verzonnen
+# termijn voor verzonnen facturen; de tool neemt hem nergens aan, want in een
+# echt bestand staat de vervaldatum er zelf in.
+DEMO_SUBADMINISTRATIE_TERMIJN_DAGEN = 30
+
+
+def vul_subadministratie(spec: AuditfileSpec) -> AuditfileSpec:
+    """Bouw een subadministratie die bij de boekingen van de spec past.
+
+    Alleen zinvol bij XAF 3.2; XAF 4.0 heeft de blokken geschrapt en dan wordt er
+    niets weggeschreven. De posten worden uit de spec zelf afgeleid en niet
+    ingetypt, zodat de demo blijft aansluiten wanneer de boekingen veranderen.
+
+    ``mutTp`` blijft leeg. De code is I, P of Z volgens de XSD, maar wat die
+    waarden betekenen is niet uit een gezaghebbende bron vast te stellen, en een
+    fixture hoort geen betekenis te suggereren die niet vaststaat.
+
+    Werkt op een kopie: de specs zijn testfixtures met sessiebereik en een
+    wijziging in het ene geval zou anders in het andere opduiken.
+    """
+    kopie = deepcopy(spec)
+    if kopie.versie == "4.0":
+        return kopie
+
+    soort_per_relatie = {
+        relatie.custSupID: relatie.custSupTp for relatie in kopie.relations
+    }
+
+    def inkoop_of_verkoop(relatie: str) -> str:
+        """Een klant levert een verkoopfactuur op, een leverancier een inkoop."""
+        return {"C": "S", "S": "P"}.get(soort_per_relatie.get(relatie, ""), "")
+
+    begin = date.fromisoformat(kopie.start_date)
+    ob_regels: list[ObSubledgerLine] = []
+    for nummer, regel in enumerate(kopie.opening_lines, start=1):
+        for relatie, rekening in DEMO_RELATIEREKENING.items():
+            if regel.accID != rekening:
+                continue
+            ob_regels.append(
+                ObSubledgerLine(
+                    obLineNr=str(nummer),
+                    amnt=regel.amnt,
+                    amntTp=regel.amntTp,
+                    desc="Openstaand bij aanvang boekjaar",
+                    matchKeyID=f"{relatie}-OB",
+                    custSupID=relatie,
+                    invRef=f"{relatie}-OB-001",
+                    invPurSalTp=inkoop_of_verkoop(relatie),
+                    invTp=regel.amntTp,
+                    invDt=(begin - timedelta(days=45)).isoformat(),
+                    invDueDt=(begin - timedelta(days=15)).isoformat(),
+                )
+            )
+
+    sb_regels: list[SbLine] = []
+    for journaal in kopie.journals:
+        for transactie in journaal.transactions:
+            factuurdatum = date.fromisoformat(transactie.trDt)
+            for nummer, regel in enumerate(transactie.lines, start=1):
+                relatie = regel.custSupID
+                if not relatie or regel.accID != DEMO_RELATIEREKENING.get(relatie):
+                    continue
+                sb_regels.append(
+                    SbLine(
+                        jrnID=journaal.jrnID,
+                        trNr=transactie.nr,
+                        trLineNr=str(nummer),
+                        amnt=regel.amnt,
+                        amntTp=regel.amntTp,
+                        desc=regel.desc,
+                        docRef=regel.docRef,
+                        matchKeyID=f"{relatie}-{transactie.nr}",
+                        custSupID=relatie,
+                        invRef=regel.invRef or f"{relatie}-{transactie.nr}",
+                        invPurSalTp=inkoop_of_verkoop(relatie),
+                        invTp=regel.amntTp,
+                        invDt=transactie.trDt,
+                        invDueDt=(
+                            factuurdatum
+                            + timedelta(days=DEMO_SUBADMINISTRATIE_TERMIJN_DAGEN)
+                        ).isoformat(),
+                    )
+                )
+
+    if ob_regels:
+        kopie.ob_subledgers = [
+            ObSubledger(ob_regels, sbDesc="Openstaande posten bij aanvang")
+        ]
+    if sb_regels:
+        kopie.subledgers = [Subledger(sb_regels, sbDesc="Mutaties openstaande posten")]
+    return kopie
+
+
 def demopaar(
     vorig_jaar: str = "2024",
     huidig_jaar: str = "2025",
@@ -588,7 +852,10 @@ def demopaar(
     de demodata ligt. De twee XAF-versies verschillen bewust, zodat ook de
     RGS-herkomst zichtbaar is.
     """
-    vorige_bytes = build_xaf(verschuif_boekjaar(eenvoudige_spec(versie_vorig), vorig_jaar))
+    vorige_spec = vul_subadministratie(
+        verschuif_boekjaar(eenvoudige_spec(versie_vorig), vorig_jaar)
+    )
+    vorige_bytes = build_xaf(vorige_spec)
     huidige_spec = verschuif_boekjaar(eenvoudige_spec(versie_huidig), huidig_jaar)
     huidige_spec.opening_lines = beginbalans_uit(vorige_bytes)
     if versie_huidig == "4.0":

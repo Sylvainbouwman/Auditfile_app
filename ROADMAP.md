@@ -92,9 +92,16 @@ volgt een signaal bij een onlogisch teken en bij een verloop dat niet op de
 boekingen aansluit. Dit is bewijsniveau 3: een eindstand, geen factuurlijst en
 geen ouderdom.
 
+### Subadministratie uit XAF 3.2 (gereed)
+De openstaande posten bij het begin van het boekjaar en hun mutaties, met de
+enige echte vervaldatum die XAF kent. De tool leest ze in, lost de verwijzing
+naar de grootboekrekening op en toont ze op de relatiepagina met de
+controletotalen die het blok zelf opgeeft. Zie `docs/xaf-velden.md` voor de
+velden en de valkuilen.
+
 ### Ouderdomsanalyse (indien open posten beschikbaar)
-- Vereist niveau 1 of 2: een gevulde XAF 3.2-subadministratie. Wacht op een
-  bestand dat die levert; de capability-laag wijst het aan.
+- Vereist niveau 1 of 2: een gevulde XAF 3.2-subadministratie. Die is nu in te
+  lezen, en `demo.py` genereert er een; de capability-laag wijst het niveau aan.
 - Indeling: 0-30 / 31-60 / 61-90 / >90 dagen
 
 ### Debiteurenscan
@@ -207,16 +214,33 @@ Bijgewerkt op 2 september 2026, na de volledige review en de capability-laag.
    en een verloop dat niet op de boekingen aansluit. Levert voor de nu
    beschikbare bestanden niets op omdat het pakket die velden niet vult, wel voor
    bestanden die dat wel doen.
-2. **XAF 3.2-subadministratie inlezen.** `obSbLine` en `sbLine` als eigen
-   model, met factuurdatum, vervaldatum, afletterkenmerk en de koppeling naar de
-   grootboekboeking. Dit is de enige bron in XAF met een echte vervaldatum.
-3. **Open-posten- en ageing-engine.** Pas bouwen wanneer er een bestand is dat
-   bewijsniveau 1 of 2 haalt; `capability.py` wijst dat aan. Een reconstructie
-   uit boekingsregels op niveau 4 mag alleen met de gebruikte methode en de
-   gemeten dekking in beeld, en met een betalingstermijn die de gebruiker zelf
-   opgeeft.
-4. **Versie-echte fixtures.** Synthetische 3.2-bestanden mét subadministratie en
-   4.0-bestanden mét relatiesaldi, plus gedeeltelijk gevulde exports. Neem ook
+2. **XAF 3.2-subadministratie inlezen.** Gereed. `obSbLine` en `sbLine` staan
+   als één tabel in `Auditfile.subadministratie`, met factuurdatum, vervaldatum,
+   afletterkenmerk, relatie en factuurreferentie, en met de controletotalen per
+   subadministratie in `Auditfile.subadministratie_totalen`. De rekening staat
+   niet op de regel: die volgt uit `obLineNr` naar de beginbalans of uit
+   `jrnID`, `trNr` en `trLineNr` naar de grootboekboeking, en de kolom
+   `koppeling` legt vast hoe dat is gegaan. Een verwijzing die nergens heen
+   leidt of niet eenduidig is, geeft geen rekening in plaats van een gok. Het
+   bewijsniveau in `capability.py` leest deze tabel nu rechtstreeks, dus de
+   losse elementtellingen voor de subadministratie zijn vervallen.
+3. **Open-posten- en ageing-engine.** Nu de eerstvolgende stap. `demo.py` levert
+   met `vul_subadministratie()` een synthetisch 3.2-bestand dat bewijsniveau 1
+   haalt, dus de engine is te bouwen en te testen zonder op een klantbestand te
+   wachten. Een reconstructie uit boekingsregels op niveau 4 mag alleen met de
+   gebruikte methode en de gemeten dekking in beeld, en met een betalingstermijn
+   die de gebruiker zelf opgeeft.
+4. **Versie-echte fixtures.** Gedeeltelijk gereed: `vul_subadministratie()`
+   levert een 3.2-bestand mét subadministratie en `vul_relatiesaldi()` een
+   4.0-bestand mét relatiesaldi. Wat rest zijn gedeeltelijk gevulde exports,
+   bijvoorbeeld een subadministratie zonder vervaldatum of met een verwijzing
+   die niet oplost. Het gegenereerde 3.2-bestand valideert sinds 2 september
+   2026 tegen de XSD; daarvoor deed het dat niet, omdat de elementvolgorde in
+   `company` afweek, `opBalDate` ontbrak en `docRef` op `trLine` leeg bleef
+   terwijl 3.2 dat veld verplicht stelt. Die validatie is eenmalig met de hand
+   gedaan en staat niet in de tests: de XSD zit niet in de repository en het
+   domein `auditfile.nl` is niet meer bereikbaar. **Te beslissen**: de XSD (en
+   het officiële testbestand) in de repository opnemen en er een test op zetten. Neem ook
    het officiële testbestand van de Belastingdienst
    (`XAF_4_0_Test_100425.XAF` uit het productoverzicht 4.0.3) op als
    conformance-bestand; dat is synthetisch en openbaar, maar vraagt een
@@ -242,7 +266,16 @@ Bijgewerkt op 2 september 2026, na de volledige review en de capability-laag.
   afwijzen in plaats van half in te lezen.
 - **Transactiesleutel.** De transactiebalans groepeert op dagboek en
   transactienummer. Hergebruik van hetzelfde nummer kan twee ongebalanceerde
-  transacties samen laten sluiten.
+  transacties samen laten sluiten. Bij het koppelen van de subadministratie is
+  dit al afgevangen: een sleutel die naar verschillende rekeningen wijst, levert
+  geen rekening op.
+- **Betekenis van `sbType` en `mutTp`.** De XSD geeft alleen de toegestane
+  waarden (CS, CU, SU, ZZ en I, P, Z) en geen omschrijving. De tool geeft ze
+  onveranderd door en leidt er niets uit af. Vaststellen wat ze betekenen vraagt
+  de functionele documentatie van XAF 3.2.
+- **Controletotalen van de subadministratie.** Ze worden ingelezen en naast de
+  eigen telling gezet, maar `integrity.py` toetst ze nog niet en er komt geen
+  bevinding uit.
 
 ### Gedeelde XAF-kennis met xaf-export-tool
 

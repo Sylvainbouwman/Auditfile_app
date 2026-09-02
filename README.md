@@ -80,13 +80,21 @@ er een relatie; de tool benoemt het verschil en concludeert niet. Per relatie
 komt er een signaal bij een onlogisch teken, zoals een crediteur met een
 debetsaldo, en bij een verloop dat niet op de boekingen aansluit.
 
+Vult het bestand de subadministratie van XAF 3.2, dan staan daar de openstaande
+posten zelf: per post de factuurdatum, de vervaldatum, het afletterkenmerk, de
+relatie en de factuurreferentie, met de controletotalen die het blok zelf
+opgeeft. Zo'n regel draagt geen rekeningnummer; de tool leidt de rekening af uit
+de verwijzing naar de beginbalans of naar de grootboekboeking en laat zien hoe
+dat is gegaan. Leidt de verwijzing nergens heen of is zij niet eenduidig, dan
+blijft de rekening leeg in plaats van dat er een wordt gekozen.
+
 Openstaande posten met een ouderdom zijn niet principieel onmogelijk uit een
-auditfile, maar hangen aan de versie en aan het boekhoudpakket. XAF 3.2 heeft een
-optionele subadministratie (`obSbLine` en `sbLine`) met factuurdatum, vervaldatum
-en afletterkenmerk; die leest de tool nog niet. XAF 4.0 heeft die blokken
-geschrapt en geeft per relatie een openstaand bedrag bij begin en einde van het
-boekjaar (`opBalDesc`/`clBalDesc`); dat is een eindstand, geen factuurlijst en
-geen ouderdom. Let op: `settDate` in 4.0 is géén vervaldatum maar de leverdatum,
+auditfile, maar hangen aan de versie en aan het boekhoudpakket. De
+subadministratie van XAF 3.2 is de enige plek met een echte vervaldatum, en zij
+is optioneel: in de beschikbare 3.2-bestanden is zij leeg. XAF 4.0 heeft die
+blokken geschrapt en geeft per relatie een openstaand bedrag bij begin en einde
+van het boekjaar (`opBalDesc`/`clBalDesc`); dat is een eindstand, geen
+factuurlijst en geen ouderdom. Let op: `settDate` in 4.0 is géén vervaldatum maar de leverdatum,
 `effDate` is de mutatiedatum in 3.2 en de factuurdatum in 4.0, en `opBalDesc` is
 in 3.2 een omschrijving van de grootboekbeginbalans en pas in 4.0 een bedrag per
 relatie. Zie `ROADMAP.md` en `docs/xaf-velden.md`.

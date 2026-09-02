@@ -64,6 +64,60 @@ RELATION_COLUMNS = [
     "openstaand_eind",
 ]
 
+# Kolommen van de subadministratie van XAF 3.2: de openstaande posten bij het
+# begin van het boekjaar (obSbLine) en de mutaties daarin (sbLine). Beide
+# blokken staan in één tabel, want ze delen bijna al hun velden en de
+# openstaande post is pas te bepalen uit begin plus verloop. De kolom "bron"
+# houdt ze onderscheiden.
+#
+# Geen van beide regelsoorten heeft een eigen rekeningnummer. De rekening volgt
+# uit een verwijzing: obSbLine draagt obLineNr naar een regel van de beginbalans,
+# sbLine draagt jrnID, trNr en trLineNr naar een grootboekboeking. De parser lost
+# die verwijzing op en legt in "koppeling" vast hoe dat is gegaan, zodat een
+# regel zonder rekening zichtbaar niet gekoppeld is in plaats van stil op nul te
+# staan.
+SUBADMINISTRATIE_COLUMNS = [
+    "bron",
+    "sb_index",
+    "sbType",
+    "sbDesc",
+    "sb_nr",
+    "rekening",
+    "koppeling",
+    "obLineNr",
+    "jrnID",
+    "trNr",
+    "trLineNr",
+    "custSupID",
+    "invRef",
+    "invTp",
+    "invPurSalTp",
+    "invDt",
+    "invDueDt",
+    "matchKeyID",
+    "mutTp",
+    "omschrijving",
+    "documentreferentie",
+    "amntTp",
+    "bedrag",
+]
+
+# Elke subadministratie geeft zijn eigen controletotalen op. Ze staan naast wat
+# de parser werkelijk heeft gelezen, zodat een onvolledig ingelezen blok opvalt.
+# Het oordeel daarover hoort in integrity.py en niet hier.
+SUBADMINISTRATIE_TOTALEN_COLUMNS = [
+    "bron",
+    "sb_index",
+    "sbType",
+    "sbDesc",
+    "regels_volgens_bestand",
+    "totaal_debet_volgens_bestand",
+    "totaal_credit_volgens_bestand",
+    "regels_gelezen",
+    "totaal_debet_gelezen",
+    "totaal_credit_gelezen",
+]
+
 SALDO_COLUMNS = [
     "rekening",
     "accDesc",
@@ -81,6 +135,26 @@ COMPANY_INFO_COLUMNS = ["Onderdeel", "Waarde"]
 
 def empty_saldo() -> pd.DataFrame:
     return pd.DataFrame(columns=SALDO_COLUMNS)
+
+
+def empty_subadministratie() -> pd.DataFrame:
+    """Een lege subadministratie met de juiste typen.
+
+    De typen worden ook leeg gezet, zodat een analyse op een bestand zonder
+    subadministratie dezelfde kolommen en dezelfde dtypes ziet als op een
+    bestand met. Een lege objectkolom waar een datum wordt verwacht laat een
+    filter stil mislukken.
+    """
+    leeg = pd.DataFrame(columns=SUBADMINISTRATIE_COLUMNS)
+    leeg["sb_index"] = pd.Series(dtype="Int64")
+    for kolom in ("invDt", "invDueDt"):
+        leeg[kolom] = pd.Series(dtype="datetime64[ns]")
+    leeg["bedrag"] = pd.Series(dtype="float64")
+    return leeg
+
+
+def empty_subadministratie_totalen() -> pd.DataFrame:
+    return pd.DataFrame(columns=SUBADMINISTRATIE_TOTALEN_COLUMNS)
 
 
 @dataclass
@@ -118,9 +192,17 @@ class Auditfile:
     # deze vastlegging vóór het opschonen zou de controle op dubbelingen altijd
     # nul vinden en daarmee de indruk wekken dat er geen dubbeling is.
     duplicaten: dict[str, list[str]] = field(default_factory=dict)
-    # Tellingen van gegevensblokken die deze tool nog niet inleest maar die
-    # bepalen wat er aan analyse mogelijk is: de subadministratie van XAF 3.2 en
-    # de openstaande bedragen per relatie van XAF 4.0. Zie capability.py.
+    # De subadministratie van XAF 3.2: openstaande posten bij het begin van het
+    # boekjaar en de mutaties daarin, met de factuurdatum, de vervaldatum en het
+    # afletterkenmerk. Dit is de enige bron in XAF met een echte vervaldatum. Bij
+    # XAF 4.0 zijn deze blokken geschrapt en blijven de tabellen leeg.
+    subadministratie: pd.DataFrame = field(default_factory=empty_subadministratie)
+    subadministratie_totalen: pd.DataFrame = field(
+        default_factory=empty_subadministratie_totalen
+    )
+    # Tellingen van gegevensblokken die deze tool niet als tabel inleest maar die
+    # bepalen wat er aan analyse mogelijk is: de openstaande bedragen per relatie
+    # van XAF 4.0 en de leverdatum. Zie capability.py.
     blokken: dict[str, int] = field(default_factory=dict)
 
     @property

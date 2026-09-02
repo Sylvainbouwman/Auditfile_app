@@ -123,6 +123,22 @@ rekenlogica dus nooit in `app.py`.
   de XAF-versie te vragen; doet ze dat wel, dan staat de kennis op twee plaatsen
   en kan ze uiteenlopen.
 
+  Bij de subadministratie van XAF 3.2 (`obSbLine` en `sbLine`) staat om dezelfde
+  reden juist géén versiecontrole: die elementnamen bestaan in 4.0 niet en zijn
+  dus niet dubbelzinnig, en ze worden bovendien alleen binnen `obSubledgers` en
+  `subledgers` gezocht. Een 4.0-bestand levert daarmee vanzelf een lege tabel op.
+  Waar een versiecontrole nodig is, is dat om een dubbelzinnige tag af te vangen
+  en niet als algemene voorzorg.
+
+- **Een verwijzing is geen rekening** — een subadministratieregel draagt geen
+  `accID`. `obSbLine` verwijst met `obLineNr` naar de beginbalans, `sbLine` met
+  `jrnID`, `trNr` en `trLineNr` naar de grootboekboeking, en alleen `jrnID` is
+  in de XSD als sleutel vastgelegd. De parser lost de verwijzing op en zet in de
+  kolom `koppeling` hoe dat is gegaan. Lost zij niet op, of wijst zij naar
+  verschillende rekeningen, dan blijft de rekening leeg. Vul daar nooit een
+  gok in: een post op de verkeerde rekening aansluiten is erger dan een post die
+  niet aansluit.
+
 ## Data en privacy
 
 - **De repository is publiek.** Er mag dus nooit een XAF, een klantnaam, een

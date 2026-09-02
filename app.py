@@ -1251,6 +1251,53 @@ def pagina_controles(huidig: Auditfile) -> None:
             st.bar_chart(loon.set_index("maand")["loonkosten"], height=220)
 
 
+def toon_subadministratie(huidig: Auditfile) -> None:
+    """De subadministratie van XAF 3.2, zoals zij is ingelezen.
+
+    Alleen zichtbaar wanneer het bestand die blokken vult. Dit is de enige bron
+    in XAF met een echte vervaldatum en daarmee de hardste basis voor een
+    openstaandenanalyse. Die analyse staat er nog niet; wat hier staat is wat er
+    is gelezen, zodat te zien is waarop zij straks rust.
+    """
+    if huidig.subadministratie.empty:
+        return
+
+    kop(
+        "Subadministratie uit het auditfile",
+        "XAF 3.2 kan per openstaande post de factuurdatum, de vervaldatum en het "
+        "afletterkenmerk meegeven, en dit bestand doet dat. De regel zelf draagt geen "
+        "rekeningnummer: dat volgt uit een verwijzing naar de beginbalans of naar de "
+        "grootboekboeking. De kolom Gekoppeld via laat zien hoe die verwijzing is "
+        "opgelost.",
+    )
+
+    niet_gekoppeld = int(
+        (huidig.subadministratie["rekening"].astype(str).str.strip() == "").sum()
+    )
+    if niet_gekoppeld:
+        st.warning(
+            f"{niet_gekoppeld} van de {len(huidig.subadministratie)} regels is niet aan een "
+            "grootboekrekening te koppelen. Die posten zijn niet op het grootboek aan te "
+            "sluiten; de kolom Gekoppeld via geeft de reden."
+        )
+
+    toon_tabel(
+        huidig.subadministratie,
+        hoogte=460,
+        verberg=("sb_index", "sbType", "sbDesc"),
+        leegmelding="Geen subadministratie in dit bestand.",
+    )
+
+    with st.expander("Controletotalen per subadministratie"):
+        st.caption(
+            "Elke subadministratie geeft haar eigen aantal regels en haar eigen debet- en "
+            "credittotaal op. Ze staan hier naast wat er werkelijk is gelezen. Lopen die "
+            "uiteen, dan is het blok onvolledig ingelezen of geeft het bestand een onjuist "
+            "totaal op."
+        )
+        toon_tabel(huidig.subadministratie_totalen, verberg=("sb_index",))
+
+
 def toon_relatiesaldi(huidig: Auditfile) -> None:
     """De openstaande bedragen per relatie uit XAF 4.0, met hun aansluiting.
 
@@ -1321,11 +1368,12 @@ def pagina_relaties(huidig: Auditfile) -> None:
         "van het saldo in dit jaar, zonder het beginsaldo, en dus niet het openstaande "
         "bedrag. Een auditfile kán openstaande posten met een vervaldatum bevatten, maar "
         "alleen in XAF 3.2 en alleen wanneer het boekhoudpakket die subadministratie "
-        "vult; die leest deze tool nog niet. XAF 4.0 heeft die velden geschrapt en geeft "
-        "in plaats daarvan een openstaand bedrag per relatie; dat leest de tool wel, en "
-        "het staat hieronder zodra het bestand het geeft."
+        "vult. XAF 4.0 heeft die velden geschrapt en geeft in plaats daarvan een "
+        "openstaand bedrag per relatie. De tool leest beide, en zodra dit bestand er een "
+        "van geeft staat het hieronder."
     )
 
+    toon_subadministratie(huidig)
     toon_relatiesaldi(huidig)
 
     kop(

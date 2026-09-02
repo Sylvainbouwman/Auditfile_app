@@ -116,10 +116,16 @@ def test_relatiesaldi_van_versie_40_worden_geteld():
     assert af.blokken["relatie_clBalDesc"] == 1
 
 
-def test_zonder_subadministratie_blijven_de_tellingen_nul():
+def test_zonder_subadministratie_blijft_de_tabel_leeg():
+    """Een 3.2-bestand hoeft geen subadministratie te hebben, en meestal heeft het er geen.
+
+    De blokken zijn optioneel. Ze worden sinds ``_parse_subledgers()`` volledig
+    ingelezen, dus de vraag of ze er zijn wordt aan het model gesteld en niet aan
+    een aparte telling; die zou naast het model kunnen gaan lopen.
+    """
     af = _bestand("3.2")
-    for sleutel in ("obSbLine", "sbLine", "obSbLine_invDueDt", "sbLine_invDueDt"):
-        assert af.blokken[sleutel] == 0
+    assert af.subadministratie.empty
+    assert openstaande_posten_niveau(af)[0] == NIVEAU_GEEN
 
 
 # --- Het bewijsniveau -------------------------------------------------------

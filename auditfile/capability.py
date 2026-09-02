@@ -68,6 +68,21 @@ def _pct(deel: float, geheel: float) -> float:
     return float(deel) / float(geheel) * 100.0 if geheel else float("nan")
 
 
+def _subadministratie_gevuld(sub: pd.DataFrame, kolom: str) -> int:
+    """Hoeveel regels van de subadministratie dragen dit gegeven werkelijk?
+
+    Een element dat er staat maar leeg is, telt niet mee: dat is precies de
+    verwarring waar deze laag voor bestaat. Een datumkolom is al omgezet en is
+    dus NaT wanneer het veld ontbrak.
+    """
+    if sub.empty or kolom not in sub.columns:
+        return 0
+    waarden = sub[kolom]
+    if pd.api.types.is_datetime64_any_dtype(waarden):
+        return int(waarden.notna().sum())
+    return int((waarden.astype(str).str.strip() != "").sum())
+
+
 # --- Wat zit er in het bestand? ---------------------------------------------
 
 PROFIEL_COLUMNS = ["gegeven", "aanwezig", "aantal", "dekking_pct", "toelichting"]
@@ -82,6 +97,11 @@ def build_bestandsprofiel(af: Auditfile) -> pd.DataFrame:
     debiteurenregels zegt het alles.
     """
     blokken = af.blokken or {}
+    sub = af.subadministratie
+    sub_regels = len(sub)
+    sub_begin = int((sub["bron"] == "beginbalans").sum()) if sub_regels else 0
+    sub_mutatie = int((sub["bron"] == "mutatie").sum()) if sub_regels else 0
+    sub_gekoppeld = _subadministratie_gevuld(sub, "rekening")
     regels = len(af.lines)
     rekeningen = len(af.accounts)
     met_rgs = int((af.accounts["RGScode"].astype(str).str.strip() != "").sum()) if rekeningen else 0
@@ -153,27 +173,49 @@ def build_bestandsprofiel(af: Auditfile) -> pd.DataFrame:
         },
         {
             "gegeven": "Subadministratie beginbalans (obSbLine, alleen 3.2)",
-            "aantal": blokken.get("obSbLine", 0),
+            "aantal": sub_begin,
             "dekking_pct": float("nan"),
             "toelichting": "Openstaande posten bij het begin van het boekjaar.",
         },
         {
             "gegeven": "Subadministratie mutaties (sbLine, alleen 3.2)",
-            "aantal": blokken.get("sbLine", 0),
+            "aantal": sub_mutatie,
             "dekking_pct": float("nan"),
             "toelichting": "Mutaties in de subadministratie gedurende het boekjaar.",
         },
         {
             "gegeven": "Vervaldatum in de subadministratie (invDueDt)",
-            "aantal": blokken.get("obSbLine_invDueDt", 0) + blokken.get("sbLine_invDueDt", 0),
-            "dekking_pct": float("nan"),
-            "toelichting": "Het enige echte vervaldatumveld in XAF. Bestaat niet in 4.0.",
+            "aantal": _subadministratie_gevuld(sub, "invDueDt"),
+            "dekking_pct": _pct(_subadministratie_gevuld(sub, "invDueDt"), sub_regels),
+            "toelichting": "Het enige echte vervaldatumveld in XAF. Bestaat niet in 4.0. "
+            "De dekking is het aandeel van de subadministratieregels, niet van het bestand.",
+        },
+        {
+            "gegeven": "Factuurdatum in de subadministratie (invDt)",
+            "aantal": _subadministratie_gevuld(sub, "invDt"),
+            "dekking_pct": _pct(_subadministratie_gevuld(sub, "invDt"), sub_regels),
+            "toelichting": "Zonder vervaldatum is dit het vertrekpunt voor de ouderdom.",
         },
         {
             "gegeven": "Afletterkenmerk (matchKeyID)",
-            "aantal": blokken.get("obSbLine_matchKeyID", 0) + blokken.get("sbLine_matchKeyID", 0),
-            "dekking_pct": float("nan"),
+            "aantal": _subadministratie_gevuld(sub, "matchKeyID"),
+            "dekking_pct": _pct(_subadministratie_gevuld(sub, "matchKeyID"), sub_regels),
             "toelichting": "Koppelt betaling aan factuur zonder aanname. Bestaat niet in 4.0.",
+        },
+        {
+            "gegeven": "Relatie in de subadministratie (custSupID)",
+            "aantal": _subadministratie_gevuld(sub, "custSupID"),
+            "dekking_pct": _pct(_subadministratie_gevuld(sub, "custSupID"), sub_regels),
+            "toelichting": "Nodig om een openstaande post aan een debiteur of crediteur "
+            "toe te wijzen.",
+        },
+        {
+            "gegeven": "Subadministratie gekoppeld aan een grootboekrekening",
+            "aantal": sub_gekoppeld,
+            "dekking_pct": _pct(sub_gekoppeld, sub_regels),
+            "toelichting": "Een subadministratieregel draagt geen rekeningnummer; die volgt "
+            "uit obLineNr of uit jrnID, trNr en trLineNr. Lukt dat niet, dan is de post niet "
+            "op het grootboek aan te sluiten.",
         },
         {
             "gegeven": "Openstaand bedrag per relatie (clBalDesc, alleen 4.0)",
@@ -307,8 +349,8 @@ def openstaande_posten_niveau(af: Auditfile) -> tuple[int, str]:
     gegevens werkelijk dragen.
     """
     blokken = af.blokken or {}
-    subadministratie = blokken.get("obSbLine", 0) + blokken.get("sbLine", 0)
-    vervaldatums = blokken.get("obSbLine_invDueDt", 0) + blokken.get("sbLine_invDueDt", 0)
+    subadministratie = len(af.subadministratie)
+    vervaldatums = _subadministratie_gevuld(af.subadministratie, "invDueDt")
     relatiesaldi = blokken.get("relatie_clBalDesc", 0)
 
     if subadministratie and vervaldatums:

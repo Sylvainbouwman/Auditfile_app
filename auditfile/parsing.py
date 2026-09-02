@@ -36,11 +36,15 @@ from .model import (
     LINE_COLUMNS,
     RELATION_COLUMNS,
     SALDO_COLUMNS,
+    SUBADMINISTRATIE_COLUMNS,
+    SUBADMINISTRATIE_TOTALEN_COLUMNS,
     TRANSACTION_COLUMNS,
     VAT_CODE_COLUMNS,
     VAT_LINE_COLUMNS,
     Auditfile,
     ControlTotals,
+    empty_subadministratie,
+    empty_subadministratie_totalen,
 )
 
 MONTHS_NL = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
@@ -296,19 +300,16 @@ def _parse_periods(company: ET.Element | None) -> tuple[pd.DataFrame, list[str]]
 
 # --- Welke gegevensblokken zitten erin? -------------------------------------
 
-# De blokken die deze tool nog niet inleest maar die bepalen wat er aan analyse
-# mogelijk is. Ze worden bij het inlezen geteld, zodat de tool kan zeggen wat een
-# bestand wel en niet toelaat in plaats van een analyse te tonen die op niets
-# rust. Zie ``capability.py`` voor de interpretatie.
+# De blokken die deze tool niet als tabel inleest maar die bepalen wat er aan
+# analyse mogelijk is. Ze worden bij het inlezen geteld, zodat de tool kan zeggen
+# wat een bestand wel en niet toelaat in plaats van een analyse te tonen die op
+# niets rust. Zie ``capability.py`` voor de interpretatie.
+#
+# De subadministratie van XAF 3.2 staat hier niet tussen: die wordt sinds
+# ``_parse_subledgers()`` volledig ingelezen. Ernaast nog een aparte telling
+# houden zou dezelfde kennis op twee plaatsen zetten, waar ze uiteen kan gaan
+# lopen.
 BLOK_TELLERS: tuple[str, ...] = (
-    "obSbLine",
-    "obSbLine_invDt",
-    "obSbLine_invDueDt",
-    "obSbLine_matchKeyID",
-    "sbLine",
-    "sbLine_invDt",
-    "sbLine_invDueDt",
-    "sbLine_matchKeyID",
     "relatie_opBalDesc",
     "relatie_clBalDesc",
     "settDate",
@@ -346,16 +347,9 @@ def _tel_blokken(company: ET.Element | None) -> dict[str, int]:
     if company is None:
         return tellingen
 
-    ob_subledgers = find_descendant(company, "obSubledgers")
-    subledgers = find_descendant(company, "subledgers")
     relaties = find_descendant(company, "customersSuppliers")
     transacties = find_descendant(company, "transactions")
 
-    tellingen["obSbLine"] = _tel_elementen(ob_subledgers, "obSbLine")
-    tellingen["sbLine"] = _tel_elementen(subledgers, "sbLine")
-    for veld in ("invDt", "invDueDt", "matchKeyID"):
-        tellingen[f"obSbLine_{veld}"] = _tel_elementen(ob_subledgers, veld, gevuld=True)
-        tellingen[f"sbLine_{veld}"] = _tel_elementen(subledgers, veld, gevuld=True)
     tellingen["relatie_opBalDesc"] = _tel_elementen(relaties, "opBalDesc", gevuld=True)
     tellingen["relatie_clBalDesc"] = _tel_elementen(relaties, "clBalDesc", gevuld=True)
     tellingen["settDate"] = _tel_elementen(transacties, "settDate", gevuld=True)
@@ -417,6 +411,220 @@ def _parse_lines(company: ET.Element | None) -> tuple[pd.DataFrame, ControlTotal
                 rows.append({**transaction_info, **line_info})
 
     return pd.DataFrame(rows), _control_totals(transactions)
+
+
+# --- Subadministratie (alleen XAF 3.2) --------------------------------------
+
+# Per blok: de naam die in de kolom ``bron`` komt, het omvattende element, het
+# element per subadministratie en het element per regel.
+SUBADMINISTRATIE_BLOKKEN: tuple[tuple[str, str, str, str], ...] = (
+    ("beginbalans", "obSubledgers", "obSubledger", "obSbLine"),
+    ("mutatie", "subledgers", "subledger", "sbLine"),
+)
+
+# De tekstvelden van een subadministratieregel die deze tool overneemt, met de
+# naam in het model erachter waar die afwijkt. Wat de XSD verder toestaat
+# (costID, prodID, projID, artGrpID, qntityID, qntity, recRef en bij sbLine een
+# eigen vat- en currency-blok) blijft buiten het model: die velden gaan over
+# kostenplaatsen, projecten en voorraad, niet over openstaande posten, en de
+# btw-analyse werkt op de grootboekregels.
+SUBADMINISTRATIE_VELDEN: tuple[tuple[str, str], ...] = (
+    ("custSupID", "custSupID"),
+    ("invRef", "invRef"),
+    ("invTp", "invTp"),
+    ("invPurSalTp", "invPurSalTp"),
+    ("matchKeyID", "matchKeyID"),
+    ("mutTp", "mutTp"),
+    ("desc", "omschrijving"),
+    ("docRef", "documentreferentie"),
+)
+
+# ``invDt`` is de factuurdatum en ``invDueDt`` de vervaldatum. Dit is de enige
+# plek in XAF met een echte vervaldatum; ``trDt``, ``effDate`` en ``settDate``
+# zijn dat alle drie niet. Zie ``docs/xaf-velden.md``.
+SUBADMINISTRATIE_DATUMVELDEN: tuple[str, ...] = ("invDt", "invDueDt")
+
+NIET_GEKOPPELD = "niet gevonden"
+NIET_EENDUIDIG = "sleutel niet eenduidig"
+
+
+def _rekeningkaart_beginbalans(opening_balance: pd.DataFrame) -> dict[str, set[str]]:
+    """Regelnummer van de beginbalans -> de rekening(en) op dat nummer."""
+    kaart: dict[str, set[str]] = {}
+    if opening_balance.empty or "ob_nr" not in opening_balance.columns:
+        return kaart
+    for nummer, rekening in zip(
+        opening_balance["ob_nr"].astype(str).str.strip(),
+        opening_balance["ob_accID"].astype(str).str.strip(),
+    ):
+        kaart.setdefault(nummer, set()).add(rekening)
+    return kaart
+
+
+def _rekeningkaart_boekingen(lines: pd.DataFrame) -> dict[tuple[str, str, str], set[str]]:
+    """Dagboek, transactie en regelnummer -> de rekening(en) op die sleutel.
+
+    Een set en niet een enkele waarde, omdat de sleutel niet gegarandeerd uniek
+    is: het schema legt alleen ``jrnID`` vast en pakketten hergebruiken een
+    transactienummer. Wijzen twee boekingen met dezelfde sleutel naar dezelfde
+    rekening, dan is de uitkomst alsnog eenduidig; wijzen ze naar verschillende
+    rekeningen, dan valt de rekening niet vast te stellen en zegt de tool dat.
+    """
+    kaart: dict[tuple[str, str, str], set[str]] = {}
+    if lines.empty or "line_nr" not in lines.columns:
+        return kaart
+    for dagboek, transactie, regel, rekening in zip(
+        lines["tx_jrnID"].astype(str).str.strip(),
+        lines["tx_nr"].astype(str).str.strip(),
+        lines["line_nr"].astype(str).str.strip(),
+        lines["line_accID"].astype(str).str.strip(),
+    ):
+        kaart.setdefault((dagboek, transactie, regel), set()).add(rekening)
+    return kaart
+
+
+def _koppel_rekening(kaart: dict, sleutel, methode: str) -> tuple[str, str]:
+    """De rekening bij een verwijzing, met de manier waarop die is gevonden."""
+    rekeningen = kaart.get(sleutel)
+    if rekeningen is None:
+        return "", NIET_GEKOPPELD
+    if len(rekeningen) > 1:
+        return "", NIET_EENDUIDIG
+    return next(iter(rekeningen)), methode
+
+
+def _parse_subledgers(
+    company: ET.Element | None,
+    opening_balance: pd.DataFrame,
+    lines: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Lees de subadministratie van XAF 3.2: ``obSbLine`` en ``sbLine``.
+
+    Deze blokken bestaan alleen in XAF 3.2; XAF 4.0 heeft ze geschrapt. Toch
+    staat hier geen versiecontrole, anders dan bij de openstaande bedragen per
+    relatie. Daar was die nodig omdat ``opBalDesc`` in beide versies bestaat en
+    iets anders betekent, dus een omschrijving als bedrag gelezen zou kunnen
+    worden. Hier is niets dubbelzinnig: ``obSubledgers`` en ``subledgers`` komen
+    in 4.0 niet voor, en de regels worden bovendien alleen binnen die twee
+    deelbomen gezocht. Een 4.0-bestand levert daarmee een lege tabel op zonder
+    dat de versie hoeft te worden bevraagd.
+
+    De rekening staat niet op de regel zelf. ``obSbLine`` draagt ``obLineNr``,
+    het regelnummer van de beginbalans, en ``sbLine`` draagt ``jrnID``, ``trNr``
+    en ``trLineNr`` naar de grootboekboeking. Beide verwijzingen worden hier
+    opgelost; lukt dat niet, dan blijft de rekening leeg en staat in
+    ``koppeling`` waarom.
+
+    Naast de regels komen de controletotalen mee die elke subadministratie zelf
+    opgeeft, met ernaast wat er werkelijk is gelezen. Het oordeel over een
+    verschil hoort in ``integrity.py`` en niet hier.
+    """
+    beginbalans = _rekeningkaart_beginbalans(opening_balance)
+    boekingen = _rekeningkaart_boekingen(lines)
+
+    regels: list[dict] = []
+    totalen: list[dict] = []
+    for bron, bloknaam, subnaam, lijnnaam in SUBADMINISTRATIE_BLOKKEN:
+        blok = find_descendant(company, bloknaam)
+        if blok is None:
+            continue
+        index = 0
+        for subledger in blok:
+            if local_name(subledger.tag) != subnaam:
+                continue
+            index += 1
+            kop = child_texts(subledger)
+            gelezen = 0
+            debet = 0.0
+            credit = 0.0
+            for lijn in subledger:
+                if local_name(lijn.tag) != lijnnaam:
+                    continue
+                waarden = child_texts(lijn)
+                soort = str(waarden.get("amntTp", "")).strip().upper()
+                bedrag = signed_amount(waarden.get("amnt"), soort)
+                # De zijde volgt uit amntTp en een negatief bedrag verlaagt het
+                # totaal van de eigen zijde, net zoals bij de grootboekregels en
+                # zoals de controletotalen in het bestand zelf zijn opgebouwd.
+                if soort == "C":
+                    credit -= bedrag
+                else:
+                    debet += bedrag
+                gelezen += 1
+
+                if bron == "beginbalans":
+                    rekening, koppeling = _koppel_rekening(
+                        beginbalans, str(waarden.get("obLineNr", "")).strip(), "obLineNr"
+                    )
+                else:
+                    rekening, koppeling = _koppel_rekening(
+                        boekingen,
+                        tuple(
+                            str(waarden.get(veld, "")).strip()
+                            for veld in ("jrnID", "trNr", "trLineNr")
+                        ),
+                        "jrnID/trNr/trLineNr",
+                    )
+
+                rij = {
+                    "bron": bron,
+                    "sb_index": index,
+                    "sbType": kop.get("sbType", ""),
+                    "sbDesc": kop.get("sbDesc", ""),
+                    "sb_nr": str(waarden.get("nr", "")).strip(),
+                    "rekening": rekening,
+                    "koppeling": koppeling,
+                    "amntTp": soort,
+                    "bedrag": bedrag,
+                }
+                for veld in ("obLineNr", "jrnID", "trNr", "trLineNr"):
+                    rij[veld] = str(waarden.get(veld, "")).strip()
+                for brontag, kolom in SUBADMINISTRATIE_VELDEN:
+                    rij[kolom] = str(waarden.get(brontag, "")).strip()
+                for veld in SUBADMINISTRATIE_DATUMVELDEN:
+                    rij[veld] = str(waarden.get(veld, "")).strip()
+                regels.append(rij)
+
+            totalen.append(
+                {
+                    "bron": bron,
+                    "sb_index": index,
+                    "sbType": kop.get("sbType", ""),
+                    "sbDesc": kop.get("sbDesc", ""),
+                    "regels_volgens_bestand": kop.get("linesCount", ""),
+                    "totaal_debet_volgens_bestand": kop.get("totalDebit", ""),
+                    "totaal_credit_volgens_bestand": kop.get("totalCredit", ""),
+                    "regels_gelezen": gelezen,
+                    "totaal_debet_gelezen": debet,
+                    "totaal_credit_gelezen": credit,
+                }
+            )
+
+    if regels:
+        sub = ensure_columns(pd.DataFrame(regels), SUBADMINISTRATIE_COLUMNS)
+        for kolom in SUBADMINISTRATIE_DATUMVELDEN:
+            sub[kolom] = pd.to_datetime(sub[kolom], errors="coerce", format="ISO8601")
+        sub["sb_index"] = pd.to_numeric(sub["sb_index"], errors="coerce").astype("Int64")
+        sub = sub[SUBADMINISTRATIE_COLUMNS].reset_index(drop=True)
+    else:
+        sub = empty_subadministratie()
+
+    if totalen:
+        sub_totalen = ensure_columns(pd.DataFrame(totalen), SUBADMINISTRATIE_TOTALEN_COLUMNS)
+        # Een ontbrekend of onleesbaar controletotaal wordt NaN en geen nul: zo is
+        # zichtbaar dat het totaal er niet staat in plaats van dat het bestand
+        # nul zou opgeven.
+        for kolom in (
+            "regels_volgens_bestand",
+            "totaal_debet_volgens_bestand",
+            "totaal_credit_volgens_bestand",
+        ):
+            sub_totalen[kolom] = pd.to_numeric(sub_totalen[kolom], errors="coerce")
+        sub_totalen = sub_totalen[SUBADMINISTRATIE_TOTALEN_COLUMNS].reset_index(drop=True)
+    else:
+        sub_totalen = empty_subadministratie_totalen()
+
+    return sub, sub_totalen
 
 
 def _build_saldo(
@@ -522,6 +730,11 @@ def parse_auditfile(file_name: str, file_bytes: bytes) -> Auditfile:
         if "accID" in lines.columns:
             lines = lines.drop(columns=["accID"])
 
+    # Na het normaliseren van de boekingsregels, want de subadministratie
+    # verwijst ernaar om haar rekening te vinden.
+    subadministratie, subadministratie_totalen = _parse_subledgers(
+        company, opening_balance, lines
+    )
     saldo = _build_saldo(accounts, opening_balance, lines)
 
     return Auditfile(
@@ -539,6 +752,8 @@ def parse_auditfile(file_name: str, file_bytes: bytes) -> Auditfile:
         periods=periods,
         opening_totals=opening_totals,
         transaction_totals=transaction_totals,
+        subadministratie=subadministratie,
+        subadministratie_totalen=subadministratie_totalen,
         duplicaten=duplicaten,
         blokken=blokken,
     )
