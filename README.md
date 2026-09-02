@@ -48,8 +48,12 @@ ongebruikelijke boekingen (weekend, ronde bedragen, grote memoriaalposten in de
 laatste periode, omzet aan de verkeerde kant), staan balansposten aan de
 verwachte kant, en hoe verlopen omzet en loonkosten per periode.
 
-**Relaties.** Grootste debiteuren en crediteuren met concentratierisico, op basis
-van de relatiegegevens in het auditfile.
+**Relaties.** Wat er per relatie in het boekjaar is gefactureerd en afgewikkeld
+op de debiteuren- en crediteurenrekeningen, inclusief btw, met de concentratie
+over de grootste relaties. Dit is geen omzet en geen openstaande-postenlijst: een
+auditfile bevat geen ouderdom, geen vervaldatum en geen aansluiting op de
+subadministratie. De netto mutatie is de verandering van het saldo in dit jaar,
+zonder beginsaldo, en dus niet het openstaande bedrag.
 
 **Fiscale signalen.** Posten die om een beoordeling vragen: boetes en
 dwangsommen, juridische kosten, representatie en horeca, rekening-courant met de

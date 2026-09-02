@@ -77,9 +77,10 @@ Output per categorie: X/12 maanden ✅ ⚠️ ❌
 - Indeling: 0-30 / 31-60 / 61-90 / >90 dagen
 
 ### Debiteurenscan
-- Top 10 debiteuren
-- Concentratierisico
-- Oude openstaande posten
+- Grootste debiteuren naar gefactureerd bedrag (gereed)
+- Concentratierisico (gereed)
+- Oude openstaande posten — vereist de ouderdomsanalyse hierboven; de huidige
+  analyse gaat over mutaties in het boekjaar, niet over openstaande posten
 
 ### Crediteurenscan
 - Achterstallige betalingen

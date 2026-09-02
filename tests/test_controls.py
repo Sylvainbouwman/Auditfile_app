@@ -22,6 +22,7 @@ from auditfile.demo import (
     AuditfileSpec,
     Journal,
     Line,
+    OpeningLine,
     Relation,
     Transaction,
     build_xaf,
@@ -381,3 +382,105 @@ def test_rgs_code_blijft_beslissend_waar_hij_staat():
     af = parse_auditfile("gedeeltelijk.xaf", build_xaf(_gedeeltelijk_gecodeerd()))
     masker, _ = _selecteer(af.lines, "WOmz", r"omzet|opbrengst")
     assert "1800" not in set(af.lines.loc[masker, "line_accID"])
+
+
+def _relatiebestand():
+    """Eén debiteur die factureert en deels betaalt, plus een crediteur.
+
+    De debiteurenrekening heeft een beginsaldo, zodat het verschil tussen de
+    netto mutatie en het openstaande saldo zichtbaar is.
+    """
+    return AuditfileSpec(
+        accounts=[
+            Account("1100", "Bank", "B", "BLimBan"),
+            Account("1300", "Debiteuren", "B", "BVorDeb"),
+            Account("1600", "Crediteuren", "B", "BSchCre"),
+            Account("4000", "Kosten", "P", "WBedAlg"),
+            Account("8000", "Omzet", "P", "WOmzNeh"),
+        ],
+        relations=[Relation("D001", "Afnemer Alfa BV", "C"), Relation("C001", "Leverancier Beta BV", "S")],
+        opening_lines=[OpeningLine("1300", "5000.00", "D"), OpeningLine("1600", "5000.00", "C")],
+        journals=[
+            Journal(
+                "VRK",
+                "Verkoopboek",
+                [
+                    Transaction(
+                        "V1",
+                        "2025-01-31",
+                        1,
+                        [
+                            Line("1300", "1000.00", "D", custSupID="D001"),
+                            Line("8000", "1000.00", "C"),
+                        ],
+                    ),
+                    Transaction(
+                        "V2",
+                        "2025-02-28",
+                        2,
+                        [
+                            Line("1100", "400.00", "D"),
+                            Line("1300", "400.00", "C", custSupID="D001"),
+                        ],
+                    ),
+                ],
+            ),
+            Journal(
+                "INK",
+                "Inkoopboek",
+                [
+                    Transaction(
+                        "I1",
+                        "2025-03-31",
+                        3,
+                        [
+                            Line("4000", "700.00", "D"),
+                            Line("1600", "700.00", "C", custSupID="C001"),
+                        ],
+                    )
+                ],
+            ),
+        ],
+    )
+
+
+def test_relatieanalyse_scheidt_factureren_van_afwikkelen():
+    """Een klant die betaalt mag niet uit het overzicht verdwijnen.
+
+    De netto mutatie van deze debiteur is 600, maar er is voor 1.000
+    gefactureerd. Op de netto mutatie afgaan zou de omvang van de relatie
+    onderschatten, en bij volledige betaling zelfs op nul uitkomen.
+    """
+    af = parse_auditfile("relaties.xaf", build_xaf(_relatiebestand()))
+    debiteuren = build_relatie_analyse(af, "debiteur").set_index("relatie")
+
+    assert round(debiteuren.loc["D001", "gefactureerd"], 2) == 1000.00
+    assert round(debiteuren.loc["D001", "afgewikkeld"], 2) == 400.00
+    assert round(debiteuren.loc["D001", "netto_mutatie"], 2) == 600.00
+
+
+def test_netto_mutatie_is_niet_het_openstaande_saldo():
+    """Het beginsaldo zit er niet in; dat moet uit de kolomnaam blijken.
+
+    Het eindsaldo van de debiteurenrekening is 5.600, de netto mutatie 600. De
+    analyse claimt dus geen openstaande post.
+    """
+    af = parse_auditfile("relaties.xaf", build_xaf(_relatiebestand()))
+    eindsaldo = float(af.saldo.loc[af.saldo["rekening"] == "1300", "eindsaldo"].iloc[0])
+    netto = float(build_relatie_analyse(af, "debiteur").iloc[0]["netto_mutatie"])
+
+    assert round(eindsaldo, 2) == 5600.00
+    assert round(netto, 2) == 600.00
+    assert "openstaand" not in " ".join(build_relatie_analyse(af, "debiteur").columns)
+
+
+def test_relatieanalyse_kijkt_alleen_naar_de_relatierekeningen():
+    """Alleen de debiteurenrekening telt mee, niet elke balansrekening."""
+    af = parse_auditfile("relaties.xaf", build_xaf(_relatiebestand()))
+    debiteuren = build_relatie_analyse(af, "debiteur")
+    crediteuren = build_relatie_analyse(af, "crediteur")
+
+    assert debiteuren.iloc[0]["methode"] == "RGS-code (debiteurenrekening)"
+    assert list(debiteuren["relatie"]) == ["D001"]
+    assert list(crediteuren["relatie"]) == ["C001"]
+    assert round(crediteuren.iloc[0]["gefactureerd"], 2) == 700.00

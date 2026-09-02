@@ -952,19 +952,31 @@ def pagina_relaties(huidig: Auditfile) -> None:
         st.info("Dit auditfile bevat geen debiteuren- en crediteurengegevens.")
         return
 
-    kop("Concentratie", "Hoe afhankelijk is de onderneming van enkele relaties?")
+    st.info(
+        "Wat hier staat is wat er in dit boekjaar per relatie is gefactureerd en "
+        "afgewikkeld op de debiteuren- en crediteurenrekeningen, inclusief btw. Het is "
+        "geen omzet en geen openstaande-postenlijst: een auditfile bevat geen ouderdom, "
+        "geen vervaldatum en geen aansluiting op de subadministratie. De netto mutatie "
+        "is de verandering van het saldo in dit jaar, zonder het beginsaldo, en dus niet "
+        "het openstaande bedrag."
+    )
+
+    kop(
+        "Concentratie",
+        "Hoe groot is het aandeel van de grootste relaties in het gefactureerde bedrag?",
+    )
     toon_tabel(controls.build_relatie_concentratie(huidig), kleur_op="signaal")
 
     links, rechts = st.columns(2)
     with links:
-        kop("Grootste debiteuren")
+        kop("Debiteuren met het hoogste gefactureerde bedrag")
         toon_tabel(
             controls.build_relatie_analyse(huidig, "debiteur"),
             hoogte=460,
             leegmelding="Geen debiteuren gevonden.",
         )
     with rechts:
-        kop("Grootste crediteuren")
+        kop("Crediteuren met het hoogste gefactureerde bedrag")
         toon_tabel(
             controls.build_relatie_analyse(huidig, "crediteur"),
             hoogte=460,

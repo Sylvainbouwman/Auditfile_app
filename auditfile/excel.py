@@ -32,6 +32,8 @@ BEDRAG_FRAGMENTEN = (
     "loonkosten",
     "afwijking",
     "gemiddeld",
+    "gefactureerd",
+    "afgewikkeld",
 )
 PERCENTAGE_FRAGMENTEN = ("pct", "percentage", "aandeel", "tarief")
 
@@ -190,8 +192,8 @@ def bouw_werkbladen(
         "Fiscale signalen": controls.build_fiscale_signalen(huidig),
         "Omzet per periode": controls.build_omzet_per_periode(huidig),
         "Loonkosten per periode": controls.build_personeelskosten_per_periode(huidig),
-        "Debiteuren": controls.build_relatie_analyse(huidig, "debiteur", top=100),
-        "Crediteuren": controls.build_relatie_analyse(huidig, "crediteur", top=100),
+        "Debiteuren gefactureerd": controls.build_relatie_analyse(huidig, "debiteur", top=100),
+        "Crediteuren gefactureerd": controls.build_relatie_analyse(huidig, "crediteur", top=100),
     }
 
 

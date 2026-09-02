@@ -414,63 +414,123 @@ def build_ongebruikelijke_boekingen(af: Auditfile, drempel_rond_bedrag: float = 
 
 # --- Relaties: debiteuren en crediteuren ------------------------------------
 
+# Zo worden de debiteuren- en crediteurenrekeningen aangewezen. BVor en BSch
+# omvatten alle vorderingen en schulden, dus de specifiekere codes gaan voor.
+RELATIEREKENINGEN: dict[str, tuple[str, str]] = {
+    "debiteur": ("BVorDeb", r"debiteur|vordering.*handel|accounts receivable"),
+    "crediteur": ("BSchCre", r"crediteur|leverancier|accounts payable"),
+}
+
+RELATIE_COLUMNS = [
+    "relatie",
+    "naam",
+    "soort",
+    "methode",
+    "aantal_regels",
+    "gefactureerd",
+    "afgewikkeld",
+    "netto_mutatie",
+    "aandeel_pct",
+]
+
 
 def build_relatie_analyse(af: Auditfile, soort: str = "debiteur", top: int = 20) -> pd.DataFrame:
-    """Omzet of inkoop per relatie, met concentratie.
+    """Wat er in het boekjaar per relatie is gefactureerd en afgewikkeld.
 
-    Gebruikt ``custSupID`` op de boekingsregel; die staat in de auditfile maar
-    bleef tot nu toe ongebruikt.
+    Dit is geen openstaande-postenlijst en geen omzet. Een auditfile bevat geen
+    ouderdom, geen vervaldatum en geen aansluiting op de subadministratie; wat
+    er wél in staat is het ``custSupID`` op de boekingsregel. Daarmee is per
+    relatie te zien:
+
+    ``gefactureerd``
+        de factuurzijde van de mutaties op de debiteuren- respectievelijk
+        crediteurenrekening: debet bij een debiteur, credit bij een crediteur.
+        Inclusief btw, want dat staat op die rekening. Dit is de maatstaf voor
+        concentratie: een grote klant die netjes betaalt zou anders wegvallen.
+    ``afgewikkeld``
+        de andere zijde: ontvangsten, betalingen en creditnota's.
+    ``netto_mutatie``
+        het verschil, dus de verandering van het saldo in dit boekjaar. Let op:
+        dit is niet het openstaande saldo, want het beginsaldo zit er niet in.
+
+    De rekeningen worden aangewezen op RGS-code met de omschrijving als
+    terugval. Levert dat niets op, dan vallen alle balansrekeningen met een
+    relatie-id terug in de selectie; de kolom ``methode`` zegt welke van de twee
+    is gebruikt, zodat de uitkomst navolgbaar blijft.
     """
-    kolommen = ["relatie", "naam", "soort", "aantal_regels", "bedrag", "aandeel_pct"]
     lines = af.lines
-    if lines.empty or (lines["line_custSupID"] == "").all():
-        return pd.DataFrame(columns=kolommen)
+    if lines.empty or "line_custSupID" not in lines.columns:
+        return pd.DataFrame(columns=RELATIE_COLUMNS)
+    if (lines["line_custSupID"] == "").all():
+        return pd.DataFrame(columns=RELATIE_COLUMNS)
 
-    met_relatie = lines[lines["line_custSupID"] != ""].copy()
-    is_balans = met_relatie["accTp"].astype(str).str.upper().eq("B")
-    met_relatie = met_relatie[is_balans]
+    rgs_prefix, patroon = RELATIEREKENINGEN.get(soort, (None, None))
+    op_rekening, methode = _selecteer(lines, rgs_prefix, patroon, rekeningtype="B")
+    if not op_rekening.any():
+        op_rekening = lines["accTp"].astype(str).str.upper().eq("B")
+        methode = "alle balansrekeningen"
+    else:
+        methode = f"{methode} ({soort}enrekening)"
+
+    met_relatie = lines[op_rekening & (lines["line_custSupID"] != "")].copy()
     if met_relatie.empty:
-        return pd.DataFrame(columns=kolommen)
+        return pd.DataFrame(columns=RELATIE_COLUMNS)
+
+    # Bij een debiteur is de factuur debet, bij een crediteur credit.
+    teken = 1 if soort == "debiteur" else -1
+    bedrag = met_relatie["bedrag"] * teken
+    met_relatie["factuurzijde"] = bedrag.where(bedrag > 0, 0.0)
+    met_relatie["afwikkelzijde"] = (-bedrag).where(bedrag < 0, 0.0)
+
+    totalen = (
+        met_relatie.groupby("line_custSupID", dropna=False)
+        .agg(
+            aantal_regels=("bedrag", "size"),
+            gefactureerd=("factuurzijde", "sum"),
+            afgewikkeld=("afwikkelzijde", "sum"),
+        )
+        .reset_index()
+        .rename(columns={"line_custSupID": "relatie"})
+    )
+    totalen["netto_mutatie"] = totalen["gefactureerd"] - totalen["afgewikkeld"]
 
     namen = af.relations.set_index("custSupID")["custSupName"].to_dict() if not af.relations.empty else {}
     soorten = af.relations.set_index("custSupID")["custSupTp"].to_dict() if not af.relations.empty else {}
+    totalen["soort"] = totalen["relatie"].map(soorten).fillna("")
 
     # Een relatie wordt in haar geheel als debiteur of crediteur ingedeeld, niet
     # per boekingsregel: een creditnota aan een klant maakt die klant geen
     # leverancier. De soort uit de relatietabel gaat voor; ontbreekt die, dan
-    # geeft het teken van het totaal van de relatie de doorslag.
-    totalen = (
-        met_relatie.groupby("line_custSupID", dropna=False)
-        .agg(aantal_regels=("bedrag", "size"), bedrag=("bedrag", "sum"))
-        .reset_index()
-        .rename(columns={"line_custSupID": "relatie"})
-    )
-    totalen["soort"] = totalen["relatie"].map(soorten).fillna("")
-
+    # geeft de factuurzijde de doorslag.
     def is_gezocht(rij: pd.Series) -> bool:
         soort_code = str(rij["soort"]).strip().upper()
         if soort_code in {"C", "D"}:  # customer respectievelijk debiteur
             return soort == "debiteur"
         if soort_code in {"S", "K"}:  # supplier respectievelijk crediteur
             return soort == "crediteur"
-        return rij["bedrag"] > 0 if soort == "debiteur" else rij["bedrag"] < 0
+        return rij["gefactureerd"] > 0.005
 
     resultaat = totalen[totalen.apply(is_gezocht, axis=1)].copy()
     if resultaat.empty:
-        return pd.DataFrame(columns=kolommen)
-    resultaat["bedrag"] = resultaat["bedrag"].abs()
+        return pd.DataFrame(columns=RELATIE_COLUMNS)
+
     resultaat["naam"] = resultaat["relatie"].map(namen).fillna("")
-    totaal = resultaat["bedrag"].sum()
-    resultaat["aandeel_pct"] = resultaat["bedrag"] / totaal * 100 if totaal else 0.0
+    resultaat["methode"] = methode
+    totaal = resultaat["gefactureerd"].sum()
+    resultaat["aandeel_pct"] = resultaat["gefactureerd"] / totaal * 100 if totaal else 0.0
     return (
-        resultaat.sort_values("bedrag", ascending=False)
-        .head(top)[kolommen]
+        resultaat.sort_values("gefactureerd", ascending=False)
+        .head(top)[RELATIE_COLUMNS]
         .reset_index(drop=True)
     )
 
 
 def build_relatie_concentratie(af: Auditfile) -> pd.DataFrame:
-    """Concentratierisico bij debiteuren en crediteuren."""
+    """Concentratie van het gefactureerde bedrag over de relaties.
+
+    Gaat over wat er in dit boekjaar is gefactureerd, niet over omzet en niet
+    over openstaande posten; zie :func:`build_relatie_analyse`.
+    """
     kolommen = ["soort", "aantal_relaties", "aandeel_grootste", "aandeel_top5", "signaal"]
     rijen = []
     for soort, label in (("debiteur", "Debiteuren"), ("crediteur", "Crediteuren")):
@@ -480,9 +540,12 @@ def build_relatie_concentratie(af: Auditfile) -> pd.DataFrame:
         grootste = float(analyse["aandeel_pct"].iloc[0])
         top5 = float(analyse["aandeel_pct"].head(5).sum())
         if grootste >= 25:
-            signaal = f"Eén relatie is goed voor {grootste:.0f}% van het totaal; beoordeel het afhankelijkheidsrisico."
+            signaal = (
+                f"Eén relatie is goed voor {grootste:.0f}% van het gefactureerde bedrag; "
+                "beoordeel het afhankelijkheidsrisico."
+            )
         elif top5 >= 60:
-            signaal = f"De vijf grootste relaties vormen samen {top5:.0f}% van het totaal."
+            signaal = f"De vijf grootste relaties vormen samen {top5:.0f}% van het gefactureerde bedrag."
         else:
             signaal = ""
         rijen.append(
