@@ -7,6 +7,16 @@ draaien; bij lokale uitvoering blijven de auditfiles op de eigen computer.
 
 ## Wat doet de tool?
 
+**Bevindingen.** Alle controles leveren hun eigen tabel op; op deze pagina staan
+ze in één vorm, gesorteerd op ernst en bedrag. Vier niveaus: kritiek (de cijfers
+zijn zo niet te gebruiken), waarschuwing (afwijking die beoordeling vraagt),
+signaal (iets om naar te kijken) en niet mogelijk (de controle kon niet worden
+uitgevoerd, wat ook een bevinding is). De materialiteit is instelbaar met een
+vast bedrag en een percentage van de omzet; de hoogste van de twee geldt.
+Bevindingen onder de drempel worden gemarkeerd en niet weggelaten, en een
+bevinding zonder bedrag valt nooit onder de drempel. Dit is de lijst waaruit het
+reviewmemorandum kan worden opgebouwd.
+
 **Overzicht.** Een telling van de signalen per categorie, met de pagina waar ze
 staan. Een leeg blok op het overzicht betekende eerder niet dat er niets was: de
 periodieke, balans-, relatie- en fiscale signalen stonden alleen op hun eigen

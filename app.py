@@ -22,8 +22,22 @@ from auditfile.comparison import (
     jaarovergang_sluit_aan,
 )
 from auditfile.excel import build_excel_export, exportnaam
+from auditfile.findings import (
+    SIGNAAL,
+    Materialiteit,
+    grondslag_omzet,
+    samenvatting_per_ernst,
+    verzamel_bevindingen,
+)
 from auditfile.formatting import euro, euro_kort, procent, toon_tabel
-from auditfile.integrity import IN_ORDE, KRITIEK, WAARSCHUWING, controleer_auditfile, samenvatting
+from auditfile.integrity import (
+    IN_ORDE,
+    KRITIEK,
+    NIET_MOGELIJK,
+    WAARSCHUWING,
+    controleer_auditfile,
+    samenvatting,
+)
 from auditfile.model import Auditfile
 from auditfile.parsing import parse_auditfile
 from auditfile.settings import (
@@ -47,6 +61,7 @@ APP_VERSIE = "3.0"
 
 PAGINAS = [
     "Overzicht",
+    "Bevindingen",
     "Bestandscontrole",
     "Jaarvergelijking",
     "Btw",
@@ -303,6 +318,105 @@ def pagina_overzicht(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataF
             signalen[["soort", "signaal", "aantal_regels", "bedrag", "toelichting"]],
             hoogte=320,
         )
+
+
+def huidige_materialiteit(huidig: Auditfile) -> Materialiteit:
+    """De materialiteit zoals de gebruiker die heeft ingesteld."""
+    return Materialiteit(
+        absoluut=float(st.session_state.get("materialiteit_absoluut", 1000.0)),
+        relatief_pct=float(st.session_state.get("materialiteit_pct", 1.0)),
+        grondslag=grondslag_omzet(huidig),
+    )
+
+
+def pagina_bevindingen(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataFrame) -> None:
+    kop(
+        "Alle bevindingen op één plek",
+        "Elke controle levert zijn eigen tabel op; hier staan ze in één vorm, gesorteerd "
+        "op ernst en bedrag. Dit is de lijst waaruit een reviewmemorandum kan worden "
+        "opgebouwd.",
+    )
+
+    grondslag = grondslag_omzet(huidig)
+    links, midden, rechts = st.columns([1, 1, 2])
+    absoluut = links.number_input(
+        "Drempel in euro",
+        min_value=0.0,
+        value=float(st.session_state.get("materialiteit_absoluut", 1000.0)),
+        step=100.0,
+        key="materialiteit_absoluut",
+        help="Bedragen onder deze grens worden gemarkeerd, niet weggelaten.",
+    )
+    relatief = midden.number_input(
+        "Of percentage van de omzet",
+        min_value=0.0,
+        max_value=100.0,
+        value=float(st.session_state.get("materialiteit_pct", 1.0)),
+        step=0.1,
+        key="materialiteit_pct",
+        help="De hoogste van de twee grenzen geldt.",
+    )
+    materialiteit = Materialiteit(absoluut=absoluut, relatief_pct=relatief, grondslag=grondslag)
+    with rechts:
+        st.caption(
+            f"Omzet volgens dit auditfile {euro(grondslag)}, dus {relatief:g}% is "
+            f"{euro(grondslag * relatief / 100)}. De gebruikte drempel is "
+            f"**{euro(materialiteit.drempel)}**. Dit is een werkafspraak van uzelf en geen "
+            "norm uit wet of standaard."
+        )
+
+    bevindingen = verzamel_bevindingen(
+        huidig,
+        vorig,
+        gebruik=vat.pas_mapping_toe(
+            vat.build_vat_usage(huidig), huidige_mapping(), huidige_aftrekbaarheid()
+        ),
+        vergelijking=vergelijking,
+        aangifte=huidige_aangifte(),
+        grondslagen=huidige_grondslagen(),
+        materialiteit=materialiteit,
+    )
+    telling = samenvatting_per_ernst(bevindingen)
+
+    a, b, c, d = st.columns(4)
+    kerncijfer(a, "Kritiek", str(telling[KRITIEK]), "De cijfers zijn zo niet te gebruiken.")
+    kerncijfer(b, "Waarschuwing", str(telling[WAARSCHUWING]), "Afwijking die beoordeling vraagt.")
+    kerncijfer(c, "Signaal", str(telling[SIGNAAL]), "Iets om naar te kijken.")
+    kerncijfer(
+        d,
+        "Niet mogelijk",
+        str(telling[NIET_MOGELIJK]),
+        "Controle kon niet worden uitgevoerd; ook dat hoort in het memorandum.",
+    )
+
+    if bevindingen.empty:
+        st.success("Geen bevindingen. Dat is zeldzaam: controleer of de bestanden kloppen.")
+        return
+
+    alleen_boven = st.checkbox(
+        "Alleen bevindingen boven de drempel",
+        value=False,
+        help="Onder de drempel betekent: het bedrag is kleiner dan de materialiteit. "
+        "Bevindingen zonder bedrag zijn niet te wegen en blijven altijd staan.",
+    )
+    zichtbaar = bevindingen[bevindingen["boven_drempel"]] if alleen_boven else bevindingen
+
+    categorieen = sorted(set(bevindingen["categorie"]))
+    gekozen = st.multiselect("Categorie", categorieen, default=[])
+    if gekozen:
+        zichtbaar = zichtbaar[zichtbaar["categorie"].isin(gekozen)]
+
+    toon_tabel(
+        zichtbaar,
+        kleur_op="ernst",
+        hoogte=560,
+        verberg=("sleutel",),
+        leegmelding="Geen bevindingen binnen deze selectie.",
+    )
+    st.caption(
+        f"{len(zichtbaar)} van de {len(bevindingen)} bevindingen in beeld. "
+        "De kolom Te vinden op wijst de pagina aan met de onderbouwing."
+    )
 
 
 def pagina_bestandscontrole(vorig: Auditfile, huidig: Auditfile) -> None:
@@ -1131,6 +1245,7 @@ def pagina_export(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataFram
                 huidige_aangifte(),
                 huidige_aftrekbaarheid(),
                 huidige_grondslagen(),
+                huidige_materialiteit(huidig),
             )
         st.download_button(
             "Download het werkboek",
@@ -1243,6 +1358,8 @@ def main() -> None:
 
     if pagina == "Overzicht":
         pagina_overzicht(vorig, huidig, vergelijking)
+    elif pagina == "Bevindingen":
+        pagina_bevindingen(vorig, huidig, vergelijking)
     elif pagina == "Bestandscontrole":
         pagina_bestandscontrole(vorig, huidig)
     elif pagina == "Jaarvergelijking":

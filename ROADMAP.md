@@ -170,7 +170,7 @@ Bijgewerkt op 1 september 2026.
 | 5 | RC DGA detectie | Signalering gereed, drempeltoets nog niet |
 | 6 | Suppletiedetectie | Gedeeltelijk: "overige mutaties" in de rondrekening |
 | 7 | Lease- en huurdetectie | Gereed als periodieke controle |
-| 8 | AI-reviewpunten | Gepland |
+| 8 | AI-reviewpunten | Bevindingenlijst en materialiteit gereed; formulering gepland |
 | 9 | Ratio-analyse | Gepland |
 | 10 | Automatisch reviewmemorandum | Toekomst |
 

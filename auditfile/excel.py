@@ -16,6 +16,7 @@ from .comparison import (
     build_rubriek_vergelijking,
     controleer_bestandenpaar,
 )
+from .findings import Materialiteit, grondslag_omzet, verzamel_bevindingen
 from .integrity import controleer_auditfile
 from .model import Auditfile
 
@@ -133,6 +134,7 @@ def bouw_werkbladen(
     aangifte: dict[str, float] | None = None,
     aftrekbaarheid: dict[str, float] | None = None,
     grondslagen: dict[str, float] | None = None,
+    materialiteit: Materialiteit | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Stel alle werkbladen samen die in de export komen."""
     jaar_huidig = _jaarlabel(huidig)
@@ -140,6 +142,16 @@ def bouw_werkbladen(
 
     gebruik = vat.pas_mapping_toe(vat.build_vat_usage(huidig), btw_mapping, aftrekbaarheid)
     rubrieken = vat.build_rubric_summary(gebruik, aangifte, grondslagen)
+    materialiteit = materialiteit or Materialiteit(grondslag=grondslag_omzet(huidig))
+    bevindingen = verzamel_bevindingen(
+        huidig,
+        vorig,
+        gebruik=gebruik,
+        vergelijking=vergelijking,
+        aangifte=aangifte,
+        grondslagen=grondslagen,
+        materialiteit=materialiteit,
+    )
 
     saldo = controls.voeg_rgs_rubriek_toe(huidig.saldo)
     is_balans = saldo["accTp"].astype(str).str.upper().eq("B")
@@ -169,6 +181,7 @@ def bouw_werkbladen(
 
     return {
         "Bedrijfsgegevens": huidig.company_info_frame(),
+        "Bevindingen": bevindingen,
         "Bestandenpaar": controleer_bestandenpaar(vorig, huidig),
         f"Integriteit {jaar_huidig}": controleer_auditfile(huidig),
         f"Integriteit {jaar_vorig}": controleer_auditfile(vorig),
@@ -205,10 +218,18 @@ def build_excel_export(
     aangifte: dict[str, float] | None = None,
     aftrekbaarheid: dict[str, float] | None = None,
     grondslagen: dict[str, float] | None = None,
+    materialiteit: Materialiteit | None = None,
 ) -> bytes:
     """Bouw het Excelbestand met alle werkbladen."""
     werkbladen = bouw_werkbladen(
-        huidig, vorig, vergelijking, btw_mapping, aangifte, aftrekbaarheid, grondslagen
+        huidig,
+        vorig,
+        vergelijking,
+        btw_mapping,
+        aangifte,
+        aftrekbaarheid,
+        grondslagen,
+        materialiteit,
     )
     uitvoer = BytesIO()
     gebruikte_namen: set[str] = set()

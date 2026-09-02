@@ -55,6 +55,7 @@ rekenlogica dus nooit in `app.py`.
 | `excel.py` | Excel-export |
 | `formatting.py` | Presentatie van tabellen in de app |
 | `settings.py` | Lokale opslag van eigen invoer |
+| `findings.py` | Uniform bevindingenmodel, materialiteit en de verzamelaar |
 | `demo.py` | Synthetische auditfiles: demodata én testfixtures |
 
 `inspect_xaf.py` is een losse CLI om een onbekende XAF-structuur te verkennen.
@@ -87,6 +88,14 @@ rekenlogica dus nooit in `app.py`.
   is sorteren en filteren stuk.
 - **Signalen, geen oordelen** — controles benoemen wat er is gezien en wat beoordeeld
   moet worden. Fiscale conclusies horen bij de gebruiker.
+- **Eén bevindingenmodel** — elke controle houdt zijn eigen tabel, want daar horen
+  eigen kolommen bij. Daarboven zet `findings.py` alles om naar één `Bevinding`
+  (categorie, onderwerp, ernst, bedrag, rekening, methode, toelichting, pagina).
+  Komt er een controle bij, voeg die dan toe aan `verzamel_bevindingen()`, anders
+  ontbreekt zij in het reviewmemorandum. Ernst is kritiek, waarschuwing, signaal of
+  niet mogelijk; `in orde` is geen bevinding. Materialiteit markeert een bevinding
+  onder de drempel en laat haar nooit weg, en een bevinding zonder bedrag valt nooit
+  onder de drempel: wat niet te wegen is, mag niet stilzwijgend onbelangrijk worden.
 - **Voorstel is geen vastlegging** — een voorstel van de tool telt mee in de berekening
   omdat er anders niets te zien is, maar heet dan `voorstel` en de uitkomst wordt als
   rekenvoorbeeld gemarkeerd. Vastleggen gebeurt alleen op een handeling van de
