@@ -7,6 +7,11 @@ draaien; bij lokale uitvoering blijven de auditfiles op de eigen computer.
 
 ## Wat doet de tool?
 
+**Overzicht.** Een telling van de signalen per categorie, met de pagina waar ze
+staan. Een leeg blok op het overzicht betekende eerder niet dat er niets was: de
+periodieke, balans-, relatie- en fiscale signalen stonden alleen op hun eigen
+pagina.
+
 **Bestandscontrole.** Eerst de vraag of de twee bestanden bij elkaar horen:
 dezelfde onderneming, dezelfde valuta, aansluitende boekjaren, niet twee keer
 hetzelfde bestand en geen overlappende periodes. Een vergelijking van twee

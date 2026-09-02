@@ -150,6 +150,54 @@ def haal_bestanden_op() -> tuple[tuple[str, bytes], tuple[str, bytes]] | None:
     return (vorig.name, vorig.getvalue()), (huidig.name, huidig.getvalue())
 
 
+SIGNAALCATEGORIEEN: tuple[tuple[str, str], ...] = (
+    ("Btw", "Btw"),
+    ("Boekingen", "Analytische controles"),
+    ("Periodieke lasten", "Analytische controles"),
+    ("Balansposten", "Analytische controles"),
+    ("Omzet per periode", "Analytische controles"),
+    ("Loonkosten per periode", "Analytische controles"),
+    ("Relaties", "Relaties"),
+    ("Fiscaal", "Fiscale signalen"),
+)
+
+
+def tel_signalen(huidig: Auditfile, gebruik: pd.DataFrame) -> pd.DataFrame:
+    """Hoeveel signalen elke categorie oplevert, en waar ze staan.
+
+    Het overzicht toonde alleen de btw-signalen en de ongebruikelijke boekingen.
+    Een leeg blok wekte daardoor de indruk dat er niets was, terwijl de
+    periodieke, balans-, relatie- en fiscale signalen op andere pagina's stonden.
+    Deze telling maakt zichtbaar wat er te beoordelen valt zonder alles op één
+    pagina te dumpen.
+    """
+    periodiek = controls.build_periodieke_controles(huidig)
+    balans = controls.build_balanspost_signalen(huidig)
+    omzet = controls.build_omzet_per_periode(huidig)
+    loon = controls.build_personeelskosten_per_periode(huidig)
+    concentratie = controls.build_relatie_concentratie(huidig)
+
+    aantallen = {
+        "Btw": len(vat.build_vat_anomalies(huidig, gebruik)),
+        "Boekingen": len(controls.build_ongebruikelijke_boekingen(huidig)),
+        "Periodieke lasten": int((periodiek["conclusie"] != "Geen bijzonderheden").sum())
+        if not periodiek.empty
+        else 0,
+        "Balansposten": len(balans),
+        "Omzet per periode": int((omzet["signaal"] != "").sum()) if not omzet.empty else 0,
+        "Loonkosten per periode": int((loon["signaal"] != "").sum()) if not loon.empty else 0,
+        "Relaties": int((concentratie["signaal"] != "").sum()) if not concentratie.empty else 0,
+        "Fiscaal": len(controls.build_fiscale_signalen(huidig)),
+    }
+    return pd.DataFrame(
+        [
+            {"categorie": categorie, "aantal_signalen": aantallen[categorie], "pagina": pagina}
+            for categorie, pagina in SIGNAALCATEGORIEEN
+        ],
+        columns=["categorie", "aantal_signalen", "pagina"],
+    )
+
+
 # --- Pagina's ---------------------------------------------------------------
 
 
@@ -226,7 +274,21 @@ def pagina_overzicht(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataF
         leegmelding="Geen rekeningen die aan beide drempels voldoen.",
     )
 
-    kop("Signalen in één oogopslag")
+    kop(
+        "Signalen per categorie",
+        "Waar valt iets te beoordelen? De categorie wijst de pagina aan waar de "
+        "signalen met hun onderbouwing staan.",
+    )
+    telling = tel_signalen(huidig, gebruik)
+    toon_tabel(telling)
+    if int(telling["aantal_signalen"].sum()) == 0:
+        st.caption("Geen signalen in alle categorieën.")
+
+    kop(
+        "Btw en boekingen in detail",
+        "De twee categorieën die het vaakst tot een correctie leiden. De andere "
+        "categorieën staan op hun eigen pagina.",
+    )
     signalen = pd.concat(
         [
             vat.build_vat_anomalies(huidig, gebruik).assign(soort="Btw"),
@@ -235,7 +297,7 @@ def pagina_overzicht(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataF
         ignore_index=True,
     )
     if signalen.empty:
-        st.caption("Geen signalen gevonden.")
+        st.caption("Geen btw- of boekingssignalen gevonden.")
     else:
         toon_tabel(
             signalen[["soort", "signaal", "aantal_regels", "bedrag", "toelichting"]],
