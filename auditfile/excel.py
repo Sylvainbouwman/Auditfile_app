@@ -20,6 +20,11 @@ from .comparison import (
 from .findings import Materialiteit, grondslag_omzet, pas_review_toe, verzamel_bevindingen
 from .integrity import controleer_auditfile
 from .model import Auditfile
+from .openstaand import (
+    build_openstaand_aansluiting,
+    build_openstaande_posten,
+    build_ouderdom,
+)
 from .relatiesaldi import build_relatiesaldi, build_relatiesaldo_aansluiting
 
 # Kolomnamen waarvan de inhoud als bedrag moet worden opgemaakt.
@@ -219,6 +224,11 @@ def bouw_werkbladen(
         # leeg blad zou de export suggereren dat er niets openstaat.
         "Aansluiting relatiesaldi": build_relatiesaldo_aansluiting(huidig),
         "Openstaand per relatie": build_relatiesaldi(huidig),
+        # Alleen gevuld bij een XAF 3.2 met een subadministratie. Hetzelfde
+        # voorbehoud: een leeg blad is geen lege post.
+        "Aansluiting openstaande posten": build_openstaand_aansluiting(huidig),
+        "Ouderdomsopbouw": build_ouderdom(huidig),
+        "Openstaande posten": build_openstaande_posten(huidig),
     }
 
 

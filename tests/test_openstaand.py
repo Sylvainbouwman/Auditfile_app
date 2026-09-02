@@ -31,6 +31,7 @@ from auditfile.demo import (
     verschuif_boekjaar,
     vul_subadministratie,
 )
+from auditfile.comparison import compare_saldi
 from auditfile.findings import verzamel_bevindingen
 from auditfile.integrity import NIET_MOGELIJK, WAARSCHUWING
 from auditfile.openstaand import (
@@ -484,3 +485,14 @@ def test_een_verschil_met_het_grootboek_wordt_een_waarschuwing():
     assert len(verschil) == 1
     assert verschil.iloc[0]["ernst"] == WAARSCHUWING
     assert verschil.iloc[0]["bedrag"] == pytest.approx(710.0)
+
+
+def test_de_export_bevat_de_openstaande_posten():
+    """Wie het dossier uit Excel leest, hoort de ouderdom er ook in te vinden."""
+    from auditfile.excel import bouw_werkbladen
+
+    af = _demo_32()
+    bladen = bouw_werkbladen(af, af, compare_saldi(af, af))
+    assert not bladen["Openstaande posten"].empty
+    assert not bladen["Ouderdomsopbouw"].empty
+    assert not bladen["Aansluiting openstaande posten"].empty
