@@ -19,8 +19,11 @@ rekeningsoort en verschilbedrag.
 
 **Btw.** Een auditfile bevat geen aangifte, maar wel btw-codes per boekingsregel.
 De tool stelt per code een aangifterubriek voor op grond van de omschrijving, het
-tarief en de debet/creditzijde, en zegt erbij waarop dat voorstel berust. Die
-toewijzing is aanpasbaar en wordt lokaal bewaard. Daarna volgt de optelling per
+tarief en de debet/creditzijde, en zegt erbij waarop dat voorstel berust. Een
+voorstel wordt pas een keuze wanneer je de indeling vastlegt; tot dat moment
+staat er per code "voorstel" en meldt de tool dat de btw-positie een
+rekenvoorbeeld is. Na het vastleggen staat er "geaccepteerd" of "aangepast",
+zodat zichtbaar blijft wie wat heeft bepaald. Daarna volgt de optelling per
 rubriek, de vergelijking met de ingediende aangiften, een rondrekening over de
 btw-grootboekrekeningen en een reeks signalen op regelniveau.
 

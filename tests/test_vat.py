@@ -6,6 +6,9 @@ import pytest
 
 from auditfile.parsing import parse_auditfile
 from auditfile.vat import (
+    AANGEPAST,
+    GEACCEPTEERD,
+    VOORSTEL,
     build_ledger_reconciliation,
     build_rubric_summary,
     build_vat_anomalies,
@@ -15,6 +18,7 @@ from auditfile.vat import (
     build_vat_usage,
     btw_grootboekrekeningen,
     pas_mapping_toe,
+    voorstelstatus,
 )
 from auditfile.vat_rubrics import ONBEKEND, RUBRIEK_CODES
 from auditfile.demo import (
@@ -157,8 +161,39 @@ def test_keuze_van_gebruiker_gaat_voor_op_voorstel(usage):
     toegepast = pas_mapping_toe(usage, {"1": "1c"})
     per_code = toegepast.set_index("btw_code")
     assert per_code.loc["1", "rubriek"] == "1c"
-    assert per_code.loc["1", "rubriek_bron"] == "vastgelegd"
-    assert per_code.loc["2", "rubriek_bron"] == "voorstel"
+    assert per_code.loc["1", "rubriek_bron"] == AANGEPAST
+    assert per_code.loc["2", "rubriek_bron"] == VOORSTEL
+
+
+def test_overgenomen_voorstel_heet_geaccepteerd(usage):
+    """Een vastgelegde keuze die gelijk is aan het voorstel is beoordeeld.
+
+    Zonder dit onderscheid is niet te zien of iemand naar een code heeft
+    gekeken, en gaat een voorstel voor een keuze door.
+    """
+    per_code = usage.set_index("btw_code")
+    voorstel = per_code.loc["1", "rubriek_voorstel"]
+    toegepast = pas_mapping_toe(usage, {"1": voorstel})
+    assert toegepast.set_index("btw_code").loc["1", "rubriek_bron"] == GEACCEPTEERD
+
+
+def test_voorstelstatus_telt_wat_nog_niet_is_beoordeeld(usage):
+    zonder = voorstelstatus(pas_mapping_toe(usage, {}))
+    assert zonder["codes"] == 3
+    assert zonder["voorstellen"] == 3
+    assert zonder["codes_beoordeeld"] == 0
+    assert zonder["btw_op_voorstel"] > 0
+
+    met_een = voorstelstatus(pas_mapping_toe(usage, {"1": "1c"}))
+    assert met_een["voorstellen"] == 2
+    assert met_een["codes_beoordeeld"] == 1
+    # De btw van de beoordeelde code telt niet meer als openstaand voorstel.
+    assert met_een["btw_op_voorstel"] < zonder["btw_op_voorstel"]
+
+
+def test_voorstelstatus_op_een_lege_tabel():
+    leeg = voorstelstatus(pd.DataFrame())
+    assert leeg == {"codes": 0, "voorstellen": 0, "btw_op_voorstel": 0.0, "codes_beoordeeld": 0}
 
 
 def test_aangiftebedragen_zijn_positief_bij_normale_boekingen(usage):

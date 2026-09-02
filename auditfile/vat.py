@@ -52,6 +52,14 @@ GRENS_HOOG_TARIEF = 15.0
 # Rubrieken waarvan de grondslag omzet is; die staat credit in het grootboek.
 OMZETGRONDSLAG = {"1a", "1b", "1c", "1d", "1e", "3a", "3b", "3c"}
 
+# Herkomst van de rubriek per btw-code. Het onderscheid is wezenlijk: een
+# voorstel van de tool is geen keuze van de gebruiker, en een berekening die op
+# voorstellen rust mag niet als vastgestelde btw-positie overkomen. Daarom drie
+# toestanden in plaats van twee.
+VOORSTEL = "voorstel"  # de tool stelt iets voor; niemand heeft ernaar gekeken
+GEACCEPTEERD = "geaccepteerd"  # de gebruiker heeft het voorstel overgenomen
+AANGEPAST = "aangepast"  # de gebruiker heeft een andere rubriek gekozen
+
 
 def grondslag_teken(rubriek_code: str) -> int:
     """Teken om een grootboekgrondslag naar een aangiftegrondslag om te rekenen."""
@@ -218,7 +226,11 @@ def pas_mapping_toe(usage: pd.DataFrame, mapping: dict[str, str] | None = None) 
 
     gekozen = result["btw_code"].astype(str).map(mapping)
     result["rubriek"] = gekozen.where(gekozen.notna(), result["rubriek_voorstel"])
-    result["rubriek_bron"] = np.where(gekozen.notna(), "vastgelegd", "voorstel")
+    result["rubriek_bron"] = np.where(
+        gekozen.isna(),
+        VOORSTEL,
+        np.where(gekozen == result["rubriek_voorstel"], GEACCEPTEERD, AANGEPAST),
+    )
 
     result["grondslag_aangifte"] = [
         grondslag * grondslag_teken(code)
@@ -229,6 +241,27 @@ def pas_mapping_toe(usage: pd.DataFrame, mapping: dict[str, str] | None = None) 
         for btw, code in zip(result["btw_grootboek"], result["rubriek"])
     ]
     return result
+
+
+def voorstelstatus(usage_met_rubriek: pd.DataFrame) -> dict[str, float]:
+    """Hoeveel van de indeling nog op een voorstel van de tool rust.
+
+    Nodig om een btw-positie te kunnen tonen zonder haar als vastgestelde
+    uitkomst te presenteren: zolang er codes op een voorstel staan, is de
+    uitkomst een rekenvoorbeeld en geen beoordeelde aangifte.
+    """
+    leeg = {"codes": 0, "voorstellen": 0, "btw_op_voorstel": 0.0, "codes_beoordeeld": 0}
+    if usage_met_rubriek.empty or "rubriek_bron" not in usage_met_rubriek.columns:
+        return leeg
+    bron = usage_met_rubriek["rubriek_bron"].astype(str)
+    op_voorstel = bron.eq(VOORSTEL)
+    btw = pd.to_numeric(usage_met_rubriek.get("btw_grootboek"), errors="coerce").fillna(0.0)
+    return {
+        "codes": int(len(usage_met_rubriek)),
+        "voorstellen": int(op_voorstel.sum()),
+        "btw_op_voorstel": float(btw[op_voorstel].abs().sum()),
+        "codes_beoordeeld": int((~op_voorstel).sum()),
+    }
 
 
 def build_rubric_summary(usage_met_rubriek: pd.DataFrame, aangifte: dict[str, float] | None = None) -> pd.DataFrame:

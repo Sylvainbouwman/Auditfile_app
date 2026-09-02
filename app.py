@@ -176,6 +176,7 @@ def pagina_overzicht(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataF
         "Btw-positie volgens het auditfile",
         "Verschuldigde btw uit de rubrieken 1 tot en met 4, verminderd met de voorbelasting.",
     )
+    toon_voorstelwaarschuwing(gebruik)
     a, b, c = st.columns(3)
     kerncijfer(a, "Verschuldigde btw", euro_kort(positie["af_te_dragen"]))
     kerncijfer(b, "Voorbelasting", euro_kort(positie["voorbelasting"]))
@@ -290,6 +291,26 @@ def pagina_jaarvergelijking(vorig: Auditfile, huidig: Auditfile, vergelijking: p
 # --- Btw --------------------------------------------------------------------
 
 
+def toon_voorstelwaarschuwing(gebruik: pd.DataFrame, verwijs: bool = True) -> None:
+    """Meld het wanneer de btw-positie nog op voorstellen van de tool rust.
+
+    De tool rekent met haar eigen voorstel zolang de gebruiker niets heeft
+    vastgelegd, anders zou er geen enkel cijfer te zien zijn. Dat mag alleen als
+    er ook staat dat het een voorstel is: een voorstel is geen beoordeling.
+    """
+    status = vat.voorstelstatus(gebruik)
+    if not status["voorstellen"]:
+        return
+    bericht = (
+        f"{status['voorstellen']} van de {status['codes']} btw-codes staan nog op een "
+        f"voorstel van de tool, samen {euro(status['btw_op_voorstel'])} aan btw. De "
+        "uitkomst is daarmee een rekenvoorbeeld en geen beoordeelde btw-positie."
+    )
+    if verwijs:
+        bericht += " Beoordeel de indeling op de pagina Btw en leg die vast."
+    st.warning(bericht)
+
+
 def huidige_mapping() -> dict[str, str]:
     return st.session_state.get("btw_mapping", {})
 
@@ -313,8 +334,8 @@ def pagina_btw(huidig: Auditfile) -> None:
             "Koppel elke btw-code aan een aangifterubriek",
             "Een auditfile bevat geen aangifte. De tool doet een voorstel op grond van de "
             "omschrijving, het tarief en de debet/creditzijde, en zegt erbij waarop dat "
-            "voorstel berust. Pas de rubriek aan waar het voorstel niet klopt; uw keuze "
-            "gaat altijd voor en wordt lokaal bewaard.",
+            "voorstel berust. Pas de rubriek aan waar het voorstel niet klopt en leg de "
+            "indeling daarna vast; tot dat moment blijft het een voorstel van de tool.",
         )
 
         opgeslagen = huidige_mapping()
@@ -327,6 +348,7 @@ def pagina_btw(huidig: Auditfile) -> None:
                 "grondslag_grootboek",
                 "btw_grootboek",
                 "rubriek",
+                "rubriek_bron",
                 "zekerheid",
                 "reden",
             ]
@@ -343,6 +365,7 @@ def pagina_btw(huidig: Auditfile) -> None:
                 "percentages",
                 "grondslag_grootboek",
                 "btw_grootboek",
+                "rubriek_bron",
                 "zekerheid",
                 "reden",
             ],
@@ -356,20 +379,77 @@ def pagina_btw(huidig: Auditfile) -> None:
                 "rubriek": st.column_config.SelectboxColumn(
                     "Aangifterubriek", options=keuzelijst(), required=True, width="small"
                 ),
+                "rubriek_bron": st.column_config.TextColumn(
+                    "Herkomst",
+                    width="small",
+                    help=(
+                        "voorstel: van de tool, nog niet beoordeeld. geaccepteerd: u hebt "
+                        "het voorstel overgenomen. aangepast: u hebt een andere rubriek "
+                        "gekozen."
+                    ),
+                ),
                 "zekerheid": st.column_config.TextColumn("Zekerheid", width="small"),
                 "reden": st.column_config.TextColumn("Waarop het voorstel berust", width="large"),
             },
             key="btw_mapping_editor",
         )
 
+        # De indeling wordt pas bewaard als de gebruiker daarvoor kiest. Zou het
+        # openen van deze pagina de zichtbare voorstellen al vastleggen, dan
+        # gingen ze daarna voor beoordeelde keuzes door.
         nieuwe_mapping = {
             str(code): str(gekozen)
             for code, gekozen in zip(bewerkt["btw_code"], bewerkt["rubriek"])
         }
-        if nieuwe_mapping != opgeslagen:
+        # Twee verschillende dingen die de knop rechtvaardigen, met elk hun eigen
+        # melding: een keuze die van de getoonde indeling afwijkt, en een code
+        # die nog op een voorstel staat. Ze op één hoop gooien zou na het wissen
+        # "wijzigingen open" melden terwijl er niets is gewijzigd.
+        getoond = {
+            str(code): str(waarde)
+            for code, waarde in zip(bewerkbaar["btw_code"], bewerkbaar["rubriek"])
+        }
+        afwijkend = [
+            code for code, keuze in nieuwe_mapping.items() if getoond.get(code) != keuze
+        ]
+        op_voorstel = [code for code in nieuwe_mapping if code not in opgeslagen]
+
+        vastleggen, wissen, melding = st.columns([1, 1, 3])
+        if vastleggen.button(
+            "Indeling vastleggen",
+            type="primary",
+            disabled=not (afwijkend or op_voorstel),
+            help="Legt de rubriek per btw-code vast als uw keuze. Pas daarna telt die mee.",
+        ):
             st.session_state["btw_mapping"] = nieuwe_mapping
             if not save_vat_mapping(nieuwe_mapping):
                 st.warning(f"De koppeling kon niet worden bewaard in {BTW_MAPPING_PATH}.")
+            st.rerun()
+
+        if wissen.button(
+            "Vastlegging wissen",
+            disabled=not opgeslagen,
+            help="Verwijdert uw keuzes, zodat de tabel weer de voorstellen van de tool toont.",
+        ):
+            st.session_state["btw_mapping"] = {}
+            st.session_state.pop("btw_mapping_editor", None)
+            if not save_vat_mapping({}):
+                st.warning(f"De koppeling kon niet worden gewist in {BTW_MAPPING_PATH}.")
+            st.rerun()
+
+        with melding:
+            if afwijkend:
+                st.info(
+                    f"{len(afwijkend)} gewijzigde rubriek(en) zijn nog niet vastgelegd en "
+                    "tellen dus nog niet mee."
+                )
+            elif op_voorstel:
+                st.caption(
+                    f"{len(op_voorstel)} van de {len(nieuwe_mapping)} btw-codes staan nog op "
+                    "een voorstel van de tool. Leg de indeling vast zodra u die hebt beoordeeld."
+                )
+            else:
+                st.caption(f"Alle {len(nieuwe_mapping)} btw-codes zijn beoordeeld en vastgelegd.")
 
         niet_ingedeeld = bewerkt[bewerkt["rubriek"] == ONBEKEND]
         if not niet_ingedeeld.empty:
@@ -411,26 +491,39 @@ def pagina_btw(huidig: Auditfile) -> None:
         if not rubrieken_in_gebruik:
             st.caption("Er zijn nog geen rubrieken met een btw-bedrag toegewezen.")
         else:
+            # Een formulier, geen veld dat zichzelf bewaart. Streamlit voert de
+            # code van alle tabbladen uit bij elke herberekening, dus een veld
+            # dat zijn eigen waarde wegschrijft doet dat ook zonder dat iemand
+            # dit tabblad heeft geopend. Een leeg veld blijft leeg: niet
+            # ingevuld is iets anders dan een aangifte van nul.
             opgeslagen_aangifte = huidige_aangifte()
-            ingevoerd: dict[str, float] = {}
-            kolommen = st.columns(min(4, len(rubrieken_in_gebruik)))
-            for index, code in enumerate(sorted(rubrieken_in_gebruik)):
-                with kolommen[index % len(kolommen)]:
-                    ingevoerd[code] = st.number_input(
-                        f"Rubriek {code}",
-                        value=float(opgeslagen_aangifte.get(code, 0.0)),
-                        step=1.0,
-                        format="%.2f",
-                        help=rubriek(code).omschrijving,
-                        key=f"aangifte_{code}",
-                    )
-            if ingevoerd != opgeslagen_aangifte:
+            with st.form("btw_aangifte"):
+                ingevoerd: dict[str, float] = {}
+                kolommen = st.columns(min(4, len(rubrieken_in_gebruik)))
+                for index, code in enumerate(sorted(rubrieken_in_gebruik)):
+                    with kolommen[index % len(kolommen)]:
+                        bestaand = opgeslagen_aangifte.get(code)
+                        waarde = st.number_input(
+                            f"Rubriek {code}",
+                            value=float(bestaand) if bestaand is not None else None,
+                            step=1.0,
+                            format="%.2f",
+                            placeholder="niet ingevuld",
+                            help=rubriek(code).omschrijving,
+                            key=f"aangifte_{code}",
+                        )
+                        if waarde is not None:
+                            ingevoerd[code] = float(waarde)
+                bewaren = st.form_submit_button("Aangiftebedragen bewaren", type="primary")
+            if bewaren:
                 st.session_state["btw_aangifte"] = ingevoerd
                 if not save_declared_vat(ingevoerd):
                     st.warning(f"De aangiftebedragen konden niet worden bewaard in {BTW_AANGIFTE_PATH}.")
+                st.rerun()
 
         rubrieken = vat.build_rubric_summary(gebruik, huidige_aangifte())
         kop("Aansluiting per rubriek")
+        toon_voorstelwaarschuwing(gebruik, verwijs=False)
         toon_tabel(rubrieken, kleur_op="status")
 
         positie = vat.build_vat_position(rubrieken)
