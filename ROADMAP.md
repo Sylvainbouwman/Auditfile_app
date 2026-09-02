@@ -188,16 +188,62 @@ Bijgewerkt op 1 september 2026.
 
 ### Wat als eerste te doen staat
 
-1. **Ouderdomsanalyse debiteuren en crediteuren.** De relatiegegevens en
-   factuurreferenties zitten in het auditfile, maar de openstaande posten per
-   factuurdatum nog niet afgeleid. Dit is de grootste ontbrekende functie.
-2. **Drempeltoets excessief lenen.** De bedragen per peildatum staan al
+Bijgewerkt op 2 september 2026, na de volledige review en de capability-laag.
+
+1. **XAF 4.0-relatiesaldi inlezen.** `opBalDesc`/`opBalTp` en
+   `clBalDesc`/`clBalTp` per relatie opnemen in het model, met de tekenregel, en
+   aansluiten op de debiteuren- en crediteurenrekening in het grootboek. Klein
+   en correct; levert voor de nu beschikbare bestanden niets op omdat het pakket
+   die velden niet vult, maar wel voor bestanden die dat wel doen.
+2. **XAF 3.2-subadministratie inlezen.** `obSbLine` en `sbLine` als eigen
+   model, met factuurdatum, vervaldatum, afletterkenmerk en de koppeling naar de
+   grootboekboeking. Dit is de enige bron in XAF met een echte vervaldatum.
+3. **Open-posten- en ageing-engine.** Pas bouwen wanneer er een bestand is dat
+   bewijsniveau 1 of 2 haalt; `capability.py` wijst dat aan. Een reconstructie
+   uit boekingsregels op niveau 4 mag alleen met de gebruikte methode en de
+   gemeten dekking in beeld, en met een betalingstermijn die de gebruiker zelf
+   opgeeft.
+4. **Versie-echte fixtures.** Synthetische 3.2-bestanden mét subadministratie en
+   4.0-bestanden mét relatiesaldi, plus gedeeltelijk gevulde exports. Neem ook
+   het officiële testbestand van de Belastingdienst
+   (`XAF_4_0_Test_100425.XAF` uit het productoverzicht 4.0.3) op als
+   conformance-bestand; dat is synthetisch en openbaar, maar vraagt een
+   uitzondering in `.gitignore` omdat `*.XAF` wordt genegeerd.
+5. **Drempeltoets excessief lenen.** De bedragen per peildatum staan al
    geverifieerd in `docs/btw-bronnen.md`; alleen de toets ontbreekt nog.
-3. **Ratio-analyse** (brutomarge, personeelskosten als percentage van de omzet,
+6. **Ratio-analyse** (brutomarge, personeelskosten als percentage van de omzet,
    solvabiliteit, liquiditeit), jaar op jaar.
-4. **Reviewmemorandum**: de signalen uit alle modules samenvoegen tot een
-   document. De bouwstenen liggen er nu; het gaat om de samenvoeging en de
-   formulering.
+7. **Reviewmemorandum als document.** De bouwstenen liggen er: bevindingen met
+   ernst, bedrag, materialiteit en een beoordeling per bevinding. Wat rest is de
+   samenvoeging en de formulering.
+
+### Kleinere punten uit de review die nog openstaan
+
+- **Brede RGS-voorvoegsels.** `BVor` geldt buiten de relatieanalyse nog als
+  debiteuren en `BSch` als crediteuren, terwijl daar meer soorten vorderingen en
+  schulden onder vallen. Hetzelfde geldt voor alle personeelskosten als loon en
+  alle financiële baten en lasten als rente.
+- **Bedragen als float.** De toleranties maken dat werkbaar, maar voor exact
+  reproduceerbare centencontroles zijn `Decimal` of hele centen robuuster.
+- **Geen XSD-validatie.** De parser leest wat er is en zet onleesbare bedragen
+  stil op nul. Een validatie tegen het schema zou een kapot bestand hard
+  afwijzen in plaats van half in te lezen.
+- **Transactiesleutel.** De transactiebalans groepeert op dagboek en
+  transactienummer. Hergebruik van hetzelfde nummer kan twee ongebalanceerde
+  transacties samen laten sluiten.
+
+### Gedeelde XAF-kennis met xaf-export-tool
+
+`xaf-export-tool` (JavaScript, lokale conversie) en deze tool bevatten beide
+XAF-kennis. Besluit van 2 september 2026: **geen derde repository met contracten
+en een hashvergelijkscript.** In plaats daarvan is `docs/xaf-velden.md` in deze
+repository de bron van de veldsemantiek, en verwijst de andere tool daarnaar.
+Beide tools houden hun eigen parser. Wordt de kennis uitgebreid, dan eerst hier
+en daarna bewust in de andere tool.
+
+Al gecorrigeerd in die tool op 2 september 2026: de kolom "Vervaldatum" die met
+`effDate` werd gevuld, en de overgangsdatum die op 1 januari 2026 stond in plaats
+van 2027.
 
 ---
 
