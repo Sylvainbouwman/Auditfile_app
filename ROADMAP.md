@@ -99,19 +99,26 @@ naar de grootboekrekening op en toont ze op de relatiepagina met de
 controletotalen die het blok zelf opgeeft. Zie `docs/xaf-velden.md` voor de
 velden en de valkuilen.
 
-### Ouderdomsanalyse (indien open posten beschikbaar)
-- Vereist niveau 1 of 2: een gevulde XAF 3.2-subadministratie. Die is nu in te
-  lezen, en `demo.py` genereert er een; de capability-laag wijst het niveau aan.
-- Indeling: 0-30 / 31-60 / 61-90 / >90 dagen
+### Open posten en ouderdom (gereed)
+Op niveau 1 of 2 maakt `openstaand.py` van de subadministratieregels posten:
+gegroepeerd op het afletterkenmerk, anders op de factuurreferentie, anders per
+regel. Afgeletterde posten vallen weg. De ouderdom loopt vanaf de vervaldatum en
+anders vanaf de factuurdatum, in de klassen nog niet vervallen / 0-30 / 31-60 /
+61-90 / >90, met een eigen klasse voor een post zonder datum. De opbouw splitst
+op de gebruikte basis, en het totaal wordt tegenover het saldo van de
+debiteuren- en de crediteurenrekening gezet.
 
 ### Debiteurenscan
 - Grootste debiteuren naar gefactureerd bedrag (gereed)
 - Concentratierisico (gereed)
-- Oude openstaande posten — vereist de ouderdomsanalyse hierboven; de huidige
-  analyse gaat over mutaties in het boekjaar, niet over openstaande posten
+- Oude openstaande posten — gereed op niveau 1 of 2, via de ouderdomsanalyse
+  hierboven. De relatieanalyse zelf gaat nog steeds over mutaties in het
+  boekjaar en niet over openstaande posten
 
 ### Crediteurenscan
-- Achterstallige betalingen
+- Achterstallige betalingen — gereed op niveau 1: de crediteurenposten voorbij
+  hun vervaldatum staan in de ouderdomsopbouw. Op niveau 2 is er geen
+  vervaldatum en is alleen de ouderdom vanaf de factuurdatum te geven
 - Leveranciersconcentratie (gereed)
 - Crediteuren met onlogisch debetsaldo — gereed voor bestanden met relatiesaldi;
   zonder die standen is er geen saldo per crediteur om op te toetsen
@@ -205,7 +212,7 @@ Bijgewerkt op 1 september 2026.
 
 ### Wat als eerste te doen staat
 
-Bijgewerkt op 2 september 2026, na de volledige review en de capability-laag.
+Bijgewerkt op 2 september 2026, na de open-posten- en ageing-engine.
 
 1. **XAF 4.0-relatiesaldi inlezen.** Gereed. `opBalDesc`/`opBalTp` en
    `clBalDesc`/`clBalTp` staan getekend in het model als `openstaand_begin` en
@@ -224,12 +231,15 @@ Bijgewerkt op 2 september 2026, na de volledige review en de capability-laag.
    leidt of niet eenduidig is, geeft geen rekening in plaats van een gok. Het
    bewijsniveau in `capability.py` leest deze tabel nu rechtstreeks, dus de
    losse elementtellingen voor de subadministratie zijn vervallen.
-3. **Open-posten- en ageing-engine.** Nu de eerstvolgende stap. `demo.py` levert
-   met `vul_subadministratie()` een synthetisch 3.2-bestand dat bewijsniveau 1
-   haalt, dus de engine is te bouwen en te testen zonder op een klantbestand te
-   wachten. Een reconstructie uit boekingsregels op niveau 4 mag alleen met de
-   gebruikte methode en de gemeten dekking in beeld, en met een betalingstermijn
-   die de gebruiker zelf opgeeft.
+3. **Open-posten- en ageing-engine.** Gereed voor niveau 1 en 2.
+   `openstaand.py` maakt posten van de subadministratieregels, bepaalt de
+   ouderdom op de balansdatum en sluit het totaal aan op het grootboek; de
+   uitkomsten staan op de relatiepagina en in de bevindingen. Wat rest is
+   **niveau 4**: een reconstructie uit boekingsregels, alleen met de gebruikte
+   methode en de gemeten dekking in beeld, en met een betalingstermijn die de
+   gebruiker zelf opgeeft. Voor de nu beschikbare klantbestanden levert die
+   niets op, want daar staat de factuurreferentie vrijwel alleen op de
+   factuurzijde.
 4. **Versie-echte fixtures.** Gedeeltelijk gereed: `vul_subadministratie()`
    levert een 3.2-bestand mét subadministratie en `vul_relatiesaldi()` een
    4.0-bestand mét relatiesaldi. Wat rest zijn gedeeltelijk gevulde exports,

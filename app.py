@@ -10,7 +10,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from auditfile import controls, relatiesaldi, vat
+from auditfile import controls, openstaand, relatiesaldi, vat
 from auditfile.demo import demopaar
 from auditfile.capability import (
     NIVEAU_GEEN,
@@ -1254,21 +1254,19 @@ def pagina_controles(huidig: Auditfile) -> None:
 def toon_subadministratie(huidig: Auditfile) -> None:
     """De subadministratie van XAF 3.2, zoals zij is ingelezen.
 
-    Alleen zichtbaar wanneer het bestand die blokken vult. Dit is de enige bron
-    in XAF met een echte vervaldatum en daarmee de hardste basis voor een
-    openstaandenanalyse. Die analyse staat er nog niet; wat hier staat is wat er
-    is gelezen, zodat te zien is waarop zij straks rust.
+    Alleen zichtbaar wanneer het bestand die blokken vult. Dit zijn de losse
+    regels waaruit de openstaande posten hierboven zijn opgebouwd; ze staan er
+    ongewijzigd bij, zodat na te gaan is waarop die analyse rust.
     """
     if huidig.subadministratie.empty:
         return
 
     kop(
         "Subadministratie uit het auditfile",
-        "XAF 3.2 kan per openstaande post de factuurdatum, de vervaldatum en het "
-        "afletterkenmerk meegeven, en dit bestand doet dat. De regel zelf draagt geen "
-        "rekeningnummer: dat volgt uit een verwijzing naar de beginbalans of naar de "
-        "grootboekboeking. De kolom Gekoppeld via laat zien hoe die verwijzing is "
-        "opgelost.",
+        "De regels zoals ze in het bestand staan, vóór de groepering tot posten. De "
+        "regel zelf draagt geen rekeningnummer: dat volgt uit een verwijzing naar de "
+        "beginbalans of naar de grootboekboeking. De kolom Gekoppeld via laat zien hoe "
+        "die verwijzing is opgelost.",
     )
 
     niet_gekoppeld = int(
@@ -1296,6 +1294,86 @@ def toon_subadministratie(huidig: Auditfile) -> None:
             "totaal op."
         )
         toon_tabel(huidig.subadministratie_totalen, verberg=("sb_index",))
+
+
+def toon_openstaande_posten(huidig: Auditfile) -> None:
+    """De openstaande posten uit de subadministratie, met hun ouderdom.
+
+    Alleen zichtbaar wanneer het bestand een subadministratie heeft; wat een
+    bestand niet toelaat, staat op de Bestandscontrole. De peildatum is de
+    einddatum van het boekjaar en is hier aan te passen, want soms wil de
+    beoordelaar de stand op een andere dag zien. Die keuze blijft in de sessie
+    en wordt nergens weggeschreven.
+    """
+    if not openstaand.heeft_openstaande_posten(huidig):
+        return
+
+    kop(
+        "Openstaande posten en ouderdom",
+        "De subadministratie van XAF 3.2 geeft per post een factuurdatum, een "
+        "vervaldatum en een afletterkenmerk. Daarmee is te bepalen wat er op de "
+        "balansdatum openstond en hoe oud dat is. De regels van de beginbalans en die "
+        "van de mutaties vormen samen een post; de kolom Gegroepeerd op laat zien "
+        "waarop dat is gebeurd.",
+    )
+
+    standaard, herkomst = openstaand.bepaal_peildatum(huidig)
+    if standaard is None:
+        st.warning(
+            "Dit bestand geeft geen einddatum van het boekjaar en geen datum in de "
+            "subadministratie. Zonder peildatum is er geen ouderdom te bepalen; de "
+            "posten staan hieronder wel."
+        )
+        peil = None
+    else:
+        gekozen = st.date_input(
+            "Peildatum",
+            value=standaard.date(),
+            help=f"Standaard de {herkomst}. De ouderdom wordt vanaf deze dag gerekend.",
+            key="openstaand_peildatum",
+        )
+        peil = pd.Timestamp(gekozen)
+        if peil != standaard:
+            st.caption(
+                f"De ouderdom is gerekend op {peil:%d-%m-%Y} in plaats van de {herkomst} "
+                f"({standaard:%d-%m-%Y})."
+            )
+
+    aansluiting = openstaand.build_openstaand_aansluiting(huidig, peil)
+    toon_tabel(aansluiting, kleur_op="signaal")
+    if not aansluiting.empty and (aansluiting["signaal"] == "verschil").any():
+        st.warning(
+            "De openstaande posten sluiten niet aan op het grootboek. Dat hoeft geen "
+            "fout te zijn: op een relatierekening staan boekingen die niet in de "
+            "subadministratie zijn opgenomen, zoals een verzamelboeking of de afboeking "
+            "van een oninbare vordering. Beoordeel het verschil voordat u de lijst "
+            "gebruikt."
+        )
+
+    kop(
+        "Ouderdomsopbouw",
+        "Gesplitst naar de basis van de ouderdom. Dagen na de vervaldatum en dagen na "
+        "de factuurdatum betekenen niet hetzelfde en worden daarom nooit bij elkaar "
+        "opgeteld. Posten zonder beide datums staan in een eigen kolom, zodat de opbouw "
+        "niet gunstiger oogt dan het bestand toelaat.",
+    )
+    toon_tabel(
+        openstaand.build_ouderdom(huidig, peil),
+        leegmelding="Geen openstaande posten op de peildatum.",
+    )
+
+    posten = openstaand.build_openstaande_posten(huidig, peil)
+    kop("Openstaande posten")
+    toon_tabel(
+        posten,
+        hoogte=460,
+        verberg=("bedrag_debet", "bedrag_credit"),
+        leegmelding="Alle posten in de subadministratie zijn afgeletterd.",
+    )
+    st.caption(
+        "Afgeletterde posten staan hier niet: die zijn volledig afgewikkeld. Een bedrag "
+        "is getekend zoals in het grootboek, dus een crediteurenpost staat negatief."
+    )
 
 
 def toon_relatiesaldi(huidig: Auditfile) -> None:
@@ -1373,6 +1451,7 @@ def pagina_relaties(huidig: Auditfile) -> None:
         "van geeft staat het hieronder."
     )
 
+    toon_openstaande_posten(huidig)
     toon_subadministratie(huidig)
     toon_relatiesaldi(huidig)
 

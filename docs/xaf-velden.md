@@ -97,6 +97,25 @@ De XSD schrijft een `sequence` voor, dus de volgorde staat vast. Verplicht zijn
 `invDueDt`, `mutTp`, `costID`, `prodID`, `projID`, `artGrpID`, `qntityID`,
 `qntity`.
 
+### Van regels naar posten
+
+De regels zijn nog geen openstaande posten. `openstaand.py` groepeert ze per
+relatie op het afletterkenmerk `matchKeyID`, anders op de factuurreferentie
+`invRef`, en anders staat de regel op zichzelf. De keuze valt per regel, zodat
+in een gedeeltelijk gevulde subadministratie niet alles zonder afletterkenmerk
+buiten de groepering valt; welke sleutel het is geworden, staat in de kolom
+`sleutelsoort`. Beide blokken tellen samen mee, want de stand van een post is de
+beginstand plus haar verloop, en een post die op nul uitkomt is afgeletterd.
+
+De ouderdom loopt vanaf `invDueDt` en anders vanaf `invDt`; de kolom `basis`
+zegt welke van de twee, en de ouderdomstabel splitst daarop. Dagen na de
+vervaldatum en dagen na de factuurdatum betekenen niet hetzelfde en worden
+daarom nooit bij elkaar opgeteld. Ontbreken beide datums, dan valt de post in de
+klasse `datum onbekend` in plaats van in de laagste klasse. De peildatum is de
+einddatum van het boekjaar: de vraag is hoe de post er op de balansdatum bij
+stond, en de datum van vandaag zou een afgesloten jaar elke dag een ander
+antwoord geven.
+
 `sbLine`: `nr`, `jrnID`, `trNr`, `trLineNr`, daarna dezelfde reeks, met aan het
 eind nog een eigen `vat`-blok (0 tot 99 keer) en een `currency`-blok. Die twee
 blijven buiten het model: de btw-analyse werkt op de grootboekregels, en de
@@ -153,6 +172,11 @@ uit wat er werkelijk is ingelezen en niet uit een aparte telling van elementen:
 | 3 | 4.0 met `clBalDesc` gevuld | eindstand per relatie, geen factuurlijst, geen ouderdom |
 | 4 | grootboekregels met `invRef` en `custSupID` op **beide** zijden | reconstructie; ouderdom vanaf de boekingsdatum, achterstalligheid alleen onder een opgegeven betalingstermijn |
 | 0 | geen van bovenstaande | geen openstaande-postenanalyse |
+
+Niveau 1 en 2 worden uitgevoerd door `auditfile/openstaand.py`: die maakt van de
+subadministratieregels posten, hangt er een ouderdom aan en zet het totaal
+tegenover het saldo van de debiteuren- en de crediteurenrekening. Niveau 3 loopt
+via `relatiesaldi.py`. Niveau 4 is nog niet gebouwd.
 
 Niveau 4 vraagt uitdrukkelijk dat de factuurreferentie ook op de betaling staat.
 Staat zij alleen op de factuur, dan blijft bij salderen per referentie vrijwel

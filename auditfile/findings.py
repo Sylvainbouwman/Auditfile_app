@@ -663,6 +663,122 @@ def _uit_relatiesaldi(af: Auditfile, top: int = 10) -> list[Bevinding]:
     return bevindingen
 
 
+def _uit_openstaande_posten(af: Auditfile, top: int = 10) -> list[Bevinding]:
+    """De openstaande posten uit de subadministratie van XAF 3.2.
+
+    Levert niets zolang het bestand geen subadministratie heeft; dat het niet
+    kan, staat al in ``_uit_capability``. De ouderdom is hier het zwaarste
+    punt: een post die lang over de vervaldatum is, vraagt om een oordeel over
+    de inbaarheid, en een post waarvan de ouderdom niet te bepalen valt vraagt
+    om een oordeel over het bestand.
+    """
+    from .openstaand import (
+        BASIS_VERVALDATUM,
+        KLASSE_ONBEKEND,
+        KLASSE_OUDER_DAN_90,
+        bepaal_peildatum,
+        build_openstaand_aansluiting,
+        build_openstaande_posten,
+        heeft_openstaande_posten,
+    )
+
+    if not heeft_openstaande_posten(af):
+        return []
+
+    peil, herkomst = bepaal_peildatum(af)
+    posten = build_openstaande_posten(af, peil)
+    bevindingen = []
+
+    for _, rij in build_openstaand_aansluiting(af, peil).iterrows():
+        if rij["signaal"] == "verschil":
+            bevindingen.append(
+                Bevinding(
+                    categorie="Openstaande posten",
+                    onderwerp=f"Openstaande posten {rij['soort']}en sluiten niet aan op het grootboek",
+                    ernst=WAARSCHUWING,
+                    toelichting=str(rij["conclusie"]),
+                    bedrag=_getal(rij.get("verschil")),
+                    aantal_regels=_aantal(rij.get("aantal_posten")),
+                    methode=str(rij["methode"]),
+                    pagina="Relaties",
+                )
+            )
+        elif rij["signaal"] == "niet mogelijk" and rij["soort"] == "niet ingedeeld":
+            bevindingen.append(
+                Bevinding(
+                    categorie="Openstaande posten",
+                    onderwerp="Openstaande posten zonder indeling als debiteur of crediteur",
+                    ernst=NIET_MOGELIJK,
+                    toelichting=str(rij["conclusie"]),
+                    bedrag=_getal(rij.get("openstaand")),
+                    aantal_regels=_aantal(rij.get("aantal_posten")),
+                    pagina="Relaties",
+                )
+            )
+
+    if posten.empty:
+        return bevindingen
+
+    oud = posten[posten["ouderdomsklasse"] == KLASSE_OUDER_DAN_90]
+    for soort, groep in oud.groupby("soort", sort=False):
+        vanaf_vervaldatum = int((groep["basis"] == BASIS_VERVALDATUM).sum())
+        bevindingen.append(
+            Bevinding(
+                categorie="Openstaande posten",
+                onderwerp=f"Openstaande posten ouder dan 90 dagen bij de {soort or 'niet ingedeelde'}en",
+                ernst=WAARSCHUWING,
+                toelichting=(
+                    f"{len(groep)} post(en) staan op {herkomst} meer dan 90 dagen open, "
+                    f"waarvan {vanaf_vervaldatum} gerekend vanaf de vervaldatum en de rest "
+                    "vanaf de factuurdatum. Beoordeel de inbaarheid en de noodzaak van een "
+                    "voorziening."
+                ),
+                bedrag=float(groep["openstaand"].sum()),
+                aantal_regels=len(groep),
+                pagina="Relaties",
+            )
+        )
+
+    onbekend = posten[posten["ouderdomsklasse"] == KLASSE_ONBEKEND]
+    if not onbekend.empty:
+        bevindingen.append(
+            Bevinding(
+                categorie="Openstaande posten",
+                onderwerp="Ouderdom van openstaande posten niet te bepalen",
+                ernst=NIET_MOGELIJK,
+                toelichting=(
+                    f"{len(onbekend)} post(en) hebben geen factuur- en geen vervaldatum. Zij "
+                    "staan wel in het totaal maar vallen buiten de ouderdomsopbouw; de "
+                    "opbouw is daardoor onvolledig."
+                ),
+                bedrag=float(onbekend["openstaand"].sum()),
+                aantal_regels=len(onbekend),
+                pagina="Relaties",
+            )
+        )
+
+    # Op teken en soort, niet op de tekst van het signaal: een post aan de
+    # verkeerde kant blijft dat ook wanneer de formulering verandert.
+    verkeerde_kant = posten[
+        ((posten["soort"] == "debiteur") & (posten["openstaand"] < 0))
+        | ((posten["soort"] == "crediteur") & (posten["openstaand"] > 0))
+    ]
+    for _, rij in verkeerde_kant.head(top).iterrows():
+        naam = rij["naam"] or rij["relatie"] or rij["sleutel"]
+        bevindingen.append(
+            Bevinding(
+                categorie="Openstaande posten",
+                onderwerp=f"Post {rij['sleutel']} staat aan de andere kant",
+                ernst=SIGNAAL,
+                toelichting=f"{naam}: {rij['signaal']}",
+                bedrag=_getal(rij.get("openstaand")),
+                rekening=str(rij["rekening"]),
+                pagina="Relaties",
+            )
+        )
+    return bevindingen
+
+
 def _uit_jaarvergelijking(vergelijking: pd.DataFrame, top: int = 10) -> list[Bevinding]:
     from .comparison import build_opvallende_verschillen
 
@@ -739,5 +855,6 @@ def verzamel_bevindingen(
     bevindingen += _uit_btw(huidig, gebruik, samenvatting)
     bevindingen += _uit_controles(huidig)
     bevindingen += _uit_relatiesaldi(huidig)
+    bevindingen += _uit_openstaande_posten(huidig)
 
     return naar_frame(bevindingen, materialiteit)

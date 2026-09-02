@@ -81,15 +81,26 @@ komt er een signaal bij een onlogisch teken, zoals een crediteur met een
 debetsaldo, en bij een verloop dat niet op de boekingen aansluit.
 
 Vult het bestand de subadministratie van XAF 3.2, dan staan daar de openstaande
-posten zelf: per post de factuurdatum, de vervaldatum, het afletterkenmerk, de
-relatie en de factuurreferentie, met de controletotalen die het blok zelf
-opgeeft. Zo'n regel draagt geen rekeningnummer; de tool leidt de rekening af uit
-de verwijzing naar de beginbalans of naar de grootboekboeking en laat zien hoe
-dat is gegaan. Leidt de verwijzing nergens heen of is zij niet eenduidig, dan
-blijft de rekening leeg in plaats van dat er een wordt gekozen.
+posten zelf, met hun ouderdom. De regels van de beginbalans en die van de
+mutaties vormen samen een post: gegroepeerd op het afletterkenmerk, anders op de
+factuurreferentie, anders per regel; wat het is geworden staat erbij. Een post
+die op nul uitkomt is afgeletterd en valt uit de lijst. De ouderdom loopt vanaf
+de vervaldatum en anders vanaf de factuurdatum, in de klassen nog niet vervallen,
+0-30, 31-60, 61-90 en meer dan 90 dagen. Die twee bases staan nooit in dezelfde
+rij, want dagen te laat betekent iets anders dan dagen sinds de factuur, en een
+post zonder beide datums valt in een eigen klasse in plaats van in de laagste.
+De peildatum is de balansdatum en is in de app aan te passen. Het totaal wordt
+tegenover het saldo van de debiteuren- en de crediteurenrekening gezet.
 
-Openstaande posten met een ouderdom zijn niet principieel onmogelijk uit een
-auditfile, maar hangen aan de versie en aan het boekhoudpakket. De
+Zo'n regel draagt geen rekeningnummer; de tool leidt de rekening af uit de
+verwijzing naar de beginbalans of naar de grootboekboeking en laat zien hoe dat
+is gegaan. Leidt de verwijzing nergens heen of is zij niet eenduidig, dan blijft
+de rekening leeg in plaats van dat er een wordt gekozen, en valt de post buiten
+de aansluiting in plaats van naar een van beide kanten te worden geraden. De
+losse regels staan onder de posten, met de controletotalen die het blok zelf
+opgeeft.
+
+Of dit allemaal kan, hangt aan de versie en aan het boekhoudpakket. De
 subadministratie van XAF 3.2 is de enige plek met een echte vervaldatum, en zij
 is optioneel: in de beschikbare 3.2-bestanden is zij leeg. XAF 4.0 heeft die
 blokken geschrapt en geeft per relatie een openstaand bedrag bij begin en einde

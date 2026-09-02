@@ -36,7 +36,16 @@ BEDRAG_FRAGMENTEN = (
 
 PERCENTAGE_FRAGMENTEN = ("pct", "percentage", "aandeel", "perc")
 
-AANTAL_FRAGMENTEN = ("aantal", "regels", "perioden", "periode", "relaties", "facturen", "rekeningen")
+AANTAL_FRAGMENTEN = (
+    "aantal",
+    "regels",
+    "perioden",
+    "periode",
+    "relaties",
+    "facturen",
+    "rekeningen",
+    "dagen",
+)
 
 DATUM_FRAGMENTEN = ("datum", "date", "dt")
 
@@ -71,6 +80,23 @@ LABELS: dict[str, str] = {
     "invDt": "Factuurdatum",
     "invDueDt": "Vervaldatum",
     "matchKeyID": "Afletterkenmerk",
+    "sleutelsoort": "Gegroepeerd op",
+    "soort_bron": "Soort volgens",
+    "factuurdatum": "Factuurdatum",
+    "vervaldatum": "Vervaldatum",
+    "basis": "Ouderdom gerekend vanaf",
+    "dagen": "Dagen",
+    "ouderdomsklasse": "Ouderdom",
+    "bedrag_debet": "Debet",
+    "bedrag_credit": "Credit",
+    "openstaand": "Openstaand",
+    "aantal_posten": "Posten",
+    "bedrag_niet_vervallen": "Nog niet vervallen",
+    "bedrag_0_30": "0-30 dagen",
+    "bedrag_31_60": "31-60 dagen",
+    "bedrag_61_90": "61-90 dagen",
+    "bedrag_ouder_dan_90": "Meer dan 90 dagen",
+    "bedrag_datum_onbekend": "Datum onbekend",
     "mutTp": "Mutatiesoort",
     "amntTp": "Debet of credit",
     "regels_volgens_bestand": "Regels volgens bestand",

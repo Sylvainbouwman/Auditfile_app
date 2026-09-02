@@ -72,6 +72,7 @@ BASIS_FACTUURDATUM = "factuurdatum"
 BASIS_ONBEKEND = "onbekend"
 
 NIET_VERVALLEN = "nog niet vervallen"
+KLASSE_OUDER_DAN_90 = "meer dan 90 dagen"
 KLASSE_ONBEKEND = "datum onbekend"
 
 # De indeling uit de roadmap, met twee toevoegingen die de tool nodig heeft om
@@ -82,7 +83,7 @@ OUDERDOMSKLASSEN: tuple[str, ...] = (
     "0-30 dagen",
     "31-60 dagen",
     "61-90 dagen",
-    "meer dan 90 dagen",
+    KLASSE_OUDER_DAN_90,
     KLASSE_ONBEKEND,
 )
 
@@ -94,7 +95,7 @@ KLASSE_KOLOMMEN: dict[str, str] = {
     "0-30 dagen": "bedrag_0_30",
     "31-60 dagen": "bedrag_31_60",
     "61-90 dagen": "bedrag_61_90",
-    "meer dan 90 dagen": "bedrag_ouder_dan_90",
+    KLASSE_OUDER_DAN_90: "bedrag_ouder_dan_90",
     KLASSE_ONBEKEND: "bedrag_datum_onbekend",
 }
 
@@ -180,7 +181,7 @@ def _klasse(dagen: float | None) -> str:
         return "31-60 dagen"
     if getal <= 90:
         return "61-90 dagen"
-    return "meer dan 90 dagen"
+    return KLASSE_OUDER_DAN_90
 
 
 def _soortkaart_rekeningen(af: Auditfile) -> dict[str, str]:
@@ -384,7 +385,7 @@ def _postsignaal(soort: str, openstaand: float, rekening: str, basis: str, klass
             signalen.append("Debiteur met een creditstand; vooruitbetaling of creditnota?")
         elif soort == "crediteur" and openstaand > 0:
             signalen.append("Crediteur met een debetstand; vooruitbetaling of dubbele betaling?")
-    if klasse == "meer dan 90 dagen":
+    if klasse == KLASSE_OUDER_DAN_90:
         signalen.append(
             "Ouder dan 90 dagen"
             + (" na de vervaldatum." if basis == BASIS_VERVALDATUM else " na de factuurdatum.")

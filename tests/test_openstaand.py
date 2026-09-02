@@ -31,6 +31,8 @@ from auditfile.demo import (
     verschuif_boekjaar,
     vul_subadministratie,
 )
+from auditfile.findings import verzamel_bevindingen
+from auditfile.integrity import NIET_MOGELIJK, WAARSCHUWING
 from auditfile.openstaand import (
     BASIS_FACTUURDATUM,
     BASIS_ONBEKEND,
@@ -436,3 +438,49 @@ def test_de_ouderdomsopbouw_telt_op_tot_het_openstaande_totaal():
         ouderdom["openstaand"].sum()
     )
     assert ouderdom["aantal_posten"].sum() == len(build_openstaande_posten(af))
+
+
+# --- Bevindingen ------------------------------------------------------------
+
+
+def _categorie(af, categorie="Openstaande posten"):
+    bevindingen = verzamel_bevindingen(af)
+    return bevindingen[bevindingen["categorie"] == categorie]
+
+
+def test_zonder_subadministratie_zijn_er_geen_bevindingen_over_openstaande_posten(af_40):
+    """Dat de analyse niet kan, staat al bij de bestandscontrole.
+
+    Hem hier nog eens als bevinding opvoeren zou dezelfde beperking twee keer in
+    het reviewmemorandum zetten.
+    """
+    assert _categorie(af_40).empty
+
+
+def test_oude_posten_komen_als_bevinding_in_de_lijst():
+    """Zonder deze bevinding ontbreekt de ouderdom in het reviewmemorandum."""
+    bevindingen = _categorie(_demo_32())
+    ouder_dan_90 = bevindingen[bevindingen["onderwerp"].str.contains("ouder dan 90 dagen")]
+    assert not ouder_dan_90.empty
+    assert (ouder_dan_90["ernst"] == WAARSCHUWING).all()
+    assert (ouder_dan_90["bedrag"].abs() > 0).all()
+    assert (ouder_dan_90["pagina"] == "Relaties").all()
+
+
+def test_een_post_zonder_datum_wordt_gemeld_als_niet_mogelijk():
+    af = _bestand(ob_subledgers=[ObSubledger([_beginregel(invDueDt="", invDt="")])])
+    bevindingen = _categorie(af)
+    niet_mogelijk = bevindingen[bevindingen["ernst"] == NIET_MOGELIJK]
+    assert "Ouderdom van openstaande posten niet te bepalen" in set(
+        niet_mogelijk["onderwerp"]
+    )
+
+
+def test_een_verschil_met_het_grootboek_wordt_een_waarschuwing():
+    """De subadministratie telt op tot 500 terwijl de rekening op 1210 sluit."""
+    af = _bestand(ob_subledgers=[ObSubledger([_beginregel(amnt="500.00")])])
+    bevindingen = _categorie(af)
+    verschil = bevindingen[bevindingen["onderwerp"].str.contains("sluiten niet aan")]
+    assert len(verschil) == 1
+    assert verschil.iloc[0]["ernst"] == WAARSCHUWING
+    assert verschil.iloc[0]["bedrag"] == pytest.approx(710.0)
