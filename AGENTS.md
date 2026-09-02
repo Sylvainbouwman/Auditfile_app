@@ -70,10 +70,15 @@ rekenlogica dus nooit in `app.py`.
   tegen de controletotalen `totalDebit` en `totalCredit` in de bestanden zelf; de
   andere interpretatie geeft een onbalans van miljoenen. Verander dit niet zonder
   die controle opnieuw te doen.
-- **RGS boven omschrijving** — rekeningen worden ingedeeld op RGS-code wanneer die
-  treffers oplevert, en pas anders op omschrijving. Nooit de unie van beide: een
-  zoekterm als "omzet" vindt ook "Omzetbelasting", en dat is een balansrekening.
-  `_selecteer()` in `controls.py` regelt dit en geeft de gebruikte methode terug.
+- **RGS boven omschrijving, per rekening** — heeft een rekening een RGS-code, dan
+  beslist die code; heeft ze er geen, dan de omschrijving. De keuze valt per rekening
+  en niet per controle, anders vallen in een gedeeltelijk gecodeerd schema alle
+  niet-gecodeerde rekeningen buiten de selectie. De omschrijving mag een bestaande
+  code nooit overrulen, want een zoekterm als "omzet" vindt ook "Omzetbelasting", en
+  dat is een balansrekening. Kent een controle geen RGS-voorvoegsel, dan is de
+  omschrijving de enige methode en geldt die wel voor alle rekeningen. Geef altijd een
+  `rekeningtype` mee. `_selecteer()` in `controls.py` regelt dit en geeft de gebruikte
+  methode terug.
 - **Btw-rubrieken** — de koppeling van btw-code aan aangifterubriek is een
   interpretatie. De tool doet een voorstel mét reden en zekerheid; de keuze van de
   gebruiker gaat altijd voor. Laat de tool nooit een rubriek stilzwijgend vaststellen.

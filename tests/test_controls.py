@@ -15,6 +15,7 @@ from auditfile.controls import (
     compacte_perioden,
     rgs_rubriek,
 )
+from auditfile.controls import _selecteer
 from auditfile.parsing import parse_auditfile
 from auditfile.demo import (
     Account,
@@ -318,3 +319,65 @@ def test_omzetbelasting_telt_niet_als_omzet():
     per_periode = build_omzet_per_periode(af)
     januari = per_periode[per_periode["periode"] == 1].iloc[0]
     assert round(float(januari["omzet"]), 2) == 1000.00
+
+
+def _gedeeltelijk_gecodeerd():
+    """Een schema waarin maar een deel van de rekeningen een RGS-code heeft."""
+    return AuditfileSpec(
+        accounts=[
+            Account("1300", "Debiteuren", "B", "BVorDeb"),
+            Account("1800", "Omzetbelasting", "B", "BSchObr"),
+            Account("8000", "Omzet hoog tarief", "P", "WOmzNeh"),
+            Account("8100", "Omzet laag tarief", "P"),
+        ],
+        journals=[
+            Journal(
+                "VRK",
+                "Verkoopboek",
+                [
+                    Transaction(
+                        "V1",
+                        "2025-01-31",
+                        1,
+                        [
+                            Line("1300", "2100.00", "D"),
+                            Line("8000", "1000.00", "C"),
+                            Line("8100", "1000.00", "C"),
+                            Line("1800", "100.00", "C"),
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+
+
+def test_niet_gecodeerde_rekening_valt_niet_buiten_de_selectie():
+    """De terugval op de omschrijving geldt per rekening, niet per controle.
+
+    Zodra ergens in het schema een RGS-code stond, schakelde de hele controle
+    over op RGS en vielen de niet-gecodeerde rekeningen weg. Bij een
+    gedeeltelijk gecodeerd schema miste de omzetanalyse dan halve omzet.
+    """
+    af = parse_auditfile("gedeeltelijk.xaf", build_xaf(_gedeeltelijk_gecodeerd()))
+    per_periode = build_omzet_per_periode(af)
+    januari = per_periode[per_periode["periode"] == 1].iloc[0]
+    assert round(float(januari["omzet"]), 2) == 2000.00
+
+
+def test_de_gebruikte_methode_wordt_benoemd():
+    af = parse_auditfile("gedeeltelijk.xaf", build_xaf(_gedeeltelijk_gecodeerd()))
+    _, methode = _selecteer(af.lines, "WOmz", r"omzet|opbrengst", rekeningtype="P")
+    assert methode == "RGS-code en omschrijving"
+
+
+def test_rgs_code_blijft_beslissend_waar_hij_staat():
+    """Een gecodeerde rekening wordt niet alsnog op haar naam meegenomen.
+
+    De omzetbelastingrekening heeft een eigen RGS-code die geen omzet is. Dat de
+    naam "omzet" bevat mag haar niet in de omzetselectie brengen, ook niet nu de
+    omschrijving als terugval bestaat.
+    """
+    af = parse_auditfile("gedeeltelijk.xaf", build_xaf(_gedeeltelijk_gecodeerd()))
+    masker, _ = _selecteer(af.lines, "WOmz", r"omzet|opbrengst")
+    assert "1800" not in set(af.lines.loc[masker, "line_accID"])

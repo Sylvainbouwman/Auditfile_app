@@ -58,39 +58,64 @@ def _selecteer(
 ) -> tuple[pd.Series, str]:
     """Selecteer rekeningen op RGS-code, met de omschrijving als terugval.
 
-    De RGS-code komt uit het bestand zelf en gaat daarom voor: levert die
-    treffers op, dan wordt de omschrijving niet meer gebruikt. Het omgekeerde
-    zou ruis toelaten, want een zoekterm als "omzet" vindt ook
-    "Omzetbelasting", en dat is een balansrekening.
+    De keuze valt per rekening, niet per controle. Heeft een rekening een
+    RGS-code, dan beslist die code: matcht het voorvoegsel niet, dan hoort de
+    rekening er niet bij, ook al zegt de omschrijving iets anders. Heeft een
+    rekening geen RGS-code, dan is de omschrijving het enige dat er is en beslist
+    die.
 
-    Met ``rekeningtype`` wordt de selectie beperkt tot balansrekeningen ("B") of
-    resultaatrekeningen ("P"). Geeft het masker terug plus de gebruikte methode,
-    zodat de tool kan tonen waarop een controle zich baseert.
+    Waarom per rekening en niet per controle: in een schema waarin één rekening
+    een RGS-code heeft, schakelde de hele controle over op RGS en vielen alle
+    niet-gecodeerde rekeningen buiten de selectie. Dat komt voor, want een
+    XAF 3.2 levert hooguit een ``leadReference`` en pakketten coderen soms maar
+    een deel van het schema.
+
+    Waarom niet de unie van beide: dan zou een zoekterm als "omzet" ook
+    "Omzetbelasting" vinden, en dat is een balansrekening. Doordat de
+    omschrijving alleen wordt gebruikt bij rekeningen zonder RGS-code, blijft de
+    RGS-code beslissend waar hij er is. Het ``rekeningtype`` sluit balans- en
+    resultaatrekeningen bovendien hard van elkaar af.
+
+    Geeft het masker terug plus de gebruikte methode, zodat de tool kan tonen
+    waarop een controle zich baseert.
     """
     if rekeningtype:
         toegestaan = df["accTp"].astype(str).str.strip().str.upper().eq(rekeningtype.upper())
     else:
         toegestaan = pd.Series(True, index=df.index)
 
+    codes = df["RGScode"].astype(str).str.strip() if "RGScode" in df.columns else pd.Series(
+        "", index=df.index
+    )
+    heeft_rgs = codes != ""
+
     op_rgs = pd.Series(False, index=df.index)
     if rgs_prefix:
         prefixen = (rgs_prefix,) if isinstance(rgs_prefix, str) else rgs_prefix
-        codes = df["RGScode"].astype(str)
         for prefix in prefixen:
             op_rgs |= codes.str.startswith(prefix)
     op_rgs &= toegestaan
-    if op_rgs.any():
-        return op_rgs, "RGS-code"
 
+    op_naam = pd.Series(False, index=df.index)
     if patroon:
         op_naam = df[omschrijvingskolom].astype(str).str.contains(
             patroon, case=False, na=False, regex=True
         )
         op_naam &= toegestaan
-        if op_naam.any():
-            return op_naam, "omschrijving"
+        if rgs_prefix:
+            # Alleen waar geen RGS-code staat; anders zou de omschrijving een
+            # code kunnen overrulen die deze rekening juist uitsluit. Is er geen
+            # RGS-voorvoegsel voor deze controle, dan valt er niets te
+            # overrulen: RGS kent niet voor alles een rubriek, en dan is de
+            # omschrijving de enige methode die er is.
+            op_naam &= ~heeft_rgs
 
-    return pd.Series(False, index=df.index), "geen treffers"
+    masker = op_rgs | op_naam
+    if not masker.any():
+        return masker, "geen treffers"
+    if op_rgs.any() and op_naam.any():
+        return masker, "RGS-code en omschrijving"
+    return masker, "RGS-code" if op_rgs.any() else "omschrijving"
 
 
 # --- Periodieke controles ---------------------------------------------------
