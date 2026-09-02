@@ -1,1897 +1,741 @@
+"""Auditfile Analyzer — Streamlit-app.
+
+Dit bestand bevat uitsluitend de interface. Alle inlees- en analyselogica staat
+in het pakket ``auditfile``, zodat die zonder Streamlit te testen is.
+"""
 from __future__ import annotations
 
-from io import BytesIO
-import json
 from pathlib import Path
-import re
-import xml.etree.ElementTree as ET
 
 import pandas as pd
 import streamlit as st
 
+from auditfile import controls, vat
+from auditfile.demo import build_xaf, eenvoudige_spec
+from auditfile.comparison import (
+    build_opvallende_verschillen,
+    build_rubriek_vergelijking,
+    compare_saldi,
+)
+from auditfile.excel import build_excel_export, exportnaam
+from auditfile.formatting import euro, euro_kort, procent, toon_tabel
+from auditfile.integrity import IN_ORDE, KRITIEK, WAARSCHUWING, controleer_auditfile, samenvatting
+from auditfile.model import Auditfile
+from auditfile.parsing import parse_auditfile
+from auditfile.settings import (
+    BTW_AANGIFTE_PATH,
+    BTW_MAPPING_PATH,
+    LOCAL_DATA_DIR,
+    load_declared_vat,
+    load_vat_mapping,
+    save_declared_vat,
+    save_vat_mapping,
+)
+from auditfile.vat_rubrics import ONBEKEND, RUBRIEKEN, keuzelijst, rubriek
 
-APP_VERSION = "2.0"
-st.set_page_config(page_title=f"Auditfile Analyzer v{APP_VERSION}", layout="wide")
+APP_VERSIE = "3.0"
 
-# Runtime-invoer zoals ingevoerde aangiftebedragen kan klant-afgeleide gegevens bevatten
-# en wordt daarom uitsluitend in een door Git genegeerde lokale datamap bewaard,
-# nooit in een door Git gevolgd bestand.
-LOCAL_DATA_DIR = Path(".local-testdata")
-BTW_AANGIFTE_PATH = LOCAL_DATA_DIR / "btw_aangifte.json"
-
-ACCOUNT_COLUMNS = ["accID", "accDesc", "accTp", "RGScode"]
-TRANSACTION_COLUMNS = ["tx_nr", "tx_desc", "tx_periodNumber", "tx_trDt", "tx_jrnID", "tx_jrn_desc"]
-LINE_COLUMNS = [
-    "line_nr",
-    "line_accID",
-    "line_docRef",
-    "line_effDate",
-    "line_desc",
-    "line_amnt",
-    "line_amntTp",
-    "line_invRef",
-    "line_vatID",
+PAGINAS = [
+    "Overzicht",
+    "Bestandscontrole",
+    "Jaarvergelijking",
+    "Btw",
+    "Analytische controles",
+    "Relaties",
+    "Fiscale signalen",
+    "Grootboekkaarten",
+    "Export",
 ]
-VAT_LINE_COLUMNS = [
-    "vat_vatID",
-    "vat_vatPerc",
-    "vat_vatAmnt",
-    "vat_vatAmntTp",
-]
-VAT_CODE_COLUMNS = [
-    "vatID",
-    "vatDesc",
-    "vatToPayAccID",
-    "vatToClaimAccID",
-]
-COMPANY_INFO_COLUMNS = ["Onderdeel", "Waarde"]
-OPENING_BALANCE_COLUMNS = [
-    "ob_nr",
-    "ob_accID",
-    "ob_amnt",
-    "ob_amntTp",
-]
-CARD_COLUMNS = [
-    "tx_trDt",
-    "tx_periodNumber",
-    "tx_jrnID",
-    "tx_nr",
-    "tx_desc",
-    "line_nr",
-    "line_docRef",
-    "line_effDate",
-    "line_desc",
-    "line_amnt",
-    "line_amntTp",
-    "bedrag",
-]
-
-
-def local_name(tag: str) -> str:
-    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
-
-
-def child_texts(element: ET.Element, prefix: str = "") -> dict[str, str]:
-    row = {}
-    for child in list(element):
-        if len(child):
-            continue
-        row[f"{prefix}{local_name(child.tag)}"] = (child.text or "").strip()
-    return row
-
-
-def ensure_columns(df: pd.DataFrame, columns: list[str], default="") -> pd.DataFrame:
-    for column in columns:
-        if column not in df.columns:
-            df[column] = default
-    return df
-
-
-def amount_to_signed(row: pd.Series) -> float:
-    return typed_amount_to_signed(row.get("line_amnt"), row.get("line_amntTp", ""))
-
-
-def typed_amount_to_signed(amount_value, amount_type_value) -> float:
-    amount = pd.to_numeric(amount_value, errors="coerce")
-    if pd.isna(amount):
-        amount = 0.0
-
-    amount_type = str(amount_type_value).strip().upper()
-    if amount_type == "C":
-        return -float(amount)
-    return float(amount)
-
-
-def typed_amount_to_signed_preserve_negative(amount_value, amount_type_value) -> float:
-    amount = pd.to_numeric(amount_value, errors="coerce")
-    if pd.isna(amount):
-        amount = 0.0
-    amount = float(amount)
-    if amount < 0:
-        return amount
-
-    amount_type = str(amount_type_value).strip().upper()
-    if amount_type == "C":
-        return -amount
-    return amount
-
-
-def empty_saldo() -> pd.DataFrame:
-    return pd.DataFrame(
-        columns=[
-            "rekening",
-            "accDesc",
-            "accTp",
-            "RGScode",
-            "beginsaldo",
-            "mutaties_boekjaar",
-            "eindsaldo",
-            "saldo",
-            "aantal_boekingsregels",
-        ]
-    )
-
-
-def build_company_info(root: ET.Element) -> pd.DataFrame:
-    header = next((element for element in root.iter() if local_name(element.tag) == "header"), None)
-    company = next((element for element in root.iter() if local_name(element.tag) == "company"), None)
-    header_info = child_texts(header) if header is not None else {}
-    company_info = child_texts(company) if company is not None else {}
-
-    rows = [
-        ("Bedrijfsnaam", company_info.get("companyName", "")),
-        ("KvK-nummer", company_info.get("Commercenr", "")),
-        ("BTW-nummer", company_info.get("taxRegIdent", "")),
-        ("BTW-land", company_info.get("taxRegistrationCountry", "")),
-        ("Boekjaar", header_info.get("fiscalYear", "")),
-        ("Startdatum", header_info.get("startDate", "")),
-        ("Einddatum", header_info.get("endDate", "")),
-        ("Valuta", header_info.get("curCode", "")),
-        ("Aangemaakt op", header_info.get("dateCreated", "")),
-        ("Software", header_info.get("softwareDesc", "")),
-        ("Softwareversie", header_info.get("softwareVersion", "")),
-        ("RGS-versie", header_info.get("RGSVersion", "")),
-    ]
-    return pd.DataFrame(rows, columns=COMPANY_INFO_COLUMNS)
 
 
 @st.cache_data(show_spinner=False)
-def parse_auditfile(file_name: str, file_bytes: bytes) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    del file_name
-    root = ET.parse(BytesIO(file_bytes)).getroot()
-    company_info = build_company_info(root)
+def bouw_demobestand(versie: str, boekjaar: str) -> bytes:
+    """Een volledig verzonnen auditfile, om de tool te tonen zonder klantdata."""
+    spec = eenvoudige_spec(versie)
+    spec.fiscal_year = boekjaar
+    spec.start_date = f"{boekjaar}-01-01"
+    spec.end_date = f"{boekjaar}-12-31"
+    for journaal in spec.journals:
+        for transactie in journaal.transactions:
+            transactie.trDt = f"{boekjaar}{transactie.trDt[4:]}"
+            for regel in transactie.lines:
+                regel.effDate = f"{boekjaar}{regel.effDate[4:]}"
+    return build_xaf(spec)
 
-    accounts = []
-    for element in root.iter():
-        if local_name(element.tag) == "ledgerAccount":
-            accounts.append(child_texts(element))
 
-    df_accounts = pd.DataFrame(accounts)
-    df_accounts = ensure_columns(df_accounts, ACCOUNT_COLUMNS)
-    df_accounts[ACCOUNT_COLUMNS] = df_accounts[ACCOUNT_COLUMNS].fillna("").astype(str)
-    df_accounts = df_accounts.drop_duplicates(subset=["accID"], keep="first")
+@st.cache_data(show_spinner="Auditfile inlezen…")
+def lees_auditfile(bestandsnaam: str, inhoud: bytes) -> Auditfile:
+    return parse_auditfile(bestandsnaam, inhoud)
 
-    vat_codes = []
-    for element in root.iter():
-        if local_name(element.tag) == "vatCode":
-            vat_codes.append(child_texts(element))
 
-    df_vat_codes = pd.DataFrame(vat_codes)
-    df_vat_codes = ensure_columns(df_vat_codes, VAT_CODE_COLUMNS)
-    df_vat_codes[VAT_CODE_COLUMNS] = df_vat_codes[VAT_CODE_COLUMNS].fillna("").astype(str)
-    df_vat_codes = df_vat_codes.drop_duplicates(subset=["vatID"], keep="first")
+@st.cache_data(show_spinner=False)
+def maak_vergelijking(_vorig: Auditfile, _huidig: Auditfile, sleutel: str) -> pd.DataFrame:
+    del sleutel
+    return compare_saldi(_vorig, _huidig)
 
-    opening_balance_lines = []
-    for opening_balance in root.iter():
-        if local_name(opening_balance.tag) != "openingBalance":
-            continue
 
-        for ob_line in list(opening_balance):
-            if local_name(ob_line.tag) != "obLine":
-                continue
+def kop(titel: str, uitleg: str = "") -> None:
+    st.subheader(titel)
+    if uitleg:
+        st.caption(uitleg)
 
-            opening_balance_lines.append(
-                {
-                    f"ob_{key}": value
-                    for key, value in child_texts(ob_line).items()
-                }
+
+def kerncijfer(kolom, label: str, waarde: str, hulp: str = "") -> None:
+    kolom.metric(label, waarde, help=hulp or None)
+
+
+# --- Bestanden inlezen ------------------------------------------------------
+
+
+def haal_bestanden_op() -> tuple[tuple[str, bytes], tuple[str, bytes]] | None:
+    """Laat de gebruiker twee auditfiles kiezen, of gebruik demo- of testdata."""
+    bron = st.sidebar.radio(
+        "Gegevensbron",
+        ["Eigen bestanden", "Demo (synthetisch)", "Testmap"],
+        help=(
+            "Demo gebruikt volledig verzonnen gegevens en is bedoeld om de tool te "
+            "bekijken of te tonen zonder klantbestand."
+        ),
+    )
+
+    if bron == "Demo (synthetisch)":
+        st.info(
+            "Demomodus: de getoonde cijfers zijn verzonnen en komen uit "
+            "`auditfile/demo.py`. Er wordt geen klantbestand gelezen."
+        )
+        return (
+            ("demo_vorig_jaar.xaf", bouw_demobestand("3.2", "2024")),
+            ("demo_huidig_jaar.xaf", bouw_demobestand("4.0", "2025")),
+        )
+
+    if bron == "Testmap":
+        vorig_pad = Path("testfiles/vorig_jaar.xaf")
+        huidig_pad = Path("testfiles/huidig_jaar.xaf")
+        if not vorig_pad.exists() or not huidig_pad.exists():
+            st.warning(
+                "De testmap is gekozen, maar de bestanden ontbreken. Zet `vorig_jaar.xaf` "
+                "en `huidig_jaar.xaf` in de map `testfiles/`, of kies de demomodus."
             )
+            return None
+        return (vorig_pad.name, vorig_pad.read_bytes()), (huidig_pad.name, huidig_pad.read_bytes())
 
-    df_opening_balance = pd.DataFrame(opening_balance_lines)
-    df_opening_balance = ensure_columns(df_opening_balance, OPENING_BALANCE_COLUMNS)
-    if not df_opening_balance.empty:
-        df_opening_balance[OPENING_BALANCE_COLUMNS] = df_opening_balance[OPENING_BALANCE_COLUMNS].fillna("")
-        df_opening_balance["ob_accID"] = df_opening_balance["ob_accID"].astype(str)
-        df_opening_balance["ob_amnt"] = pd.to_numeric(df_opening_balance["ob_amnt"], errors="coerce").fillna(0.0)
-        df_opening_balance["beginsaldo"] = df_opening_balance.apply(
-            lambda row: typed_amount_to_signed(row.get("ob_amnt"), row.get("ob_amntTp", "")),
-            axis=1,
-        )
+    links, rechts = st.columns(2)
+    with links:
+        vorig = st.file_uploader("Auditfile vorig jaar", type=["xaf", "xml"], key="vorig")
+    with rechts:
+        huidig = st.file_uploader("Auditfile huidig jaar", type=["xaf", "xml"], key="huidig")
 
-        opening_saldo = (
-            df_opening_balance.groupby("ob_accID", dropna=False)
-            .agg(beginsaldo=("beginsaldo", "sum"))
-            .reset_index()
-            .rename(columns={"ob_accID": "rekening"})
+    if not vorig or not huidig:
+        st.info("Laad beide auditfiles om de analyse te starten.")
+        return None
+    return (vorig.name, vorig.getvalue()), (huidig.name, huidig.getvalue())
+
+
+# --- Pagina's ---------------------------------------------------------------
+
+
+def pagina_overzicht(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataFrame) -> None:
+    bevindingen = controleer_auditfile(huidig)
+    telling = samenvatting(bevindingen)
+
+    if telling[KRITIEK]:
+        st.error(
+            f"{telling[KRITIEK]} kritieke bevinding(en) bij de bestandscontrole. "
+            "Beoordeel die eerst; ze raken de betrouwbaarheid van alle cijfers hieronder."
         )
+    elif telling[WAARSCHUWING]:
+        st.warning(f"{telling[WAARSCHUWING]} aandachtspunt(en) bij de bestandscontrole.")
     else:
-        opening_saldo = pd.DataFrame(columns=["rekening", "beginsaldo"])
+        st.success("Het auditfile is intern consistent.")
 
-    lines = []
-    current_journal = {}
-    for journal in root.iter():
-        if local_name(journal.tag) != "journal":
-            continue
+    kop("Kerncijfers huidig boekjaar")
+    a, b, c, d = st.columns(4)
+    kerncijfer(a, "Boekingsregels", f"{len(huidig.lines):n}".replace(",", "."))
+    kerncijfer(b, "Grootboekrekeningen", f"{len(huidig.accounts):n}".replace(",", "."))
+    kerncijfer(c, "Relaties", f"{len(huidig.relations):n}".replace(",", "."))
+    kerncijfer(d, "Btw-codes gebruikt", f"{len(vat.build_vat_usage(huidig))}")
 
-        current_journal = {
-            f"tx_jrn_{key}": value
-            for key, value in child_texts(journal).items()
-            if key in {"jrnID", "desc", "jrnTp"}
-        }
+    gebruik = vat.pas_mapping_toe(vat.build_vat_usage(huidig), huidige_mapping())
+    rubrieken = vat.build_rubric_summary(gebruik, huidige_aangifte())
+    positie = vat.build_vat_position(rubrieken)
 
-        for transaction in list(journal):
-            if local_name(transaction.tag) != "transaction":
-                continue
-
-            transaction_info = {
-                f"tx_{key}": value
-                for key, value in child_texts(transaction).items()
-            }
-            transaction_info.update(current_journal)
-
-            for tr_line in list(transaction):
-                if local_name(tr_line.tag) != "trLine":
-                    continue
-
-                line_info = {
-                    f"line_{key}": value
-                    for key, value in child_texts(tr_line).items()
-                }
-                for child in list(tr_line):
-                    if local_name(child.tag) == "vat":
-                        line_info.update(
-                            {
-                                f"vat_{key}": value
-                                for key, value in child_texts(child).items()
-                            }
-                        )
-                lines.append({**transaction_info, **line_info})
-
-    df_lines = pd.DataFrame(lines)
-    df_lines = ensure_columns(df_lines, TRANSACTION_COLUMNS + LINE_COLUMNS + VAT_LINE_COLUMNS)
-    df_lines.attrs["vat_codes"] = df_vat_codes
-    df_lines.attrs["company_info"] = company_info
-
-    if df_lines.empty:
-        mutation_saldo = pd.DataFrame(columns=["rekening", "mutaties_boekjaar", "aantal_boekingsregels"])
-    else:
-        df_lines[TRANSACTION_COLUMNS + LINE_COLUMNS + VAT_LINE_COLUMNS] = df_lines[
-            TRANSACTION_COLUMNS + LINE_COLUMNS + VAT_LINE_COLUMNS
-        ].fillna("")
-        df_lines["line_accID"] = df_lines["line_accID"].astype(str)
-        df_lines["line_amnt"] = pd.to_numeric(df_lines["line_amnt"], errors="coerce").fillna(0.0)
-        df_lines["vat_vatAmnt"] = pd.to_numeric(df_lines["vat_vatAmnt"], errors="coerce").fillna(0.0)
-        df_lines["vat_vatPerc"] = pd.to_numeric(df_lines["vat_vatPerc"], errors="coerce")
-        df_lines["bedrag"] = df_lines.apply(amount_to_signed, axis=1)
-
-        df_lines = df_lines.merge(
-            df_accounts[ACCOUNT_COLUMNS],
-            left_on="line_accID",
-            right_on="accID",
-            how="left",
-        )
-        df_lines = ensure_columns(df_lines, ACCOUNT_COLUMNS)
-        df_lines[["accDesc", "accTp", "RGScode"]] = df_lines[["accDesc", "accTp", "RGScode"]].fillna("")
-        df_lines.attrs["vat_codes"] = df_vat_codes
-        df_lines.attrs["company_info"] = company_info
-
-        mutation_saldo = (
-            df_lines.groupby("line_accID", dropna=False)
-            .agg(
-                mutaties_boekjaar=("bedrag", "sum"),
-                aantal_boekingsregels=("bedrag", "count"),
-            )
-            .reset_index()
-            .rename(columns={"line_accID": "rekening"})
+    kop(
+        "Btw-positie volgens het auditfile",
+        "Verschuldigde btw uit de rubrieken 1 tot en met 4, verminderd met de voorbelasting.",
+    )
+    a, b, c = st.columns(3)
+    kerncijfer(a, "Verschuldigde btw", euro_kort(positie["af_te_dragen"]))
+    kerncijfer(b, "Voorbelasting", euro_kort(positie["voorbelasting"]))
+    kerncijfer(
+        c,
+        "Te betalen" if positie["netto"] >= 0 else "Terug te vragen",
+        euro_kort(abs(positie["netto"])),
+    )
+    if abs(positie["niet_ingedeeld"]) > 0.005:
+        st.warning(
+            f"{euro(positie['niet_ingedeeld'])} aan btw hoort bij codes zonder aangifterubriek "
+            "en telt niet mee. Wijs die codes een rubriek toe op de pagina Btw."
         )
 
-    saldo = opening_saldo.merge(mutation_saldo, on="rekening", how="outer")
-    saldo = ensure_columns(saldo, ["rekening", "beginsaldo", "mutaties_boekjaar", "aantal_boekingsregels"], default=0)
-    saldo["rekening"] = saldo["rekening"].fillna("").astype(str)
-
-    saldo = saldo.merge(
-        df_accounts[ACCOUNT_COLUMNS],
-        left_on="rekening",
-        right_on="accID",
-        how="left",
+    kop(
+        "Grootste verschillen ten opzichte van vorig jaar",
+        f"Rekeningen die met meer dan {euro_kort(1000)} en meer dan 25% zijn gewijzigd, "
+        "of die nieuw of vervallen zijn.",
     )
-    saldo = ensure_columns(saldo, ACCOUNT_COLUMNS)
-    saldo[["accDesc", "accTp", "RGScode"]] = saldo[["accDesc", "accTp", "RGScode"]].fillna("")
-
-    for column in ["beginsaldo", "mutaties_boekjaar", "aantal_boekingsregels"]:
-        saldo[column] = pd.to_numeric(saldo[column], errors="coerce").fillna(0)
-
-    saldo["eindsaldo"] = saldo["beginsaldo"] + saldo["mutaties_boekjaar"]
-    saldo["saldo"] = saldo.apply(
-        lambda row: row["eindsaldo"]
-        if str(row.get("accTp", "")).strip().upper() == "B"
-        else row["mutaties_boekjaar"],
-        axis=1,
+    opvallend = build_opvallende_verschillen(vergelijking)
+    toon_tabel(
+        opvallend.head(15),
+        hoogte=400,
+        kleur_op="status",
+        verberg=("beginsaldo_vorig", "mutatie_vorig", "beginsaldo_huidig", "mutatie_huidig", "accTp"),
+        leegmelding="Geen rekeningen die aan beide drempels voldoen.",
     )
-    saldo = saldo[
+
+    kop("Signalen in één oogopslag")
+    signalen = pd.concat(
         [
-            "rekening",
-            "accDesc",
-            "accTp",
-            "RGScode",
-            "beginsaldo",
-            "mutaties_boekjaar",
-            "eindsaldo",
-            "saldo",
-            "aantal_boekingsregels",
-        ]
-    ].sort_values("rekening")
-
-    months_nl = ["jan", "feb", "mrt", "apr", "mei", "jun",
-                 "jul", "aug", "sep", "okt", "nov", "dec"]
-    periods_map: dict[int, str] = {}
-    for element in root.iter():
-        if local_name(element.tag) == "period":
-            texts = child_texts(element)
-            num_str = texts.get("periodNumber")
-            start = texts.get("startDatePeriod", "")
-            if num_str is not None:
-                try:
-                    n = int(num_str)
-                    if start and len(start) >= 7:
-                        month_idx = int(start[5:7]) - 1
-                        periods_map[n] = months_nl[month_idx]
-                    else:
-                        periods_map[n] = str(n)
-                except (ValueError, IndexError):
-                    pass
-
-    return df_accounts, df_lines, saldo, periods_map
-
-
-def first_non_empty(row: pd.Series, columns: list[str]) -> str:
-    for column in columns:
-        value = row.get(column, "")
-        if pd.notna(value) and str(value) != "":
-            return str(value)
-    return ""
-
-
-def compare_saldi(saldo_vorig: pd.DataFrame, saldo_huidig: pd.DataFrame) -> pd.DataFrame:
-    saldo_vorig = ensure_columns(saldo_vorig.copy(), list(empty_saldo().columns))
-    saldo_huidig = ensure_columns(saldo_huidig.copy(), list(empty_saldo().columns))
-
-    saldo_vorig["aanwezig_vorig"] = True
-    saldo_huidig["aanwezig_huidig"] = True
-
-    vorig = saldo_vorig.rename(
-        columns={
-            "saldo": "saldo_vorig_jaar",
-            "beginsaldo": "beginsaldo_vorig_jaar",
-            "mutaties_boekjaar": "mutaties_vorig_jaar",
-            "eindsaldo": "eindsaldo_vorig_jaar",
-            "aantal_boekingsregels": "regels_vorig_jaar",
-            "accDesc": "accDesc_vorig",
-            "accTp": "accTp_vorig",
-            "RGScode": "RGScode_vorig",
-        }
-    )
-    huidig = saldo_huidig.rename(
-        columns={
-            "saldo": "saldo_huidig_jaar",
-            "beginsaldo": "beginsaldo_huidig_jaar",
-            "mutaties_boekjaar": "mutaties_huidig_jaar",
-            "eindsaldo": "eindsaldo_huidig_jaar",
-            "aantal_boekingsregels": "regels_huidig_jaar",
-            "accDesc": "accDesc_huidig",
-            "accTp": "accTp_huidig",
-            "RGScode": "RGScode_huidig",
-        }
-    )
-
-    comparison = vorig.merge(huidig, on="rekening", how="outer")
-    comparison = ensure_columns(
-        comparison,
-        [
-            "saldo_vorig_jaar",
-            "saldo_huidig_jaar",
-            "beginsaldo_vorig_jaar",
-            "beginsaldo_huidig_jaar",
-            "mutaties_vorig_jaar",
-            "mutaties_huidig_jaar",
-            "eindsaldo_vorig_jaar",
-            "eindsaldo_huidig_jaar",
-            "regels_vorig_jaar",
-            "regels_huidig_jaar",
-            "aanwezig_vorig",
-            "aanwezig_huidig",
+            vat.build_vat_anomalies(huidig, gebruik).assign(soort="Btw"),
+            controls.build_ongebruikelijke_boekingen(huidig).assign(soort="Boekingen"),
         ],
-        default=0,
+        ignore_index=True,
+    )
+    if signalen.empty:
+        st.caption("Geen signalen gevonden.")
+    else:
+        toon_tabel(
+            signalen[["soort", "signaal", "aantal_regels", "bedrag", "toelichting"]],
+            hoogte=320,
+        )
+
+
+def pagina_bestandscontrole(vorig: Auditfile, huidig: Auditfile) -> None:
+    kop(
+        "Is dit auditfile intern consistent?",
+        "Het bestand geeft zelf controletotalen op. Wijkt de inhoud daarvan af, dan "
+        "staan alle conclusies uit dit bestand op losse schroeven.",
     )
 
-    comparison["aanwezig_vorig"] = comparison["aanwezig_vorig"].fillna(False).astype(bool)
-    comparison["aanwezig_huidig"] = comparison["aanwezig_huidig"].fillna(False).astype(bool)
+    for auditfile, aanduiding in ((huidig, "Huidig jaar"), (vorig, "Vorig jaar")):
+        bevindingen = controleer_auditfile(auditfile)
+        telling = samenvatting(bevindingen)
+        titel = (
+            f"{aanduiding} — boekjaar {auditfile.boekjaar} (XAF {auditfile.xaf_versie}) — "
+            f"{telling[KRITIEK]} kritiek, {telling[WAARSCHUWING]} aandachtspunt, {telling[IN_ORDE]} in orde"
+        )
+        with st.expander(titel, expanded=bool(telling[KRITIEK])):
+            toon_tabel(bevindingen, kleur_op="ernst", hoogte=460)
 
-    numeric_columns = [
-        "saldo_vorig_jaar",
-        "saldo_huidig_jaar",
-        "beginsaldo_vorig_jaar",
-        "beginsaldo_huidig_jaar",
-        "mutaties_vorig_jaar",
-        "mutaties_huidig_jaar",
-        "eindsaldo_vorig_jaar",
-        "eindsaldo_huidig_jaar",
-        "regels_vorig_jaar",
-        "regels_huidig_jaar",
-    ]
-    for column in numeric_columns:
-        comparison[column] = pd.to_numeric(comparison[column], errors="coerce").fillna(0)
+    if vorig.xaf_versie != huidig.xaf_versie:
+        st.info(
+            f"De bestanden hebben verschillende XAF-versies ({vorig.xaf_versie} en "
+            f"{huidig.xaf_versie}). Dat mag, maar let op: een oudere versie kan velden "
+            "missen, zoals de RGS-code."
+        )
 
-    comparison["accDesc"] = comparison.apply(
-        lambda row: first_non_empty(row, ["accDesc_huidig", "accDesc_vorig"]),
-        axis=1,
+    kop("Bedrijfsgegevens")
+    links, rechts = st.columns(2)
+    with links:
+        st.caption("Huidig jaar")
+        toon_tabel(huidig.company_info_frame())
+    with rechts:
+        st.caption("Vorig jaar")
+        toon_tabel(vorig.company_info_frame())
+
+
+def pagina_jaarvergelijking(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataFrame) -> None:
+    kop(
+        "Per RGS-rubriek",
+        "De hoofdlijn eerst: waar is het jaar veranderd?",
     )
-    comparison["accTp"] = comparison.apply(
-        lambda row: first_non_empty(row, ["accTp_huidig", "accTp_vorig"]),
-        axis=1,
+    toon_tabel(build_rubriek_vergelijking(vergelijking), kleur_op="signaal")
+
+    kop("Per grootboekrekening")
+    filters = st.columns([2, 2, 3])
+    with filters[0]:
+        status = st.multiselect(
+            "Status", ["bestaand", "nieuw", "vervallen"], default=["bestaand", "nieuw", "vervallen"]
+        )
+    with filters[1]:
+        soort = st.selectbox("Rekeningsoort", ["Alle", "Balans", "Resultaat"])
+    with filters[2]:
+        drempel = st.number_input(
+            "Toon vanaf een verschil van", min_value=0, value=0, step=500, format="%d"
+        )
+
+    selectie = vergelijking[vergelijking["status"].isin(status)]
+    if soort == "Balans":
+        selectie = selectie[selectie["accTp"].str.upper() == "B"]
+    elif soort == "Resultaat":
+        selectie = selectie[selectie["accTp"].str.upper() == "P"]
+    if drempel:
+        selectie = selectie[selectie["verschil_bedrag"].abs() >= drempel]
+
+    st.caption(f"{len(selectie)} van de {len(vergelijking)} rekeningen.")
+    toon_tabel(selectie, hoogte=560, kleur_op="status")
+
+
+# --- Btw --------------------------------------------------------------------
+
+
+def huidige_mapping() -> dict[str, str]:
+    return st.session_state.get("btw_mapping", {})
+
+
+def huidige_aangifte() -> dict[str, float]:
+    return st.session_state.get("btw_aangifte", {})
+
+
+def pagina_btw(huidig: Auditfile) -> None:
+    gebruik_ruw = vat.build_vat_usage(huidig)
+    if gebruik_ruw.empty:
+        st.warning("Dit auditfile bevat geen boekingsregels met een btw-code.")
+        return
+
+    tabs = st.tabs(
+        ["Codes en rubrieken", "Aangifte", "Rondrekening", "Signalen", "Boekingen per code"]
     )
-    comparison["RGScode"] = comparison.apply(
-        lambda row: first_non_empty(row, ["RGScode_huidig", "RGScode_vorig"]),
-        axis=1,
-    )
 
-    comparison["verschil_bedrag"] = comparison["saldo_huidig_jaar"] - comparison["saldo_vorig_jaar"]
-    comparison["verschil_abs"] = comparison["verschil_bedrag"].abs()
-    comparison["verschil_pct"] = comparison.apply(
-        lambda row: None
-        if row["saldo_vorig_jaar"] == 0
-        else row["verschil_bedrag"] / abs(row["saldo_vorig_jaar"]) * 100,
-        axis=1,
-    )
-    comparison["status"] = comparison.apply(
-        lambda row: "nieuw"
-        if row["aanwezig_huidig"] and not row["aanwezig_vorig"]
-        else "vervallen"
-        if row["aanwezig_vorig"] and not row["aanwezig_huidig"]
-        else "bestaand",
-        axis=1,
-    )
+    with tabs[0]:
+        kop(
+            "Koppel elke btw-code aan een aangifterubriek",
+            "Een auditfile bevat geen aangifte. De tool doet een voorstel op grond van de "
+            "omschrijving, het tarief en de debet/creditzijde, en zegt erbij waarop dat "
+            "voorstel berust. Pas de rubriek aan waar het voorstel niet klopt; uw keuze "
+            "gaat altijd voor en wordt lokaal bewaard.",
+        )
 
-    return comparison.sort_values("verschil_abs", ascending=False)
+        opgeslagen = huidige_mapping()
+        bewerkbaar = vat.pas_mapping_toe(gebruik_ruw, opgeslagen)[
+            [
+                "btw_code",
+                "omschrijving",
+                "aantal_regels",
+                "percentages",
+                "grondslag_grootboek",
+                "btw_grootboek",
+                "rubriek",
+                "zekerheid",
+                "reden",
+            ]
+        ]
 
-
-def get_vat_codes(lines: pd.DataFrame) -> pd.DataFrame:
-    vat_codes = lines.attrs.get("vat_codes")
-    if isinstance(vat_codes, pd.DataFrame):
-        return export_dataframe(vat_codes, VAT_CODE_COLUMNS)
-    return pd.DataFrame({"Melding": ["Geen gegevens beschikbaar"]})
-
-
-def get_company_info(lines: pd.DataFrame) -> pd.DataFrame:
-    company_info = lines.attrs.get("company_info")
-    if isinstance(company_info, pd.DataFrame):
-        return export_dataframe(company_info, COMPANY_INFO_COLUMNS)
-    return pd.DataFrame({"Melding": ["Geen gegevens beschikbaar"]})
-
-
-def build_vat_usage(lines: pd.DataFrame) -> pd.DataFrame:
-    lines = ensure_columns(lines.copy(), LINE_COLUMNS + VAT_LINE_COLUMNS)
-    vat_codes = lines.attrs.get("vat_codes")
-    if not isinstance(vat_codes, pd.DataFrame):
-        vat_codes = pd.DataFrame(columns=VAT_CODE_COLUMNS)
-    vat_codes = ensure_columns(vat_codes.copy(), VAT_CODE_COLUMNS)
-
-    vat_lines = lines[lines["vat_vatID"].astype(str).str.strip() != ""].copy()
-    if vat_lines.empty:
-        return pd.DataFrame({"Melding": ["Geen gegevens beschikbaar"]})
-
-    vat_lines["grondslagbedrag"] = vat_lines.apply(
-        lambda row: typed_amount_to_signed_preserve_negative(row.get("line_amnt"), row.get("line_amntTp", "")),
-        axis=1,
-    )
-    vat_lines["btw_bedrag"] = vat_lines.apply(
-        lambda row: typed_amount_to_signed_preserve_negative(row.get("vat_vatAmnt"), row.get("vat_vatAmntTp", "")),
-        axis=1,
-    )
-    vat_lines["vat_vatPerc"] = pd.to_numeric(vat_lines["vat_vatPerc"], errors="coerce")
-
-    usage = (
-        vat_lines.groupby("vat_vatID", dropna=False)
-        .agg(
-            aantal_transactieregels=("vat_vatID", "count"),
-            totaal_grondslagbedrag=("grondslagbedrag", "sum"),
-            totaal_btw_bedrag=("btw_bedrag", "sum"),
-            gebruikte_percentages=(
-                "vat_vatPerc",
-                lambda values: ", ".join(
-                    sorted(
-                        {
-                            f"{float(value):g}%"
-                            for value in values.dropna()
-                        }
-                    )
+        bewerkt = st.data_editor(
+            bewerkbaar,
+            hide_index=True,
+            width="stretch",
+            disabled=[
+                "btw_code",
+                "omschrijving",
+                "aantal_regels",
+                "percentages",
+                "grondslag_grootboek",
+                "btw_grootboek",
+                "zekerheid",
+                "reden",
+            ],
+            column_config={
+                "btw_code": st.column_config.TextColumn("Btw-code", width="small"),
+                "omschrijving": st.column_config.TextColumn("Omschrijving in het bestand"),
+                "aantal_regels": st.column_config.NumberColumn("Regels", format="plain"),
+                "percentages": st.column_config.TextColumn("Tarieven", width="small"),
+                "grondslag_grootboek": st.column_config.NumberColumn("Grondslag", format="euro"),
+                "btw_grootboek": st.column_config.NumberColumn("Btw", format="euro"),
+                "rubriek": st.column_config.SelectboxColumn(
+                    "Aangifterubriek", options=keuzelijst(), required=True, width="small"
                 ),
-            ),
+                "zekerheid": st.column_config.TextColumn("Zekerheid", width="small"),
+                "reden": st.column_config.TextColumn("Waarop het voorstel berust", width="large"),
+            },
+            key="btw_mapping_editor",
         )
-        .reset_index()
-        .rename(columns={"vat_vatID": "vatID"})
-    )
 
-    usage = usage.merge(vat_codes[["vatID", "vatDesc"]], on="vatID", how="left")
-    usage = ensure_columns(
-        usage,
-        [
-            "vatID",
-            "vatDesc",
-            "aantal_transactieregels",
-            "totaal_grondslagbedrag",
-            "totaal_btw_bedrag",
-            "gebruikte_percentages",
-        ],
-    )
-    return usage[
-        [
-            "vatID",
-            "vatDesc",
-            "aantal_transactieregels",
-            "totaal_grondslagbedrag",
-            "totaal_btw_bedrag",
-            "gebruikte_percentages",
-        ]
-    ].sort_values("vatID")
-
-
-def build_vat_drilldown(lines: pd.DataFrame, vat_id: str) -> pd.DataFrame:
-    columns = TRANSACTION_COLUMNS + LINE_COLUMNS + VAT_LINE_COLUMNS + ["accDesc"]
-    lines = ensure_columns(lines.copy(), columns)
-    selected_lines = lines[lines["vat_vatID"].astype(str) == str(vat_id)].copy()
-    if selected_lines.empty:
-        return pd.DataFrame({"Melding": ["Geen gegevens beschikbaar"]})
-
-    selected_lines["datum"] = selected_lines.apply(
-        lambda row: first_non_empty(row, ["tx_trDt", "line_effDate"]),
-        axis=1,
-    )
-    selected_lines["documentreferentie"] = selected_lines.apply(
-        lambda row: first_non_empty(row, ["line_docRef", "line_invRef"]),
-        axis=1,
-    )
-    selected_lines["bedrag"] = selected_lines.apply(
-        lambda row: typed_amount_to_signed_preserve_negative(row.get("line_amnt"), row.get("line_amntTp", "")),
-        axis=1,
-    )
-    selected_lines["BTW-bedrag"] = selected_lines.apply(
-        lambda row: typed_amount_to_signed_preserve_negative(row.get("vat_vatAmnt"), row.get("vat_vatAmntTp", "")),
-        axis=1,
-    )
-    selected_lines["BTW-percentage"] = pd.to_numeric(selected_lines["vat_vatPerc"], errors="coerce")
-    if "accID" in selected_lines.columns:
-        selected_lines = selected_lines.drop(columns=["accID"])
-
-    selected_lines = selected_lines.rename(
-        columns={
-            "tx_periodNumber": "periode",
-            "tx_jrn_desc": "journaal",
-            "line_accID": "accID",
-            "accDesc": "rekeningomschrijving",
-            "line_desc": "omschrijving transactieregel",
-            "line_amntTp": "bedragstype",
+        nieuwe_mapping = {
+            str(code): str(gekozen)
+            for code, gekozen in zip(bewerkt["btw_code"], bewerkt["rubriek"])
         }
-    )
-    selected_lines = selected_lines.sort_values("datum", na_position="last")
-    return selected_lines[
-        [
-            "datum",
-            "periode",
-            "journaal",
-            "accID",
-            "rekeningomschrijving",
-            "omschrijving transactieregel",
-            "bedrag",
-            "bedragstype",
-            "BTW-percentage",
-            "BTW-bedrag",
-            "documentreferentie",
+        if nieuwe_mapping != opgeslagen:
+            st.session_state["btw_mapping"] = nieuwe_mapping
+            if not save_vat_mapping(nieuwe_mapping):
+                st.warning(f"De koppeling kon niet worden bewaard in {BTW_MAPPING_PATH}.")
+
+        niet_ingedeeld = bewerkt[bewerkt["rubriek"] == ONBEKEND]
+        if not niet_ingedeeld.empty:
+            st.warning(
+                f"{len(niet_ingedeeld)} btw-code(s) hebben nog geen rubriek en tellen niet mee "
+                "in de aangiftevergelijking."
+            )
+
+        with st.expander("Wat houden de rubrieken in?"):
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Rubriek": item.code,
+                            "Omschrijving": item.omschrijving,
+                            "Btw-bedrag": "ja" if item.heeft_btw else "alleen omzet",
+                            "In de eindtelling": item.zijde,
+                            "Toelichting": item.toelichting,
+                        }
+                        for item in RUBRIEKEN
+                    ]
+                ),
+                hide_index=True,
+                width="stretch",
+            )
+            st.caption("Vindplaatsen staan in docs/btw-bronnen.md.")
+
+    gebruik = vat.pas_mapping_toe(gebruik_ruw, huidige_mapping())
+
+    with tabs[1]:
+        kop(
+            "Vergelijk met de ingediende aangiften",
+            "Vul per rubriek het totaal in van de aangiften over het boekjaar. De bedragen "
+            "worden lokaal bewaard en komen niet in Git terecht.",
+        )
+        rubrieken_in_gebruik = [
+            code for code in gebruik["rubriek"].unique() if code != ONBEKEND and rubriek(code).heeft_btw
         ]
-    ]
-
-
-def build_all_vat_drilldown(lines: pd.DataFrame) -> pd.DataFrame:
-    usage = build_vat_usage(lines)
-    if "vatID" not in usage.columns or usage.empty:
-        return pd.DataFrame({"Melding": ["Geen gegevens beschikbaar"]})
-
-    drilldowns = []
-    for vat_id in usage["vatID"].dropna().astype(str):
-        drilldown = build_vat_drilldown(lines, vat_id)
-        if "Melding" in drilldown.columns:
-            continue
-        drilldown.insert(0, "vatID", vat_id)
-        drilldown.attrs = {}
-        drilldowns.append(drilldown)
-
-    if not drilldowns:
-        return pd.DataFrame({"Melding": ["Geen gegevens beschikbaar"]})
-
-    vat_codes = lines.attrs.get("vat_codes")
-    if not isinstance(vat_codes, pd.DataFrame):
-        vat_codes = pd.DataFrame(columns=VAT_CODE_COLUMNS)
-    vat_codes = ensure_columns(vat_codes.copy(), VAT_CODE_COLUMNS)
-
-    result = pd.concat(drilldowns, ignore_index=True)
-    result = result.merge(vat_codes[["vatID", "vatDesc"]], on="vatID", how="left")
-    result = result[
-        [
-            "vatID",
-            "vatDesc",
-            "datum",
-            "periode",
-            "journaal",
-            "accID",
-            "rekeningomschrijving",
-            "omschrijving transactieregel",
-            "bedrag",
-            "bedragstype",
-            "BTW-percentage",
-            "BTW-bedrag",
-            "documentreferentie",
-        ]
-    ]
-    return result.sort_values(["vatID", "datum"], na_position="last")
-def build_vat_reconciliation(lines: pd.DataFrame, declared_vat: dict | None = None) -> pd.DataFrame:
-    usage = build_vat_usage(lines)
-
-    if "vatID" not in usage.columns or usage.empty:
-        return pd.DataFrame({"Melding": ["Geen BTW-gegevens beschikbaar"]})
-
-    declared_vat = declared_vat or {}
-
-    result = usage.copy()
-    def determine_rubric(vat_desc: str) -> str:
-        vat_desc = str(vat_desc).lower()
-
-        if "1a" in vat_desc:
-            return "1a"
-        elif "1b" in vat_desc:
-            return "1b"
-        elif "1e" in vat_desc:
-            return "1e"
-        elif "2a" in vat_desc or "verlegd" in vat_desc:
-            return "2a/5b"
-        elif "5b" in vat_desc or "voorbelasting" in vat_desc:
-            return "5b"
+        if not rubrieken_in_gebruik:
+            st.caption("Er zijn nog geen rubrieken met een btw-bedrag toegewezen.")
         else:
-            return "Onbekend"
+            opgeslagen_aangifte = huidige_aangifte()
+            ingevoerd: dict[str, float] = {}
+            kolommen = st.columns(min(4, len(rubrieken_in_gebruik)))
+            for index, code in enumerate(sorted(rubrieken_in_gebruik)):
+                with kolommen[index % len(kolommen)]:
+                    ingevoerd[code] = st.number_input(
+                        f"Rubriek {code}",
+                        value=float(opgeslagen_aangifte.get(code, 0.0)),
+                        step=1.0,
+                        format="%.2f",
+                        help=rubriek(code).omschrijving,
+                        key=f"aangifte_{code}",
+                    )
+            if ingevoerd != opgeslagen_aangifte:
+                st.session_state["btw_aangifte"] = ingevoerd
+                if not save_declared_vat(ingevoerd):
+                    st.warning(f"De aangiftebedragen konden niet worden bewaard in {BTW_AANGIFTE_PATH}.")
 
-    result["rubriek"] = result["vatDesc"].apply(determine_rubric)
-    result["btw_volgens_xaf"] = pd.to_numeric(result["totaal_btw_bedrag"], errors="coerce").fillna(0)
+        rubrieken = vat.build_rubric_summary(gebruik, huidige_aangifte())
+        kop("Aansluiting per rubriek")
+        toon_tabel(rubrieken, kleur_op="status")
 
-    result["btw_volgens_aangifte"] = result["vatID"].astype(str).map(
-        lambda vat_id: float(declared_vat.get(vat_id, 0) or 0)
-    )
-
-    result["verschil"] = result["btw_volgens_xaf"] - result["btw_volgens_aangifte"]
-
-    result["status"] = result["verschil"].apply(
-        lambda x: "✅ Sluit aan" if abs(x) < 1 else "⚠️ Verschil"
-    )
-
-    return result[
-        [
-            "vatID",
-            "vatDesc",
-            "rubriek",
-            "aantal_transactieregels",
-            "totaal_grondslagbedrag",
-            "btw_volgens_xaf",
-            "btw_volgens_aangifte",
-            "verschil",
-            "status",
-            "gebruikte_percentages",
-        ]
-    ].sort_values("vatID")
-
-def build_vat_rubric_summary(reconciliation: pd.DataFrame) -> pd.DataFrame:
-    if reconciliation.empty or "rubriek" not in reconciliation.columns:
-        return pd.DataFrame({"Melding": ["Geen gegevens beschikbaar"]})
-
-    summary = (
-        reconciliation.groupby("rubriek", dropna=False)
-        .agg(
-            totaal_grondslagbedrag=("totaal_grondslagbedrag", "sum"),
-            btw_volgens_xaf=("btw_volgens_xaf", "sum"),
-            btw_volgens_aangifte=("btw_volgens_aangifte", "sum"),
-            verschil=("verschil", "sum"),
+        positie = vat.build_vat_position(rubrieken)
+        a, b, c = st.columns(3)
+        kerncijfer(a, "Verschuldigde btw (5a)", euro(positie["af_te_dragen"]))
+        kerncijfer(b, "Voorbelasting (5b)", euro(positie["voorbelasting"]))
+        kerncijfer(
+            c,
+            "Te betalen" if positie["netto"] >= 0 else "Terug te vragen",
+            euro(abs(positie["netto"])),
         )
-        .reset_index()
-    )
 
-    summary["totaal_grondslagbedrag"] = summary["totaal_grondslagbedrag"].abs().round(0)
-    summary["btw_volgens_xaf"] = summary["btw_volgens_xaf"].abs().round(0)
-    summary["btw_volgens_aangifte"] = summary["btw_volgens_aangifte"].abs().round(0)
-    summary["verschil"] = summary["verschil"].abs().round(0)
-
-    return summary.sort_values("rubriek")
-def build_vat_account_analysis(lines: pd.DataFrame) -> pd.DataFrame:
-    lines = ensure_columns(lines.copy(), ["line_accID", "accDesc", "line_desc", "bedrag"])
-
-    btw_mask = (
-        lines["accDesc"].astype(str).str.contains(
-            "btw|omzetbelasting|belastingdienst",
-            case=False,
-            na=False,
-        )
-    )
-
-    result = lines[btw_mask].copy()
-
-    if result.empty:
-        return pd.DataFrame({"Melding": ["Geen BTW-rekeningen gevonden"]})
-
-    summary = (
-        result.groupby(["line_accID", "accDesc"], dropna=False)
-        .size()
-        .reset_index(name="Aantal boekingen")
-    )
-
-    return summary.sort_values("Aantal boekingen", ascending=False)
-
-def build_logical_controls(lines: pd.DataFrame) -> pd.DataFrame:
-    columns = ["line_accID", "accDesc", "tx_periodNumber", "line_amnt", "line_amntTp", "bedrag"]
-    lines = ensure_columns(lines.copy(), columns)
-    if lines.empty:
-        return pd.DataFrame({"Melding": ["Geen gegevens beschikbaar"]})
-
-    lines["periode_nummer"] = pd.to_numeric(lines["tx_periodNumber"], errors="coerce")
-    lines = lines[lines["periode_nummer"].notna()].copy()
-    if lines.empty:
-        return pd.DataFrame({"Melding": ["Geen gegevens beschikbaar"]})
-
-    lines["periode_nummer"] = lines["periode_nummer"].astype(int)
-    lines["bedrag"] = lines.apply(
-        lambda row: typed_amount_to_signed(row.get("line_amnt"), row.get("line_amntTp", "")),
-        axis=1,
-    )
-    max_period = int(lines["periode_nummer"].max()) if not lines.empty else 12
-    expected_period_count = min(12, max(max_period, 1))
-    expected_periods = set(range(1, expected_period_count + 1))
-
-    controls = [
-        ("Huur", ["huur", r"\brent\b"], True),
-        ("Leasekosten", ["lease", "leasing"], True),
-        ("Lonen / salarissen", ["loon", "salaris", "salarissen", "wages", "payroll"], True),
-        ("Afschrijvingen", ["afschrijving", "afschrijvingen", "depreciation"], True),
-        ("Verzekeringen", ["verzekering", "verzekeringen", "insurance"], False),
-        ("Rente", ["rentelast", "rentekosten", "rentebat", r"\binterest\b"], False),
-    ]
-
-    rows = []
-    for control_name, search_terms, expects_12_periods in controls:
-        pattern = "|".join(search_terms)
-        control_lines = lines[lines["accDesc"].astype(str).str.contains(pattern, case=False, na=False, regex=True)]
-        if control_lines.empty:
-            continue
-
-        for (account, description), account_lines in control_lines.groupby(["line_accID", "accDesc"], dropna=False):
-            period_totals = (
-                account_lines.groupby("periode_nummer", dropna=False)["bedrag"]
-                .sum()
-                .sort_index()
-            )
-            periods_with_mutations = [int(period) for period in period_totals.index]
-            period_count = len(periods_with_mutations)
-            total_amount = float(period_totals.sum())
-            average_amount = total_amount / period_count if period_count else 0.0
-            max_deviation = (
-                float((period_totals - average_amount).abs().max())
-                if period_count and pd.notna(average_amount)
-                else 0.0
-            )
-            strong_deviation = (
-                period_count > 1
-                and abs(average_amount) > 0.005
-                and (period_totals - average_amount).abs().max() > abs(average_amount) * 0.5
+        verschillen = rubrieken[rubrieken["status"] == "Verschil"]
+        if not verschillen.empty:
+            totaal = verschillen["verschil"].sum()
+            st.warning(
+                f"{len(verschillen)} rubriek(en) sluiten niet aan; samen {euro(totaal)}. "
+                "Beoordeel of een suppletie nodig is."
             )
 
-            pos_periods = period_totals[period_totals > 0.005]
-            neg_periods = period_totals[period_totals < -0.005]
-            n_pos, n_neg = len(pos_periods), len(neg_periods)
-            opposite_periods = []
-            if n_pos > 0 and n_neg > 0:
-                if n_neg >= 2 * n_pos:
-                    opposite_periods = sorted(int(p) for p in pos_periods.index)
-                elif n_pos >= 2 * n_neg:
-                    opposite_periods = sorted(int(p) for p in neg_periods.index)
-
-            check_missing_periods = expects_12_periods or period_count >= 10
-            missing_periods = sorted(expected_periods - set(periods_with_mutations)) if check_missing_periods else []
-
-            if missing_periods:
-                conclusion = "Let op: ontbrekende perioden"
-            elif opposite_periods:
-                periods_str = ", ".join(str(p) for p in opposite_periods)
-                conclusion = f"Let op: tegengestelde boeking in periode {periods_str}"
-            elif strong_deviation:
-                conclusion = "Let op: sterke afwijking"
-            elif not expects_12_periods and period_count < 10:
-                conclusion = "Handmatig beoordelen"
-            else:
-                conclusion = "OK"
-
-            rows.append(
-                {
-                    "controle": control_name,
-                    "rekeningnummer": str(account),
-                    "rekeningomschrijving": str(description),
-                    "aantal_perioden_met_mutaties": period_count,
-                    "perioden_met_mutaties": ", ".join(str(period) for period in periods_with_mutations),
-                    "ontbrekende_perioden": ", ".join(str(period) for period in missing_periods),
-                    "totaalbedrag": total_amount,
-                    "gemiddeld_bedrag_per_periode": float(average_amount),
-                    "grootste_afwijking_tov_gemiddelde": max_deviation,
-                    "conclusie": conclusion,
-                }
+    with tabs[2]:
+        rubrieken = vat.build_rubric_summary(gebruik, huidige_aangifte())
+        kop(
+            "Verloop van de btw-rekeningen",
+            "Twee onafhankelijke wegen naar hetzelfde bedrag: de btw-codes op de "
+            "boekingsregels, en de mutaties op de rekeningen die de btw-codetabel als "
+            "btw-rekening aanwijst.",
+        )
+        verloop = vat.build_vat_ledger_flow(huidig, rubrieken)
+        if verloop.empty:
+            st.caption(
+                "De btw-codetabel wijst geen btw-grootboekrekeningen aan; een rondrekening "
+                "is daardoor niet te maken."
             )
-
-    if not rows:
-        return pd.DataFrame({"Melding": ["Geen gegevens beschikbaar"]})
-
-    return pd.DataFrame(rows).sort_values(["controle", "rekeningnummer"])
-
-
-def build_btw_positie_1800(saldo: pd.DataFrame) -> pd.DataFrame:
-    saldo = ensure_columns(saldo.copy(), ["rekening", "accDesc", "accTp", "beginsaldo", "mutaties_boekjaar", "eindsaldo"])
-    mask = (
-        saldo["rekening"].astype(str).str.startswith("1800")
-        | saldo["accDesc"].astype(str).str.contains(
-            r"omzetbelasting|btw te betalen|btw te vorderen|te betalen btw|te vorderen btw",
-            case=False, na=False, regex=True,
-        )
-    )
-    result = saldo[mask].copy()
-    if result.empty:
-        return pd.DataFrame({"Melding": ["Geen BTW-balansrekening gevonden (zoekt op 1800 en omzetbelasting)"]})
-    result["positie"] = result["eindsaldo"].apply(
-        lambda x: "Te betalen" if x < -0.005 else ("Te vorderen" if x > 0.005 else "Nihil")
-    )
-    return result[["rekening", "accDesc", "beginsaldo", "mutaties_boekjaar", "eindsaldo", "positie"]].sort_values("rekening")
-
-
-def build_kosten_zonder_btw(lines: pd.DataFrame) -> pd.DataFrame:
-    lines = ensure_columns(lines.copy(), ["line_accID", "accDesc", "accTp", "vat_vatID", "line_vatID", "bedrag"])
-    cost_mask = lines["accTp"].astype(str).str.upper().eq("P")
-    exclude = r"loon|salaris|salarissen|wages|payroll|afschrijving|depreciation|rentelast|rentekosten|rentebat|\binterest\b"
-    cost_lines = lines[
-        cost_mask
-        & ~lines["accDesc"].astype(str).str.contains(exclude, case=False, na=False, regex=True)
-    ].copy()
-    no_vat = (
-        cost_lines["vat_vatID"].astype(str).str.strip().eq("")
-        & cost_lines["line_vatID"].astype(str).str.strip().eq("")
-    )
-    result_lines = cost_lines[no_vat].copy()
-    if result_lines.empty:
-        return pd.DataFrame({"Melding": ["Geen kostenboekingen zonder BTW-code gevonden"]})
-    result = (
-        result_lines.groupby(["line_accID", "accDesc"], dropna=False)
-        .agg(aantal_regels=("bedrag", "count"), totaalbedrag=("bedrag", "sum"))
-        .reset_index()
-        .rename(columns={"line_accID": "rekening", "accDesc": "omschrijving"})
-    )
-    result["totaalbedrag"] = result["totaalbedrag"].abs()
-    return result.sort_values("totaalbedrag", ascending=False).reset_index(drop=True)
-
-
-def build_crediteurensaldo(saldo: pd.DataFrame) -> pd.DataFrame:
-    saldo = ensure_columns(saldo.copy(), ["rekening", "accDesc", "accTp", "eindsaldo"])
-    mask = (
-        saldo["rekening"].astype(str).str.match(r"^1[46]")
-        | saldo["accDesc"].astype(str).str.contains(
-            r"crediteur|leverancier|accounts payable|te betalen",
-            case=False, na=False, regex=True,
-        )
-    ) & saldo["accTp"].astype(str).str.upper().eq("B")
-    result = saldo[mask].copy()
-    if result.empty:
-        return pd.DataFrame({"Melding": ["Geen crediteurenrekeningen gevonden (zoekt op 14x, 16x en keywords)"]})
-    result["signaal"] = result["eindsaldo"].apply(
-        lambda x: "Let op: debetsaldo" if x > 0.005 else ""
-    )
-    return result[["rekening", "accDesc", "eindsaldo", "signaal"]].sort_values("rekening")
-
-
-def build_transitoria(saldo: pd.DataFrame) -> pd.DataFrame:
-    saldo = ensure_columns(saldo.copy(), ["rekening", "accDesc", "accTp", "eindsaldo"])
-    mask = (
-        saldo["rekening"].astype(str).str.match(r"^2[89]")
-        | saldo["accDesc"].astype(str).str.contains(
-            r"overloop|transitor|vooruitbetaal|vooruitontvan|nog te betalen|nog te ontvangen|afgrenzing",
-            case=False, na=False, regex=True,
-        )
-    ) & saldo["accTp"].astype(str).str.upper().eq("B")
-    result = saldo[mask].copy()
-    if result.empty:
-        return pd.DataFrame({"Melding": ["Geen overlopende posten gevonden (zoekt op 28x, 29x en keywords)"]})
-    result["type"] = result["rekening"].astype(str).apply(
-        lambda r: "Overlopende activa" if r.startswith("28") else ("Overlopende passiva" if r.startswith("29") else "Overig")
-    )
-    result["signaal"] = result.apply(
-        lambda row: "Let op: onverwacht teken" if (
-            (row["type"] == "Overlopende activa" and row["eindsaldo"] < -0.005)
-            or (row["type"] == "Overlopende passiva" and row["eindsaldo"] > 0.005)
-        ) else "",
-        axis=1,
-    )
-    return result[["rekening", "accDesc", "type", "eindsaldo", "signaal"]].sort_values("rekening")
-
-
-def build_personeel_omvang(lines: pd.DataFrame) -> pd.DataFrame:
-    lines = ensure_columns(lines.copy(), ["line_accID", "accDesc", "tx_periodNumber", "bedrag"])
-    salary_pattern = r"loon|salaris|salarissen|wages|payroll|nettoloon|brutoloon"
-    salary_lines = lines[
-        lines["accDesc"].astype(str).str.contains(salary_pattern, case=False, na=False, regex=True)
-    ].copy()
-    if salary_lines.empty:
-        return pd.DataFrame({"Melding": ["Geen salarisrekeningen gevonden"]})
-    salary_lines["periode"] = pd.to_numeric(salary_lines["tx_periodNumber"], errors="coerce")
-    salary_lines = salary_lines[salary_lines["periode"].notna()].copy()
-    salary_lines["periode"] = salary_lines["periode"].astype(int)
-    monthly = (
-        salary_lines.groupby("periode")
-        .agg(totaal_salarissen=("bedrag", "sum"))
-        .reset_index()
-    )
-    monthly["totaal_salarissen"] = monthly["totaal_salarissen"].abs()
-    monthly["geschatte_fte"] = (monthly["totaal_salarissen"] / 4000).round(1)
-    return monthly.sort_values("periode").reset_index(drop=True)
-
-
-def build_cbo_omzet(lines: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    lines = ensure_columns(lines.copy(), ["line_accID", "accDesc", "RGScode", "tx_periodNumber", "bedrag"])
-    revenue_mask = (
-        lines["RGScode"].astype(str).str.startswith("WOmz")
-        | lines["line_accID"].astype(str).str.match(r"^8")
-        | lines["accDesc"].astype(str).str.contains(
-            r"omzet|verkoop|opbrengst|provisie|\brevenue\b",
-            case=False, na=False, regex=True,
-        )
-    )
-    revenue_lines = lines[revenue_mask].copy()
-    if revenue_lines.empty:
-        empty = pd.DataFrame({"Melding": ["Geen omzetrekeningen gevonden"]})
-        return empty, empty
-    revenue_lines["periode"] = pd.to_numeric(revenue_lines["tx_periodNumber"], errors="coerce")
-    revenue_lines = revenue_lines[revenue_lines["periode"].notna()].copy()
-    revenue_lines["periode"] = revenue_lines["periode"].astype(int)
-    monthly = (
-        revenue_lines.groupby("periode")
-        .agg(omzet=("bedrag", "sum"))
-        .reset_index()
-    )
-    monthly["omzet"] = monthly["omzet"].abs()
-    top_accounts = (
-        revenue_lines.groupby(["line_accID", "accDesc"], dropna=False)
-        .agg(omzet=("bedrag", "sum"))
-        .reset_index()
-        .rename(columns={"line_accID": "rekening", "accDesc": "omschrijving"})
-    )
-    top_accounts["omzet"] = top_accounts["omzet"].abs()
-    top_accounts = top_accounts.sort_values("omzet", ascending=False).reset_index(drop=True)
-    return monthly, top_accounts
-
-
-def build_lease_analyse(lines: pd.DataFrame, saldo: pd.DataFrame) -> pd.DataFrame:
-    lines = ensure_columns(lines.copy(), ["line_accID", "accDesc", "accTp", "bedrag"])
-    saldo = ensure_columns(saldo.copy(), ["rekening", "accDesc", "accTp", "eindsaldo"])
-    lease_pattern = r"lease|leasing"
-    pl_lease = (
-        lines[
-            lines["accDesc"].astype(str).str.contains(lease_pattern, case=False, na=False, regex=True)
-        ]
-        .groupby(["line_accID", "accDesc"], dropna=False)
-        .agg(bedrag=("bedrag", "sum"))
-        .reset_index()
-        .rename(columns={"line_accID": "rekening", "accDesc": "omschrijving"})
-    )
-    pl_lease["classificatie"] = "Operationele lease (kosten P&L)"
-    pl_lease["bedrag"] = pl_lease["bedrag"].abs()
-    bs_lease = saldo[
-        saldo["accDesc"].astype(str).str.contains(lease_pattern, case=False, na=False, regex=True)
-        & saldo["accTp"].astype(str).str.upper().eq("B")
-    ].copy()
-    bs_lease = bs_lease.rename(columns={"eindsaldo": "bedrag", "accDesc": "omschrijving"})
-    bs_lease["classificatie"] = "Financiële lease (balans)"
-    bs_lease = bs_lease[["rekening", "omschrijving", "bedrag", "classificatie"]].copy()
-    bs_lease["bedrag"] = bs_lease["bedrag"].abs()
-    if pl_lease.empty and bs_lease.empty:
-        return pd.DataFrame({"Melding": ["Geen leaserekeningen gevonden"]})
-    result = pd.concat([pl_lease, bs_lease], ignore_index=True)
-    return result[["classificatie", "rekening", "omschrijving", "bedrag"]].sort_values(["classificatie", "rekening"])
-
-
-def build_huurverplichting(lines: pd.DataFrame, saldo: pd.DataFrame) -> pd.DataFrame:
-    lines = ensure_columns(lines.copy(), ["line_accID", "accDesc", "bedrag"])
-    saldo = ensure_columns(saldo.copy(), ["rekening", "accDesc", "accTp", "eindsaldo"])
-    huur_lines = lines[
-        lines["accDesc"].astype(str).str.contains(r"\bhuur\b|pacht", case=False, na=False, regex=True)
-    ].copy()
-    if huur_lines.empty:
-        return pd.DataFrame({"Melding": ["Geen huurkosten gevonden"]})
-    huur_kosten = (
-        huur_lines.groupby(["line_accID", "accDesc"], dropna=False)
-        .agg(totaal_huurkosten=("bedrag", "sum"))
-        .reset_index()
-        .rename(columns={"line_accID": "rekening", "accDesc": "omschrijving"})
-    )
-    huur_kosten["totaal_huurkosten"] = huur_kosten["totaal_huurkosten"].abs()
-    huurschuld_bs = saldo[
-        saldo["accDesc"].astype(str).str.contains(
-            r"huurschuld|leaseschuld|huurverplichting|lease.*schuld|financieel.*lease",
-            case=False, na=False, regex=True,
-        )
-        & saldo["accTp"].astype(str).str.upper().eq("B")
-    ]
-    heeft_huurschuld = not huurschuld_bs.empty
-    huur_kosten["huurschuld_op_balans"] = "Ja" if heeft_huurschuld else "Nee"
-    huur_kosten["signaal"] = "" if heeft_huurschuld else "Let op: geen huurverplichting op balans"
-    return huur_kosten.sort_values("totaal_huurkosten", ascending=False).reset_index(drop=True)
-
-
-def build_juridische_kosten(lines: pd.DataFrame) -> pd.DataFrame:
-    lines = ensure_columns(lines.copy(), ["line_accID", "accDesc", "bedrag"])
-    legal_lines = lines[
-        lines["accDesc"].astype(str).str.contains(
-            r"juridisch|advocaat|notaris|rechtbank|geschil|raadsman|proceskosten",
-            case=False, na=False, regex=True,
-        )
-    ].copy()
-    if legal_lines.empty:
-        return pd.DataFrame({"Melding": ["Geen juridische kosten gevonden"]})
-    result = (
-        legal_lines.groupby(["line_accID", "accDesc"], dropna=False)
-        .agg(totaalbedrag=("bedrag", "sum"), aantal_regels=("bedrag", "count"))
-        .reset_index()
-        .rename(columns={"line_accID": "rekening", "accDesc": "omschrijving"})
-    )
-    result["totaalbedrag"] = result["totaalbedrag"].abs()
-    return result.sort_values("totaalbedrag", ascending=False).reset_index(drop=True)
-
-
-def build_boetes_dwangsommen(lines: pd.DataFrame) -> pd.DataFrame:
-    lines = ensure_columns(lines.copy(), ["line_accID", "accDesc", "bedrag"])
-    fine_lines = lines[
-        lines["accDesc"].astype(str).str.contains(
-            r"boete|dwangsom|sanctie|bekeuring",
-            case=False, na=False, regex=True,
-        )
-    ].copy()
-    if fine_lines.empty:
-        return pd.DataFrame({"Melding": ["Geen boetes of dwangsommen gevonden"]})
-    result = (
-        fine_lines.groupby(["line_accID", "accDesc"], dropna=False)
-        .agg(totaalbedrag=("bedrag", "sum"), aantal_regels=("bedrag", "count"))
-        .reset_index()
-        .rename(columns={"line_accID": "rekening", "accDesc": "omschrijving"})
-    )
-    result["totaalbedrag"] = result["totaalbedrag"].abs()
-    result["toelichting"] = "Niet aftrekbaar VPB (art. 3.14 Wet IB)"
-    return result.sort_values("totaalbedrag", ascending=False).reset_index(drop=True)
-
-
-def format_money(value: float) -> str:
-    number = pd.to_numeric(value, errors="coerce")
-    if pd.isna(number):
-        number = 0.0
-    formatted = f"{float(number):,.2f}"
-    return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-def format_euro_whole(value) -> str:
-    number = pd.to_numeric(value, errors="coerce")
-    if pd.isna(number):
-        return ""
-    formatted = f"{float(number):,.0f}"
-    return formatted.replace(",", ".")
-
-
-def format_date_nl(value) -> str:
-    dt = pd.to_datetime(value, errors="coerce")
-    if pd.isna(dt):
-        return ""
-    return dt.strftime("%d-%m-%Y")
-
-
-def compact_periods(period_str: str) -> str:
-    if not period_str or not str(period_str).strip():
-        return ""
-    try:
-        nums = sorted({int(p.strip()) for p in str(period_str).split(",") if p.strip()})
-    except ValueError:
-        return period_str
-    if not nums:
-        return ""
-    ranges = []
-    start = end = nums[0]
-    for n in nums[1:]:
-        if n == end + 1:
-            end = n
         else:
-            ranges.append(str(start) if start == end else f"{start}-{end}")
-            start = end = n
-    ranges.append(str(start) if start == end else f"{start}-{end}")
-    return ", ".join(ranges)
+            toon_tabel(verloop)
+            overig = verloop[verloop["post"] == "Overige mutaties"]
+            if not overig.empty and abs(float(overig.iloc[0]["bedrag"])) > 0.005:
+                st.info(
+                    f"{euro(overig.iloc[0]['bedrag'])} aan mutaties volgt niet uit de "
+                    "facturatie en niet uit betalingen. Daar zitten correcties en eventuele "
+                    "suppleties in."
+                )
 
-
-def add_month_labels(compact: str, period_map: dict) -> str:
-    if not period_map or not compact:
-        return compact
-    def _replace(m: re.Match) -> str:
-        return period_map.get(int(m.group()), m.group())
-    return re.sub(r'\d+', _replace, compact)
-
-
-def export_dataframe(df: pd.DataFrame, columns: list[str] | None = None) -> pd.DataFrame:
-    """Maak een veilige kopie voor Excel; lege tabbladen krijgen een melding."""
-    export_df = df.copy()
-    if columns:
-        export_df = ensure_columns(export_df, columns)
-        export_df = export_df[columns]
-
-    if export_df.empty:
-        return pd.DataFrame({"Melding": ["Geen gegevens beschikbaar"]})
-
-    return export_df
-
-
-RGS_RUBRIEKEN = {
-    "BEiv": "Eigen vermogen",
-    "BIva": "Immateriele vaste activa",
-    "BLas": "Langlopende schulden",
-    "BLim": "Liquide middelen",
-    "BMva": "Materiele vaste activa",
-    "BSch": "Kortlopende schulden",
-    "BVor": "Vorderingen",
-    "BVrd": "Voorraden",
-    "WAfs": "Afschrijvingen",
-    "WBed": "Bedrijfskosten",
-    "WBel": "Belastingen resultaat",
-    "WFbe": "Financiele baten en lasten",
-    "WKpr": "Kostprijs van de omzet",
-    "WOmz": "Netto-omzet",
-    "WPer": "Personeelskosten",
-}
-
-
-def enrich_rgs_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Voeg RGS-rubriek en omschrijving toe voor het Excel-tabblad Grootboekrekeningen."""
-    export_df = ensure_columns(df.copy(), ["RGScode"])
-
-    def rgs_rubriek(code) -> str:
-        code_text = str(code or "").strip()
-        if not code_text:
-            return ""
-        if code_text.startswith("Resultaat"):
-            return "Resultaat"
-        return RGS_RUBRIEKEN.get(code_text[:4], "")
-
-    export_df["RGS rubriek"] = export_df["RGScode"].apply(rgs_rubriek)
-    export_df["RGS omschrijving"] = export_df["RGS rubriek"]
-    return export_df
-
-
-def worksheet_amount_columns(df: pd.DataFrame) -> list[int]:
-    amount_words = ("saldo", "bedrag", "mutaties", "amnt", "afwijking")
-    columns = []
-    for index, column in enumerate(df.columns, start=1):
-        column_name = str(column).casefold()
-        if "pct" in column_name or "percentage" in column_name:
-            continue
-        if any(word in column_name for word in amount_words):
-            columns.append(index)
-    return columns
-
-
-def prepare_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Schrijf numerieke tekst als getal weg, met behoud van zichtbare voorloopnullen."""
-    export_df = df.copy()
-    numeric_column_formats = {}
-
-    for column in export_df.columns:
-        if pd.api.types.is_numeric_dtype(export_df[column]):
-            continue
-
-        values = export_df[column].dropna().astype(str).str.strip()
-        values = values[values != ""]
-        if values.empty:
-            continue
-
-        normalized_values = values.str.replace(",", ".", regex=False)
-        if not normalized_values.str.fullmatch(r"-?\d+(\.\d+)?").all():
-            continue
-
-        export_df[column] = pd.to_numeric(
-            export_df[column].astype(str).str.strip().str.replace(",", ".", regex=False),
-            errors="coerce",
+        kop("Btw-grootboekrekeningen")
+        toon_tabel(
+            vat.build_ledger_reconciliation(huidig),
+            leegmelding="De btw-codetabel wijst geen btw-rekeningen aan.",
         )
 
-        if normalized_values.str.fullmatch(r"\d+").all():
-            width = int(values.str.len().max())
-            if width > 1 and values.str.startswith("0").any():
-                numeric_column_formats[str(column)] = "0" * width
+    with tabs[3]:
+        kop(
+            "Btw-signalen",
+            "Elk signaal is iets om naar te kijken, geen vastgestelde fout.",
+        )
+        toon_tabel(
+            vat.build_vat_anomalies(huidig, gebruik),
+            hoogte=440,
+            leegmelding="Geen btw-signalen gevonden.",
+        )
 
-    export_df.attrs["numeric_column_formats"] = numeric_column_formats
-    return export_df
-
-
-def format_excel_sheet(worksheet, df: pd.DataFrame) -> None:
-    """Zet filters, bovenste rij vast, bedragen en kolombreedtes netjes."""
-    from openpyxl.utils import get_column_letter
-
-    worksheet.freeze_panes = "A2"
-    worksheet.auto_filter.ref = worksheet.dimensions
-
-    amount_columns = set(worksheet_amount_columns(df))
-    numeric_column_formats = df.attrs.get("numeric_column_formats", {})
-    for column_number, column_name in enumerate(df.columns, start=1):
-        excel_column = get_column_letter(column_number)
-        max_length = len(str(column_name))
-
-        for value in df[column_name].head(1000):
-            if pd.notna(value):
-                max_length = max(max_length, len(str(value)))
-
-        worksheet.column_dimensions[excel_column].width = min(max(max_length + 2, 12), 60)
-
-        if column_number in amount_columns:
-            for cell in worksheet[excel_column][1:]:
-                cell.number_format = "#,##0.00;[Red]-#,##0.00"
-
-        if str(column_name) in numeric_column_formats:
-            for cell in worksheet[excel_column][1:]:
-                cell.number_format = numeric_column_formats[str(column_name)]
+    with tabs[4]:
+        kop("Boekingen per btw-code")
+        codes = list(gebruik["btw_code"])
+        etiketten = {
+            code: f"{code} — {omschrijving or 'zonder omschrijving'} ({rubriek_code})"
+            for code, omschrijving, rubriek_code in zip(
+                gebruik["btw_code"], gebruik["omschrijving"], gebruik["rubriek"]
+            )
+        }
+        gekozen = st.selectbox(
+            "Btw-code", codes, format_func=lambda code: etiketten.get(code, code)
+        )
+        regels = vat.build_vat_drilldown(huidig, gekozen)
+        alleen_afwijkend = st.checkbox(
+            "Alleen regels waar de btw afwijkt van tarief maal grondslag", value=False
+        )
+        if alleen_afwijkend:
+            regels = regels[regels["afwijking"].abs() > vat.AFRONDINGSMARGE_EURO]
+        st.caption(f"{len(regels)} boekingsregels.")
+        toon_tabel(regels.head(1000), hoogte=520, verberg=("btw_code",))
+        if len(regels) > 1000:
+            st.caption("De eerste duizend regels worden getoond; de export bevat alle regels.")
 
 
-def build_excel_export(
-    current_saldo: pd.DataFrame,
-    current_lines: pd.DataFrame,
-    comparison: pd.DataFrame,
-    comparison_columns: list[str],
-    declared_by_rubric: dict | None = None,
-) -> bytes:
-    """Bouw het Excelbestand met meerdere tabbladen voor de downloadknop."""
-    output = BytesIO()
+# --- Overige pagina's -------------------------------------------------------
 
-    saldo_columns = [
-        "rekening",
-        "accDesc",
-        "accTp",
-        "RGScode",
-        "beginsaldo",
-        "mutaties_boekjaar",
-        "eindsaldo",
-        "saldo",
-        "aantal_boekingsregels",
-    ]
-    grootboek_columns = [
-        "rekening",
-        "accDesc",
-        "accTp",
-        "RGScode",
-        "RGS rubriek",
-        "RGS omschrijving",
-        "beginsaldo",
-        "mutaties_boekjaar",
-        "eindsaldo",
-        "saldo",
-        "aantal_boekingsregels",
-    ]
-    mutation_columns = [
-        "tx_trDt",
-        "tx_periodNumber",
-        "tx_jrnID",
+
+def pagina_controles(huidig: Auditfile) -> None:
+    kop(
+        "Periodieke lasten",
+        "Komen vaste lasten in elke periode voor, en zijn de bedragen gelijkmatig?",
+    )
+    toon_tabel(
+        controls.build_periodieke_controles(huidig),
+        hoogte=440,
+        kleur_op="conclusie",
+        leegmelding="Geen periodieke lasten herkend.",
+    )
+
+    kop("Ongebruikelijke boekingen")
+    toon_tabel(
+        controls.build_ongebruikelijke_boekingen(huidig),
+        leegmelding="Geen ongebruikelijke patronen gevonden.",
+    )
+
+    kop("Balansposten met een onverwacht saldo")
+    toon_tabel(
+        controls.build_balanspost_signalen(huidig),
+        leegmelding="Alle balansposten staan aan de verwachte kant.",
+    )
+
+    links, rechts = st.columns(2)
+    with links:
+        kop("Omzet per periode")
+        omzet = controls.build_omzet_per_periode(huidig)
+        toon_tabel(omzet, kleur_op="signaal", leegmelding="Geen omzetrekeningen herkend.")
+        if not omzet.empty:
+            st.bar_chart(omzet.set_index("maand")["omzet"], height=220)
+    with rechts:
+        kop("Loonkosten per periode")
+        loon = controls.build_personeelskosten_per_periode(huidig)
+        toon_tabel(loon, kleur_op="signaal", leegmelding="Geen loonrekeningen herkend.")
+        if not loon.empty:
+            st.bar_chart(loon.set_index("maand")["loonkosten"], height=220)
+
+
+def pagina_relaties(huidig: Auditfile) -> None:
+    if huidig.relations.empty:
+        st.info("Dit auditfile bevat geen debiteuren- en crediteurengegevens.")
+        return
+
+    kop("Concentratie", "Hoe afhankelijk is de onderneming van enkele relaties?")
+    toon_tabel(controls.build_relatie_concentratie(huidig), kleur_op="signaal")
+
+    links, rechts = st.columns(2)
+    with links:
+        kop("Grootste debiteuren")
+        toon_tabel(
+            controls.build_relatie_analyse(huidig, "debiteur"),
+            hoogte=460,
+            leegmelding="Geen debiteuren gevonden.",
+        )
+    with rechts:
+        kop("Grootste crediteuren")
+        toon_tabel(
+            controls.build_relatie_analyse(huidig, "crediteur"),
+            hoogte=460,
+            leegmelding="Geen crediteuren gevonden.",
+        )
+
+    with st.expander("Alle relaties uit het auditfile"):
+        toon_tabel(huidig.relations, hoogte=400)
+
+
+def pagina_fiscale_signalen(huidig: Auditfile) -> None:
+    kop(
+        "Posten die om een fiscale beoordeling vragen",
+        "De tool signaleert op grond van de rekeningomschrijving en trekt geen conclusie. "
+        "Beoordeel elke post afzonderlijk.",
+    )
+    signalen = controls.build_fiscale_signalen(huidig)
+    if signalen.empty:
+        st.caption("Geen posten gevonden die om een fiscale beoordeling vragen.")
+        return
+
+    for onderwerp in signalen["onderwerp"].unique():
+        deel = signalen[signalen["onderwerp"] == onderwerp]
+        totaal = deel["bedrag"].sum()
+        with st.expander(f"{onderwerp} — {euro(totaal)} over {len(deel)} rekening(en)"):
+            st.caption(deel.iloc[0]["toelichting"])
+            toon_tabel(deel[["rekening", "omschrijving", "aantal_regels", "bedrag"]])
+
+
+def pagina_grootboekkaarten(huidig: Auditfile) -> None:
+    saldo = huidig.saldo
+    if saldo.empty:
+        st.info("Geen grootboekrekeningen gevonden.")
+        return
+
+    etiketten = {
+        rij["rekening"]: f"{rij['rekening']} — {rij['accDesc']} ({euro(rij['saldo'])})"
+        for _, rij in saldo.iterrows()
+    }
+    gekozen = st.selectbox(
+        "Grootboekrekening",
+        list(saldo["rekening"]),
+        format_func=lambda rekening: etiketten.get(rekening, rekening),
+    )
+
+    kaart = huidig.lines[huidig.lines["line_accID"] == gekozen].copy()
+    if kaart.empty:
+        st.info("Op deze rekening zijn geen boekingen gedaan in dit boekjaar.")
+        return
+
+    rij = saldo[saldo["rekening"] == gekozen].iloc[0]
+    a, b, c, d = st.columns(4)
+    kerncijfer(a, "Beginsaldo", euro(rij["beginsaldo"]))
+    kerncijfer(b, "Mutatie boekjaar", euro(rij["mutaties_boekjaar"]))
+    kerncijfer(c, "Eindsaldo", euro(rij["eindsaldo"]))
+    kerncijfer(d, "Boekingsregels", f"{len(kaart)}")
+
+    kaart = kaart.sort_values(["datum", "tx_nr", "line_nr"], na_position="last")
+    kaart["loopsaldo"] = float(rij["beginsaldo"]) + kaart["bedrag"].cumsum()
+    kolommen = [
+        "datum",
+        "periode",
         "tx_jrn_desc",
         "tx_nr",
-        "tx_desc",
-        "line_nr",
-        "line_accID",
-        "accDesc",
-        "accTp",
-        "RGScode",
-        "line_docRef",
-        "line_effDate",
         "line_desc",
-        "line_amnt",
-        "line_amntTp",
+        "line_docRef",
+        "line_custSupID",
         "bedrag",
+        "loopsaldo",
     ]
+    toon_tabel(kaart[[k for k in kolommen if k in kaart.columns]], hoogte=520)
 
-    current_saldo_safe = ensure_columns(current_saldo.copy(), saldo_columns)
-    current_saldo_export = enrich_rgs_columns(current_saldo_safe)
-    current_lines_safe = ensure_columns(current_lines.copy(), mutation_columns)
-    comparison_by_account = comparison.sort_values("rekening")
-    comparison_safe = export_dataframe(comparison_by_account, comparison_columns)
 
-    balance_2025 = current_saldo_safe[
-        current_saldo_safe["accTp"].astype(str).str.upper().eq("B")
-    ].copy().sort_values("rekening")
-    profit_loss_2025 = current_saldo_safe[
-        current_saldo_safe["accTp"].astype(str).str.upper().eq("P")
-    ].copy().sort_values("rekening")
-    ledger_cards = current_lines_safe.sort_values(
-        ["line_accID", "tx_trDt", "tx_nr", "line_nr"],
-        na_position="last",
+def pagina_export(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataFrame) -> None:
+    kop(
+        "Excel-export",
+        "Alle analyses in één werkboek, met Nederlandse getalnotatie en filters per tabblad.",
     )
-
-    _declared = declared_by_rubric or {}
-    _recon_export = build_vat_reconciliation(current_lines, {})
-    _rubric_export = build_vat_rubric_summary(_recon_export)
-    if "rubriek" in _rubric_export.columns:
-        _rubric_export["btw_volgens_aangifte"] = _rubric_export["rubriek"].map(
-            lambda r: float(_declared.get(r, 0))
+    st.caption(
+        "Het bestand bevat klantgegevens. Bewaar het in het dossier en niet in een "
+        "map die door Git wordt gevolgd."
+    )
+    if st.button("Werkboek samenstellen", type="primary"):
+        with st.spinner("Bezig met samenstellen…"):
+            inhoud = build_excel_export(
+                huidig, vorig, vergelijking, huidige_mapping(), huidige_aangifte()
+            )
+        st.download_button(
+            "Download het werkboek",
+            data=inhoud,
+            file_name=exportnaam(huidig, vorig),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-        _rubric_export["verschil"] = (
-            _rubric_export["btw_volgens_xaf"] - _rubric_export["btw_volgens_aangifte"]
-        ).abs().round(0)
-
-    sheets = {
-        "Bedrijfsgegevens": get_company_info(current_lines),
-        "Grootboekrekeningen": export_dataframe(current_saldo_export.sort_values("rekening"), grootboek_columns),
-        "Mutaties": export_dataframe(current_lines_safe.sort_values(["line_accID", "tx_trDt", "tx_nr", "line_nr"], na_position="last"), mutation_columns),
-        "Grootboekkaarten": export_dataframe(ledger_cards, mutation_columns),
-        "Top 20 afwijkingen": export_dataframe(comparison.head(20), comparison_columns),
-        "Vergelijking 2024-2025": comparison_safe,
-        "Balans 2025": export_dataframe(balance_2025, saldo_columns),
-        "Resultatenrekening 2025": export_dataframe(profit_loss_2025, saldo_columns),
-        "BTW-codetabel": get_vat_codes(current_lines),
-        "BTW-gebruik": build_vat_usage(current_lines),
-        "BTW-drilldown": build_all_vat_drilldown(current_lines),
-        "BTW-rondrekening": _rubric_export,
-        "Logische controles": build_logical_controls(current_lines),
-    }
-
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        for sheet_name, sheet_df in sheets.items():
-            sheet_df = prepare_numeric_columns(sheet_df)
-            sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
-            format_excel_sheet(writer.sheets[sheet_name], sheet_df)
-
-    return output.getvalue()
 
 
-def _company_info_value(lines: pd.DataFrame, key: str) -> str:
-    ci = lines.attrs.get("company_info")
-    if not isinstance(ci, pd.DataFrame):
-        return ""
-    rows = ci[ci["Onderdeel"] == key]
-    return str(rows.iloc[0]["Waarde"]) if not rows.empty else ""
-
-
-def load_declared_vat(path: Path = BTW_AANGIFTE_PATH) -> dict:
-    """Lees eerder opgeslagen aangiftebedragen uit de lokale datamap.
-
-    Retourneert een lege dict wanneer het bestand ontbreekt, onleesbaar is of
-    geen object bevat. Leest uitsluitend; veroorzaakt geen Git-wijziging.
-    """
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def save_declared_vat(declared: dict, path: Path = BTW_AANGIFTE_PATH) -> None:
-    """Schrijf aangiftebedragen naar de door Git genegeerde lokale datamap.
-
-    De bovenliggende map wordt zo nodig aangemaakt. Fouten worden stil
-    geslikt zodat een schrijfprobleem de app niet onderbreekt.
-    """
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(declared), encoding="utf-8")
-    except Exception:
-        pass
+# --- Hoofdprogramma ---------------------------------------------------------
 
 
 def main() -> None:
-    _logo_path = Path("logo.png")
-    if _logo_path.exists():
-        st.sidebar.image(str(_logo_path), use_container_width=True)
-    else:
-        st.sidebar.markdown("**Join Administraties**")
-    st.sidebar.markdown("---")
+    st.set_page_config(page_title=f"Auditfile Analyzer {APP_VERSIE}", layout="wide")
 
-    test_mode = st.sidebar.checkbox("Testmodus (bestanden uit testfiles/)", value=False)
+    logo = Path("logo.png")
+    if logo.exists():
+        st.sidebar.image(str(logo), use_container_width=True)
+    st.sidebar.markdown("---")
 
     st.title("Auditfile Analyzer")
-    st.write("Vergelijk twee XAF/XML auditfiles op grootboekrekening en bekijk de grootboekkaart.")
-
-    if test_mode:
-        prev_path = Path("testfiles/vorig_jaar.xaf")
-        curr_path = Path("testfiles/huidig_jaar.xaf")
-        if not prev_path.exists() or not curr_path.exists():
-            st.warning(
-                "Testmodus actief maar bestanden niet gevonden. "
-                "Zet je testbestanden in de map `testfiles/` met de namen "
-                "`vorig_jaar.xaf` en `huidig_jaar.xaf`."
-            )
-            st.stop()
-        previous_name = prev_path.name
-        previous_bytes = prev_path.read_bytes()
-        current_name = curr_path.name
-        current_bytes = curr_path.read_bytes()
-    else:
-        left, right = st.columns(2)
-        with left:
-            previous_file = st.file_uploader("Upload auditfile vorig jaar", type=["xaf", "xml"], key="previous")
-        with right:
-            current_file = st.file_uploader("Upload auditfile huidig jaar", type=["xaf", "xml"], key="current")
-
-        if not previous_file or not current_file:
-            st.info("Upload beide auditfiles om de vergelijking te maken.")
-            st.stop()
-        previous_name = previous_file.name
-        previous_bytes = previous_file.getvalue()
-        current_name = current_file.name
-        current_bytes = current_file.getvalue()
-
-    try:
-        _, previous_lines, previous_saldo, _ = parse_auditfile(previous_name, previous_bytes)
-        _, current_lines, current_saldo, current_periods = parse_auditfile(current_name, current_bytes)
-        comparison = compare_saldi(previous_saldo, current_saldo)
-    except Exception as exc:
-        st.error("Fout bij het verwerken van de auditfiles.")
-        st.exception(exc)
-        st.stop()
-
-    _klantnaam = _company_info_value(current_lines, "Bedrijfsnaam")
-    _jaar_huidig = _company_info_value(current_lines, "Boekjaar")
-    _jaar_vorig = _company_info_value(previous_lines, "Boekjaar")
-    if _klantnaam or _jaar_huidig:
-        st.sidebar.markdown("---")
-        st.sidebar.markdown(
-            f'<p style="color:#1E2D4E; font-size:0.85rem; line-height:1.5; margin:0;">'
-            f'<strong>{_klantnaam}</strong><br>'
-            f'Huidig jaar: <strong>{_jaar_huidig}</strong><br>'
-            f'Vergeleken met: <strong>{_jaar_vorig}</strong>'
-            f'</p>',
-            unsafe_allow_html=True,
-        )
-
-    st.sidebar.markdown("---")
-    nav = st.sidebar.radio(
-        "Navigatie",
-        ["Vergelijking", "Grootboekkaarten", "BTW", "Logische controles", "UC03 Checklist", "Export"],
-        label_visibility="collapsed",
+    st.caption(
+        "Fiscaal-inhoudelijke analyse van twee XAF-auditfiles. Alle verwerking gebeurt "
+        "lokaal; er gaan geen gegevens naar een server."
     )
 
-    st.success("Beide auditfiles zijn ingelezen.")
+    bestanden = haal_bestanden_op()
+    if bestanden is None:
+        st.stop()
+    (naam_vorig, inhoud_vorig), (naam_huidig, inhoud_huidig) = bestanden
 
-    metric_a, metric_b, metric_c, metric_d = st.columns(4)
-    metric_a.metric("Regels vorig jaar", f"{len(previous_lines):,}")
-    metric_b.metric("Regels huidig jaar", f"{len(current_lines):,}")
-    metric_c.metric("Rekeningen vorig jaar", f"{len(previous_saldo):,}")
-    metric_d.metric("Rekeningen huidig jaar", f"{len(current_saldo):,}")
-
-    display_columns = [
-        "rekening",
-        "accDesc",
-        "accTp",
-        "RGScode",
-        "beginsaldo_vorig_jaar",
-        "mutaties_vorig_jaar",
-        "eindsaldo_vorig_jaar",
-        "beginsaldo_huidig_jaar",
-        "mutaties_huidig_jaar",
-        "eindsaldo_huidig_jaar",
-        "saldo_vorig_jaar",
-        "saldo_huidig_jaar",
-        "verschil_bedrag",
-        "verschil_pct",
-        "status",
-        "regels_vorig_jaar",
-        "regels_huidig_jaar",
-    ]
-
-    _vergelijking_bedrag_cols = [
-        "beginsaldo_vorig_jaar", "mutaties_vorig_jaar", "eindsaldo_vorig_jaar",
-        "beginsaldo_huidig_jaar", "mutaties_huidig_jaar", "eindsaldo_huidig_jaar",
-        "saldo_vorig_jaar", "saldo_huidig_jaar", "verschil_bedrag",
-    ]
-
-    if nav == "Vergelijking":
-        st.subheader("Top 20 grootste afwijkingen")
-        _top20 = comparison.head(20)[display_columns].copy()
-        for _col in _vergelijking_bedrag_cols:
-            if _col in _top20.columns:
-                _top20[_col] = _top20[_col].apply(format_euro_whole)
-        st.dataframe(_top20, use_container_width=True, hide_index=True)
-
-        st.subheader("Vergelijking per grootboekrekening")
-        status_filter = st.multiselect(
-            "Status",
-            options=["bestaand", "nieuw", "vervallen"],
-            default=["bestaand", "nieuw", "vervallen"],
+    try:
+        vorig = lees_auditfile(naam_vorig, inhoud_vorig)
+        huidig = lees_auditfile(naam_huidig, inhoud_huidig)
+    except Exception as fout:
+        # Bewust geen volledige traceback: die kan bestandspaden en klantgegevens
+        # tonen op een scherm dat wordt gedeeld of vastgelegd.
+        st.error(
+            "Een van de bestanden kon niet worden gelezen. Controleer of het geldige "
+            f"XAF-bestanden zijn. Melding: {type(fout).__name__}."
         )
-        filtered_comparison = comparison[comparison["status"].isin(status_filter)].sort_values("rekening")
-        _vergelijking = filtered_comparison[display_columns].copy()
-        for _col in _vergelijking_bedrag_cols:
-            if _col in _vergelijking.columns:
-                _vergelijking[_col] = _vergelijking[_col].apply(format_euro_whole)
-        st.dataframe(_vergelijking, use_container_width=True, hide_index=True, height=520)
+        st.stop()
 
-    elif nav == "Grootboekkaarten":
-        current_saldo = ensure_columns(current_saldo, ["rekening", "accDesc", "saldo"])
-        account_options = (
-            current_saldo.assign(
-                label=lambda df: df.apply(
-                    lambda row: f"{row['rekening']} - {row['accDesc']} ({format_money(row['saldo'])})",
-                    axis=1,
-                )
-            )
-            .sort_values("rekening")
+    if not huidig.boekjaar or not vorig.boekjaar:
+        st.warning("Een van de bestanden vermeldt geen boekjaar; controleer de volgorde.")
+    elif huidig.boekjaar < vorig.boekjaar:
+        st.warning(
+            f"Het bestand voor het huidige jaar heeft boekjaar {huidig.boekjaar} en dat voor "
+            f"vorig jaar {vorig.boekjaar}. Zijn de bestanden verwisseld?"
         )
 
-        if account_options.empty:
-            st.info("Geen grootboekregels gevonden in het huidige jaar.")
-        else:
-            selected_label = st.selectbox("Kies een grootboekrekening", account_options["label"].tolist())
-            selected_account = selected_label.split(" - ", 1)[0]
+    if "btw_mapping" not in st.session_state:
+        st.session_state["btw_mapping"] = load_vat_mapping()
+    if "btw_aangifte" not in st.session_state:
+        st.session_state["btw_aangifte"] = load_declared_vat()
 
-            card = current_lines[current_lines["line_accID"].astype(str) == selected_account].copy()
-            if card.empty:
-                st.info("Geen boekingsregels gevonden voor deze rekening.")
-            else:
-                card = ensure_columns(card, CARD_COLUMNS)
-                card = card.sort_values(["tx_trDt", "tx_nr", "line_nr"], na_position="last")
-                st.write(
-                    f"Rekening {selected_account} | "
-                    f"Aantal boekingsregels: {len(card):,} | "
-                    f"Saldo huidig jaar: {format_money(card['bedrag'].sum())}"
-                )
-                _card = card[CARD_COLUMNS].copy()
-                _card["tx_trDt"] = _card["tx_trDt"].apply(format_date_nl)
-                _card["line_effDate"] = _card["line_effDate"].apply(format_date_nl)
-                _card["bedrag"] = _card["bedrag"].apply(format_money)
-                st.dataframe(
-                    _card,
-                    use_container_width=True,
-                    hide_index=True,
-                    height=500,
-                )
+    st.sidebar.markdown(
+        f"**{huidig.bedrijfsnaam or 'Onbekende onderneming'}**  \n"
+        f"Boekjaar {huidig.boekjaar} tegenover {vorig.boekjaar}"
+    )
+    st.sidebar.markdown("---")
+    pagina = st.sidebar.radio("Onderdeel", PAGINAS, label_visibility="collapsed")
+    st.sidebar.markdown("---")
+    st.sidebar.caption(
+        f"Versie {APP_VERSIE} · invoer wordt lokaal bewaard in `{LOCAL_DATA_DIR}`"
+    )
 
-    elif nav == "BTW":
-        st.subheader("BTW-codetabel")
-        st.dataframe(
-            get_vat_codes(current_lines),
-            use_container_width=True,
-            hide_index=True,
-        )
+    vergelijking = maak_vergelijking(vorig, huidig, f"{naam_vorig}|{naam_huidig}")
 
-        st.subheader("Gebruik per BTW-code")
-        vat_usage = build_vat_usage(current_lines)
-        _vat_usage = vat_usage.copy()
-        for _col in ["totaal_grondslagbedrag", "totaal_btw_bedrag"]:
-            if _col in _vat_usage.columns:
-                _vat_usage[_col] = pd.to_numeric(_vat_usage[_col], errors="coerce").abs().apply(format_euro_whole)
-        st.dataframe(_vat_usage, use_container_width=True, hide_index=True)
-
-        st.subheader("BTW-rondrekening")
-        st.caption(
-            "Vul per aangifterubriek het bedrag in volgens de ingediende BTW-aangifte. "
-            "De tool vergelijkt dit met de BTW volgens de auditfile."
-        )
-
-        st.subheader("Ingediende BTW-aangifte")
-        _btw_json = BTW_AANGIFTE_PATH
-        _saved_btw: dict = load_declared_vat(_btw_json) if test_mode else {}
-
-        declared_by_rubric = {}
-        for rubric in ["1a", "1e", "2a/5b", "5b"]:
-            _init = float(_saved_btw.get(rubric, 0.0))
-            declared_by_rubric[rubric] = st.number_input(
-                f"Aangiftebedrag rubriek {rubric}",
-                value=_init,
-                step=1.00,
-                format="%.2f",
-                key=f"declared_rubric_{rubric}",
-            )
-
-        if test_mode:
-            save_declared_vat(declared_by_rubric, _btw_json)
-        st.session_state["declared_by_rubric_export"] = declared_by_rubric
-
-        reconciliation = build_vat_reconciliation(current_lines, {})
-        reconciliation_display = reconciliation.rename(columns={
-            "vatID": "BTW-code",
-            "vatDesc": "Omschrijving",
-            "rubriek": "Rubriek",
-            "aantal_transactieregels": "Aantal regels",
-            "totaal_grondslagbedrag": "Grondslag",
-            "btw_volgens_xaf": "BTW volgens XAF",
-            "gebruikte_percentages": "Percentages",
-        })
-        recon_cols = [c for c in ["BTW-code", "Omschrijving", "Rubriek", "Aantal regels", "Grondslag", "BTW volgens XAF", "Percentages"] if c in reconciliation_display.columns]
-        _recon = reconciliation_display[recon_cols].copy()
-        for _col in ["Grondslag", "BTW volgens XAF"]:
-            if _col in _recon.columns:
-                _recon[_col] = pd.to_numeric(_recon[_col], errors="coerce").abs().apply(format_euro_whole)
-        st.dataframe(_recon, use_container_width=True, hide_index=True)
-
-        st.subheader("Samenvatting per aangifterubriek")
-        rubric_summary = build_vat_rubric_summary(reconciliation)
-        if "rubriek" in rubric_summary.columns:
-            rubric_summary["btw_volgens_aangifte"] = rubric_summary["rubriek"].map(
-                lambda r: declared_by_rubric.get(r, 0)
-            )
-            rubric_summary["verschil"] = (
-                rubric_summary["btw_volgens_xaf"]
-                - rubric_summary["btw_volgens_aangifte"]
-            ).abs().round(0)
-            rubric_summary["status"] = rubric_summary.apply(
-                lambda row: "—" if row["btw_volgens_aangifte"] == 0
-                else ("✅ Sluit aan" if row["verschil"] < 1 else "⚠️ Verschil"),
-                axis=1,
-            )
-
-        rubric_display = rubric_summary.rename(columns={
-            "rubriek": "Rubriek",
-            "totaal_grondslagbedrag": "Grondslag",
-            "btw_volgens_xaf": "BTW volgens XAF",
-            "btw_volgens_aangifte": "Ingediende aangifte",
-            "verschil": "Verschil",
-            "status": "Status",
-        })
-        _rubric = rubric_display.copy()
-        for _col in ["Grondslag", "BTW volgens XAF", "Ingediende aangifte", "Verschil"]:
-            if _col in _rubric.columns:
-                _rubric[_col] = _rubric[_col].apply(format_euro_whole)
-        st.dataframe(_rubric, use_container_width=True, hide_index=True)
-        if "rubriek" in rubric_summary.columns and "Onbekend" in rubric_summary["rubriek"].values:
-            st.caption(
-                "⚠️ Eén of meer BTW-codes hebben rubriek 'Onbekend' en zijn niet meegenomen "
-                "in de netto-berekening. Controleer de omschrijving van deze codes."
-            )
-
-        if "rubriek" in rubric_summary.columns and "btw_volgens_xaf" in rubric_summary.columns:
-            btw_afdracht = rubric_summary.loc[
-                rubric_summary["rubriek"].isin(["1a", "1b", "1c", "1d", "2a", "4a", "4b"]),
-                "btw_volgens_xaf",
-            ].sum()
-            btw_voorbelasting = rubric_summary.loc[
-                rubric_summary["rubriek"].isin(["5b"]),
-                "btw_volgens_xaf",
-            ].sum()
-            netto_btw_xaf = btw_afdracht - btw_voorbelasting
-
-            st.subheader("Netto BTW volgens XAF")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Af te dragen BTW", format_euro_whole(btw_afdracht))
-            col2.metric("Voorbelasting", format_euro_whole(btw_voorbelasting))
-            col3.metric("Netto te betalen", format_euro_whole(netto_btw_xaf))
-
-        if "vatID" in vat_usage.columns and not vat_usage.empty:
-            st.subheader("Drilldown per BTW-code")
-            vat_options = vat_usage.assign(
-                label=lambda df: df.apply(
-                    lambda row: f"{row['vatID']} - {row.get('vatDesc', '')}",
-                    axis=1,
-                )
-            )
-            selected_vat_label = st.selectbox("Selecteer BTW-code", vat_options["label"].tolist())
-            selected_vat_id = selected_vat_label.split(" - ", 1)[0]
-            vat_drilldown = build_vat_drilldown(current_lines, selected_vat_id)
-
-            show_all_vat_rows = st.checkbox("Toon alle regels", value=False)
-            displayed_vat_drilldown = vat_drilldown if show_all_vat_rows else vat_drilldown.head(100)
-            _drilldown = displayed_vat_drilldown.copy()
-            for _col in ["tx_trDt", "line_effDate"]:
-                if _col in _drilldown.columns:
-                    _drilldown[_col] = _drilldown[_col].apply(format_date_nl)
-            if "bedrag" in _drilldown.columns:
-                _drilldown["bedrag"] = _drilldown["bedrag"].apply(format_money)
-            if "BTW-bedrag" in _drilldown.columns:
-                _drilldown["BTW-bedrag"] = _drilldown["BTW-bedrag"].apply(format_money)
-            st.dataframe(_drilldown, use_container_width=True, hide_index=True, height=420)
-
-            if "bedrag" in vat_drilldown.columns and "BTW-bedrag" in vat_drilldown.columns:
-                summary_a, summary_b, summary_c = st.columns(3)
-                summary_a.metric("Aantal transacties", f"{len(vat_drilldown):,}")
-                summary_b.metric("Totaal grondslagbedrag", format_money(vat_drilldown["bedrag"].sum()))
-                summary_c.metric("Totaal BTW-bedrag", format_money(vat_drilldown["BTW-bedrag"].sum()))
-
-    elif nav == "Logische controles":
-        logical_controls = build_logical_controls(current_lines)
-        _controls = logical_controls.copy()
-
-        def _make_toelichting(row) -> str:
-            conclusie = row.get("conclusie", "")
-            if "tegengestelde boeking" in conclusie:
-                return "Één of meer perioden hebben een tegengesteld teken t.o.v. de overige. Controleer of dit een correctie- of afstotingsboeking betreft."
-            if conclusie != "Let op: sterke afwijking":
-                return ""
-            gem = abs(pd.to_numeric(row.get("gemiddeld_bedrag_per_periode"), errors="coerce") or 0)
-            afwijking = abs(pd.to_numeric(row.get("grootste_afwijking_tov_gemiddelde"), errors="coerce") or 0)
-            if gem < 0.005:
-                return ""
-            pct = round(afwijking / gem * 100)
-            return f"Grootste afwijking: {format_euro_whole(afwijking)} ({pct}% van gemiddelde {format_euro_whole(gem)}, drempel: 50%)"
-
-        if "conclusie" in _controls.columns:
-            _controls["toelichting"] = _controls.apply(_make_toelichting, axis=1)
-
-        for _col in ["perioden_met_mutaties", "ontbrekende_perioden"]:
-            if _col in _controls.columns:
-                _controls[_col] = _controls[_col].apply(compact_periods).apply(
-                    lambda s: add_month_labels(s, current_periods)
-                )
-        for _col in ["totaalbedrag", "gemiddeld_bedrag_per_periode", "grootste_afwijking_tov_gemiddelde"]:
-            if _col in _controls.columns:
-                _controls[_col] = pd.to_numeric(_controls[_col], errors="coerce").abs().apply(format_euro_whole)
-        _controls = _controls.rename(columns={
-            "toelichting": "Toelichting",
-            "controle": "Controle",
-            "rekeningnummer": "Rekening",
-            "rekeningomschrijving": "Omschrijving",
-            "aantal_perioden_met_mutaties": "# Perioden",
-            "perioden_met_mutaties": "Perioden",
-            "ontbrekende_perioden": "Ontbrekende perioden",
-            "totaalbedrag": "Totaal",
-            "gemiddeld_bedrag_per_periode": "Gem. per periode",
-            "grootste_afwijking_tov_gemiddelde": "Max. afwijking",
-            "conclusie": "Conclusie",
-        })
-        if "Controle" in _controls.columns:
-            _controls["Controle"] = _controls["Controle"].where(
-                _controls["Controle"] != _controls["Controle"].shift(), ""
-            )
-        st.dataframe(
-            _controls,
-            use_container_width=True,
-            hide_index=True,
-            height=420,
-        )
-
-    elif nav == "UC03 Checklist":
-        st.subheader("BTW")
-
-        st.markdown("**BTW-positie rekening 1800**")
-        btw_pos = build_btw_positie_1800(current_saldo)
-        if "Melding" not in btw_pos.columns:
-            for _, _row in btw_pos.iterrows():
-                if _row.get("positie") == "Te betalen":
-                    st.info(f"Te betalen: {format_euro_whole(abs(_row['eindsaldo']))}")
-                elif _row.get("positie") == "Te vorderen":
-                    st.info(f"Te vorderen: {format_euro_whole(_row['eindsaldo'])}")
-        _btw_pos = btw_pos.copy()
-        for _col in ["beginsaldo", "mutaties_boekjaar", "eindsaldo"]:
-            if _col in _btw_pos.columns:
-                _btw_pos[_col] = pd.to_numeric(_btw_pos[_col], errors="coerce").apply(format_euro_whole)
-        st.dataframe(_btw_pos, use_container_width=True, hide_index=True)
-
-        st.markdown("**Kostenboekingen zonder BTW-code**")
-        st.caption("P&L-rekeningen zonder BTW-code, exclusief lonen, afschrijvingen en rente.")
-        kosten_geen_btw = build_kosten_zonder_btw(current_lines)
-        _kgb = kosten_geen_btw.copy()
-        if "totaalbedrag" in _kgb.columns:
-            _kgb["totaalbedrag"] = _kgb["totaalbedrag"].apply(format_euro_whole)
-        st.dataframe(_kgb, use_container_width=True, hide_index=True)
-
-        st.subheader("Balans en debiteuren")
-
-        _col_cred, _col_trans = st.columns(2)
-        with _col_cred:
-            st.markdown("**Crediteurensaldo**")
-            cred = build_crediteurensaldo(current_saldo)
-            _cred = cred.copy()
-            if "eindsaldo" in _cred.columns:
-                _cred["eindsaldo"] = pd.to_numeric(_cred["eindsaldo"], errors="coerce").apply(format_euro_whole)
-            if "signaal" in cred.columns and "Melding" not in cred.columns:
-                n_cred_signals = (cred["signaal"] != "").sum()
-                if n_cred_signals > 0:
-                    st.warning(f"{n_cred_signals} rekening(en) met debetsaldo")
-            st.dataframe(_cred, use_container_width=True, hide_index=True)
-
-        with _col_trans:
-            st.markdown("**Overlopende activa en passiva**")
-            trans = build_transitoria(current_saldo)
-            _trans = trans.copy()
-            if "eindsaldo" in _trans.columns:
-                _trans["eindsaldo"] = pd.to_numeric(_trans["eindsaldo"], errors="coerce").apply(format_euro_whole)
-            if "signaal" in trans.columns and "Melding" not in trans.columns:
-                n_trans_signals = (trans["signaal"] != "").sum()
-                if n_trans_signals > 0:
-                    st.warning(f"{n_trans_signals} rekening(en) met onverwacht teken")
-            st.dataframe(_trans, use_container_width=True, hide_index=True)
-
-        st.subheader("Kosten en lonen")
-
-        st.markdown("**Salarissen — indicatie personeelsomvang per maand**")
-        st.caption("Schatting FTE op basis van salariskosten ÷ € 4.000 (indicatief gemiddeld bruto).")
-        personeel = build_personeel_omvang(current_lines)
-        _pers = personeel.copy()
-        if "totaal_salarissen" in _pers.columns:
-            _pers["totaal_salarissen"] = _pers["totaal_salarissen"].apply(format_euro_whole)
-        st.dataframe(_pers, use_container_width=True, hide_index=True)
-
-        st.markdown("**CBO — omzetstromen huidig jaar**")
-        cbo_monthly, cbo_accounts = build_cbo_omzet(current_lines)
-        _col_cbo_m, _col_cbo_a = st.columns(2)
-        with _col_cbo_m:
-            st.caption("Omzet per maand")
-            _cbo_m = cbo_monthly.copy()
-            if "omzet" in _cbo_m.columns:
-                _cbo_m["omzet"] = _cbo_m["omzet"].apply(format_euro_whole)
-            st.dataframe(_cbo_m, use_container_width=True, hide_index=True)
-        with _col_cbo_a:
-            st.caption("Omzet per rekening")
-            _cbo_a = cbo_accounts.copy()
-            if "omzet" in _cbo_a.columns:
-                _cbo_a["omzet"] = _cbo_a["omzet"].apply(format_euro_whole)
-            st.dataframe(_cbo_a, use_container_width=True, hide_index=True)
-
-        st.subheader("MVA en lease")
-
-        st.markdown("**Lease-analyse (financieel vs. operationeel)**")
-        lease = build_lease_analyse(current_lines, current_saldo)
-        _lease = lease.copy()
-        if "bedrag" in _lease.columns:
-            _lease["bedrag"] = _lease["bedrag"].apply(format_euro_whole)
-        st.dataframe(_lease, use_container_width=True, hide_index=True)
-
-        st.markdown("**Huurverplichtingen buiten balans**")
-        huur = build_huurverplichting(current_lines, current_saldo)
-        _huur = huur.copy()
-        if "totaal_huurkosten" in _huur.columns:
-            _huur["totaal_huurkosten"] = _huur["totaal_huurkosten"].apply(format_euro_whole)
-        if "signaal" in huur.columns and "Melding" not in huur.columns:
-            if (huur["signaal"] != "").any():
-                st.warning("Huurkosten aangetroffen maar geen leaseschuld op de balans. Controleer of operationele leaseverplichtingen buiten balans zijn gehouden.")
-        st.dataframe(_huur, use_container_width=True, hide_index=True)
-
-        st.subheader("Overige signalen")
-
-        _col_jur, _col_bot = st.columns(2)
-        with _col_jur:
-            st.markdown("**Juridische kosten**")
-            jur = build_juridische_kosten(current_lines)
-            _jur = jur.copy()
-            if "totaalbedrag" in _jur.columns:
-                _jur["totaalbedrag"] = _jur["totaalbedrag"].apply(format_euro_whole)
-            if "Melding" not in jur.columns:
-                st.warning("Juridische kosten aangetroffen — controleer op mogelijke voorziening of contingente verplichting.")
-            st.dataframe(_jur, use_container_width=True, hide_index=True)
-
-        with _col_bot:
-            st.markdown("**Boetes en dwangsommen (art. 3.14 Wet IB)**")
-            boetes = build_boetes_dwangsommen(current_lines)
-            _boetes = boetes.copy()
-            if "totaalbedrag" in _boetes.columns:
-                _boetes["totaalbedrag"] = _boetes["totaalbedrag"].apply(format_euro_whole)
-            if "Melding" not in boetes.columns:
-                st.warning("Boetes of dwangsommen aangetroffen — niet aftrekbaar voor de VPB (art. 3.14 Wet IB).")
-            st.dataframe(_boetes, use_container_width=True, hide_index=True)
-
-    elif nav == "Export":
-        excel_export = build_excel_export(
-            current_saldo=current_saldo,
-            current_lines=current_lines,
-            comparison=comparison,
-            comparison_columns=display_columns,
-            declared_by_rubric=st.session_state.get("declared_by_rubric_export"),
-        )
-        st.download_button(
-            label="Download Excel-export",
-            data=excel_export,
-            file_name="auditfile_analyzer_2024_2025.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+    if pagina == "Overzicht":
+        pagina_overzicht(vorig, huidig, vergelijking)
+    elif pagina == "Bestandscontrole":
+        pagina_bestandscontrole(vorig, huidig)
+    elif pagina == "Jaarvergelijking":
+        pagina_jaarvergelijking(vorig, huidig, vergelijking)
+    elif pagina == "Btw":
+        pagina_btw(huidig)
+    elif pagina == "Analytische controles":
+        pagina_controles(huidig)
+    elif pagina == "Relaties":
+        pagina_relaties(huidig)
+    elif pagina == "Fiscale signalen":
+        pagina_fiscale_signalen(huidig)
+    elif pagina == "Grootboekkaarten":
+        pagina_grootboekkaarten(huidig)
+    elif pagina == "Export":
+        pagina_export(vorig, huidig, vergelijking)
 
 
 if __name__ == "__main__":

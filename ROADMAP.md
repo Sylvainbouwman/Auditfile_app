@@ -142,18 +142,33 @@ Automatisch gegenereerd document met bevindingen, bijvoorbeeld:
 
 ## Prioritering (top 10)
 
+Bijgewerkt op 1 september 2026.
+
 | # | Functionaliteit | Status |
 |---|----------------|--------|
-| 1 | BTW-rondrekening afronden | In ontwikkeling |
-| 2 | 12-maandscontrole | Gepland |
-| 3 | Debiteurenouderdom | Gepland |
-| 4 | Crediteurenouderdom | Gepland |
-| 5 | RC DGA detectie | Gepland |
-| 6 | Suppletiedetectie | Gepland |
-| 7 | Lease- en huurdetectie | Gepland |
+| 1 | BTW-rondrekening afronden | Gereed |
+| 2 | 12-maandscontrole | Gereed |
+| 3 | Debiteuren per relatie en concentratie | Gereed |
+| 4 | Crediteuren per relatie en concentratie | Gereed |
+| 5 | RC DGA detectie | Signalering gereed, drempeltoets nog niet |
+| 6 | Suppletiedetectie | Gedeeltelijk: "overige mutaties" in de rondrekening |
+| 7 | Lease- en huurdetectie | Gereed als periodieke controle |
 | 8 | AI-reviewpunten | Gepland |
 | 9 | Ratio-analyse | Gepland |
 | 10 | Automatisch reviewmemorandum | Toekomst |
+
+### Wat als eerste te doen staat
+
+1. **Ouderdomsanalyse debiteuren en crediteuren.** De relatiegegevens en
+   factuurreferenties zitten in het auditfile, maar de openstaande posten per
+   factuurdatum nog niet afgeleid. Dit is de grootste ontbrekende functie.
+2. **Drempeltoets excessief lenen.** De bedragen per peildatum staan al
+   geverifieerd in `docs/btw-bronnen.md`; alleen de toets ontbreekt nog.
+3. **Ratio-analyse** (brutomarge, personeelskosten als percentage van de omzet,
+   solvabiliteit, liquiditeit), jaar op jaar.
+4. **Reviewmemorandum**: de signalen uit alle modules samenvoegen tot een
+   document. De bouwstenen liggen er nu; het gaat om de samenvoeging en de
+   formulering.
 
 ---
 

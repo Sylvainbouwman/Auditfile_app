@@ -22,7 +22,7 @@ reviewmemorandum met fiscale aandachtspunten.
 
 ```bash
 "C:\Python314\python.exe" -m streamlit run app.py
-"C:\Python314\python.exe" -m pytest tests/          # privacyregressietest
+"C:\Python314\python.exe" -m pytest tests/
 pip install -r requirements.txt
 ```
 
@@ -39,30 +39,49 @@ afhankelijkheden staan in de virtuele omgeving `.venv`.
 ## Architectuur
 
 Single-user Streamlit-app, volledig in het geheugen: geen database en geen backend
-buiten Streamlit zelf. Alle applicatielogica staat plat in `app.py`.
+buiten Streamlit zelf. `app.py` bevat **uitsluitend** de interface; alle logica staat
+in het pakket `auditfile/`, zodat die zonder Streamlit te testen is. Zet nieuwe
+rekenlogica dus nooit in `app.py`.
 
-- **XML-parsing** (`parse_auditfile`, met `@st.cache_data`) — leest XAF/XML in Pandas-
-  DataFrames: grootboekrekeningen, btw-codes, beginbalans, journaalposten, btw-bijlagen
-  en bedrijfsgegevens.
-- **Saldivergelijking** (`compare_saldi`) — jaar-op-jaar met status nieuw/vervallen/bestaand.
-- **Btw-analyse** — `build_vat_usage`, `build_vat_drilldown`, `build_all_vat_drilldown`,
-  `build_vat_reconciliation`, `build_vat_rubric_summary`. Gebruikte rubrieken: 1a, 1e,
-  2a/5b, 5b.
-- **Logische controles** (`build_logical_controls`) — datakwaliteit op periodiciteit
-  (dagelijks/maandelijks/per kwartaal/jaarlijks).
-- **Excel-export** (`build_excel_export`) — twaalf tabbladen via OpenPyXL, met Nederlandse
-  getalnotatie (€ 1.234,56), autofilter, vastgezette koppen en RGS-kolommen.
-- `inspect_xaf.py` — losse CLI om een onbekende XAF-structuur te verkennen vóórdat je
-  ondersteuning toevoegt aan `app.py`.
+| Module | Verantwoordelijkheid |
+|---|---|
+| `parsing.py` | XAF 3.2 en 4.0 inlezen tot een `Auditfile` |
+| `model.py` | Datamodel; gegevens in een dataclass, niet in `DataFrame.attrs` |
+| `integrity.py` | Controle van het bestand tegen zijn eigen controletotalen |
+| `vat_rubrics.py` | Rubrieken van de aangifte omzetbelasting |
+| `vat.py` | Btw-analyse, rubriekvoorstel, rondrekening, signalen |
+| `controls.py` | Periodieke, analytische en fiscale controles |
+| `comparison.py` | Jaar-op-jaar vergelijking |
+| `excel.py` | Excel-export |
+| `formatting.py` | Presentatie van tabellen in de app |
+| `settings.py` | Lokale opslag van eigen invoer |
+| `demo.py` | Synthetische auditfiles: demodata én testfixtures |
 
-### Domeinbegrippen
+`inspect_xaf.py` is een losse CLI om een onbekende XAF-structuur te verkennen.
+
+### Domeinbegrippen en vaste keuzes
 
 - **XAF** — Nederlands XML-auditfileformaat, namespace-zwaar; `local_name()` strippt de
-  namespaces.
-- **RGS** — Referentiemodel Generieke Structuur. De mapping van circa zestien rubrieken is
-  hardcoded en dekt balans en resultatenrekening.
-- **Debet/credit** — bedragen lopen via `typed_amount_to_signed()`; credits met type `"C"`
-  worden genegeerd in teken (negatief gemaakt).
+  namespaces. Zowel 3.2 als 4.0 wordt ondersteund; 4.0 levert `RGScode`, 3.2 hooguit
+  `leadReference`. De herkomst staat in de kolom `RGSbron`.
+- **Debet/credit** — `signed_amount()` rekent om naar een getekend bedrag: debet
+  positief, `amntTp="C"` draait het teken om. Het teken van het bedrag zelf telt
+  gewoon mee, dus een negatief creditbedrag is effectief debet. Dit is geverifieerd
+  tegen de controletotalen `totalDebit` en `totalCredit` in de bestanden zelf; de
+  andere interpretatie geeft een onbalans van miljoenen. Verander dit niet zonder
+  die controle opnieuw te doen.
+- **RGS boven omschrijving** — rekeningen worden ingedeeld op RGS-code wanneer die
+  treffers oplevert, en pas anders op omschrijving. Nooit de unie van beide: een
+  zoekterm als "omzet" vindt ook "Omzetbelasting", en dat is een balansrekening.
+  `_selecteer()` in `controls.py` regelt dit en geeft de gebruikte methode terug.
+- **Btw-rubrieken** — de koppeling van btw-code aan aangifterubriek is een
+  interpretatie. De tool doet een voorstel mét reden en zekerheid; de keuze van de
+  gebruiker gaat altijd voor. Laat de tool nooit een rubriek stilzwijgend vaststellen.
+- **Bedragen blijven getallen** — nooit een bedrag als opgemaakte tekst in een
+  DataFrame zetten. Opmaak gebeurt in de presentatielaag via `column_config`, anders
+  is sorteren en filteren stuk.
+- **Signalen, geen oordelen** — controles benoemen wat er is gezien en wat beoordeeld
+  moet worden. Fiscale conclusies horen bij de gebruiker.
 
 ## Data en privacy
 
