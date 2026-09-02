@@ -108,6 +108,10 @@ class Auditfile:
     # deze vastlegging vóór het opschonen zou de controle op dubbelingen altijd
     # nul vinden en daarmee de indruk wekken dat er geen dubbeling is.
     duplicaten: dict[str, list[str]] = field(default_factory=dict)
+    # Tellingen van gegevensblokken die deze tool nog niet inleest maar die
+    # bepalen wat er aan analyse mogelijk is: de subadministratie van XAF 3.2 en
+    # de openstaande bedragen per relatie van XAF 4.0. Zie capability.py.
+    blokken: dict[str, int] = field(default_factory=dict)
 
     @property
     def boekjaar(self) -> str:

@@ -55,6 +55,7 @@ rekenlogica dus nooit in `app.py`.
 | `excel.py` | Excel-export |
 | `formatting.py` | Presentatie van tabellen in de app |
 | `settings.py` | Lokale opslag van eigen invoer |
+| `capability.py` | Wat het bestand toelaat: aanwezige blokken, dekking, bewijsniveau |
 | `findings.py` | Uniform bevindingenmodel, materialiteit en de verzamelaar |
 | `demo.py` | Synthetische auditfiles: demodata én testfixtures |
 
@@ -104,6 +105,14 @@ rekenlogica dus nooit in `app.py`.
   rekenvoorbeeld gemarkeerd. Vastleggen gebeurt alleen op een handeling van de
   gebruiker. Schrijf nooit invoer weg als bijwerking van het openen van een pagina;
   `st.tabs` voert de code van álle tabbladen uit.
+
+- **Eerst vaststellen wat er is** — bijna alles in XAF is optioneel en 3.2 en 4.0
+  verschillen inhoudelijk. `capability.py` stelt per bestand vast welke blokken
+  aanwezig én gevuld zijn en welk bewijsniveau daaruit volgt. Bouw nooit een analyse
+  die stilzwijgend aanneemt dat een veld gevuld is; laat de tool zeggen dat iets niet
+  kan. De veldsemantiek per versie staat in `docs/xaf-velden.md`, inclusief de
+  valkuilen: `settDate` is geen vervaldatum, `effDate` betekent niet hetzelfde in
+  beide versies, en `opBalDesc` is in 3.2 een omschrijving en in 4.0 een bedrag.
 
 ## Data en privacy
 

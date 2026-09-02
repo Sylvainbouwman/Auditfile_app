@@ -73,7 +73,19 @@ Output per categorie: X/12 maanden ✅ ⚠️ ❌
 
 ## Categorie 3: Debiteuren & crediteuren
 
+### Wat laat het bestand toe? (gereed)
+Per bestand vaststellen welke gegevensblokken aanwezig én gevuld zijn, met de
+dekking op de debiteuren- en crediteurenrekeningen en het bewijsniveau dat
+daaruit volgt. Zie `docs/xaf-velden.md` en `auditfile/capability.py`.
+
+Gemeten op de beschikbare bestanden: geen subadministratie in het 3.2-bestand,
+geen gevulde relatiesaldi in het 4.0-bestand, en de factuurreferentie staat
+vrijwel alleen op de factuurzijde. Voor die dossiers is dus geen
+openstaande-postenanalyse mogelijk, en dat zegt de tool nu.
+
 ### Ouderdomsanalyse (indien open posten beschikbaar)
+- Vereist niveau 1 of 2: een gevulde XAF 3.2-subadministratie. Wacht op een
+  bestand dat die levert; de capability-laag wijst het aan.
 - Indeling: 0-30 / 31-60 / 61-90 / >90 dagen
 
 ### Debiteurenscan

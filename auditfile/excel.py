@@ -10,6 +10,7 @@ from io import BytesIO
 import pandas as pd
 
 from . import controls, vat
+from .capability import build_bestandsprofiel, build_relatiedekking
 from .comparison import (
     build_jaarovergang,
     build_jaarovergang_verloop,
@@ -186,6 +187,8 @@ def bouw_werkbladen(
     return {
         "Bedrijfsgegevens": huidig.company_info_frame(),
         "Bevindingen": bevindingen,
+        "Bestandsgegevens": build_bestandsprofiel(huidig),
+        "Relatiedekking": build_relatiedekking(huidig),
         "Bestandenpaar": controleer_bestandenpaar(vorig, huidig),
         f"Integriteit {jaar_huidig}": controleer_auditfile(huidig),
         f"Integriteit {jaar_vorig}": controleer_auditfile(vorig),

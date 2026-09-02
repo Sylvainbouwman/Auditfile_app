@@ -35,7 +35,7 @@ BEDRAG_FRAGMENTEN = (
 
 PERCENTAGE_FRAGMENTEN = ("pct", "percentage", "aandeel", "perc")
 
-AANTAL_FRAGMENTEN = ("aantal", "regels", "perioden", "periode", "relaties")
+AANTAL_FRAGMENTEN = ("aantal", "regels", "perioden", "periode", "relaties", "facturen", "rekeningen")
 
 DATUM_FRAGMENTEN = ("datum", "date", "dt")
 
@@ -61,6 +61,16 @@ LABELS: dict[str, str] = {
     "btw_volgens_aangifte": "Btw volgens aangifte",
     "btw_volgens_xaf": "Btw volgens auditfile",
     "categorie": "Categorie",
+    "gegeven": "Gegeven",
+    "aanwezig": "Aanwezig",
+    "dekking_pct": "Dekking",
+    "met_relatie_pct": "Met relatie-id",
+    "met_factuurreferentie_pct": "Met factuurreferentie",
+    "gekoppeld_pct": "Factuur en betaling gekoppeld",
+    "facturen": "Facturen",
+    "rekeningen": "Rekeningen",
+    "regels": "Regels",
+    "conclusie": "Conclusie",
     "conclusie": "Conclusie",
     "controle": "Controle",
     "documentreferentie": "Document",

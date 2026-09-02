@@ -12,6 +12,14 @@ import streamlit as st
 
 from auditfile import controls, vat
 from auditfile.demo import demopaar
+from auditfile.capability import (
+    NIVEAU_GEEN,
+    NIVEAU_NAAM,
+    NIVEAU_VERVALDATUM,
+    build_bestandsprofiel,
+    build_relatiedekking,
+    openstaande_posten_niveau,
+)
 from auditfile.comparison import (
     build_jaarovergang,
     build_jaarovergang_verloop,
@@ -581,6 +589,32 @@ def pagina_bestandscontrole(vorig: Auditfile, huidig: Auditfile) -> None:
             "hierboven is de harde controle."
         )
         toon_tabel(overgang, kleur_op="signaal", hoogte=420)
+
+    kop(
+        "Wat bevat dit bestand?",
+        "Een auditfile is geen vaste hoeveelheid gegevens: bijna alles is optioneel en "
+        "het boekhoudpakket bepaalt wat er in staat. Twee bestanden van dezelfde "
+        "onderneming kunnen dus verschillende analyses toelaten.",
+    )
+    niveau, uitleg = openstaande_posten_niveau(huidig)
+    if niveau == NIVEAU_GEEN:
+        st.error(f"**{NIVEAU_NAAM[niveau]}.** {uitleg}")
+    elif niveau == NIVEAU_VERVALDATUM:
+        st.success(f"**{NIVEAU_NAAM[niveau]}.** {uitleg}")
+    else:
+        st.warning(f"**{NIVEAU_NAAM[niveau]}.** {uitleg}")
+
+    toon_tabel(build_bestandsprofiel(huidig), hoogte=520)
+    kop(
+        "Dekking op de debiteuren- en crediteurenrekeningen",
+        "Voor openstaande posten is niet het aantal factuurreferenties beslissend, maar of "
+        "de referentie op beide zijden staat: op de factuur én op de betaling. Alleen dan "
+        "is per factuur te salderen tot een openstaand bedrag.",
+    )
+    toon_tabel(
+        build_relatiedekking(huidig),
+        leegmelding="Geen boekingsregels met relatiegegevens.",
+    )
 
     kop("Bedrijfsgegevens")
     links, rechts = st.columns(2)

@@ -257,6 +257,74 @@ def _parse_periods(company: ET.Element | None) -> tuple[pd.DataFrame, list[str]]
     return schoon, dubbel
 
 
+# --- Welke gegevensblokken zitten erin? -------------------------------------
+
+# De blokken die deze tool nog niet inleest maar die bepalen wat er aan analyse
+# mogelijk is. Ze worden bij het inlezen geteld, zodat de tool kan zeggen wat een
+# bestand wel en niet toelaat in plaats van een analyse te tonen die op niets
+# rust. Zie ``capability.py`` voor de interpretatie.
+BLOK_TELLERS: tuple[str, ...] = (
+    "obSbLine",
+    "obSbLine_invDt",
+    "obSbLine_invDueDt",
+    "obSbLine_matchKeyID",
+    "sbLine",
+    "sbLine_invDt",
+    "sbLine_invDueDt",
+    "sbLine_matchKeyID",
+    "relatie_opBalDesc",
+    "relatie_clBalDesc",
+    "settDate",
+)
+
+
+def _tel_elementen(wortel: ET.Element | None, naam: str, gevuld: bool = False) -> int:
+    """Tel hoe vaak een element voorkomt binnen een deelboom.
+
+    Met ``gevuld`` worden alleen elementen geteld die ook tekst hebben; een leeg
+    element zegt niets over de beschikbaarheid van het gegeven.
+    """
+    if wortel is None:
+        return 0
+    aantal = 0
+    for element in wortel.iter():
+        if local_name(element.tag) != naam:
+            continue
+        if gevuld and not (element.text or "").strip():
+            continue
+        aantal += 1
+    return aantal
+
+
+def _tel_blokken(company: ET.Element | None) -> dict[str, int]:
+    """Tel de blokken die bepalen welke analyse een bestand toelaat.
+
+    Let op de context. ``opBalDesc`` bestaat in beide versies maar betekent iets
+    anders: in XAF 3.2 is het een omschrijving van de beginbalans van het
+    grootboek, in XAF 4.0 het openstaande bedrag per relatie. Daarom wordt hij
+    uitsluitend binnen ``customersSuppliers`` geteld; buiten die deelboom zou de
+    3.2-omschrijving als openstaand bedrag worden geteld.
+    """
+    tellingen = {sleutel: 0 for sleutel in BLOK_TELLERS}
+    if company is None:
+        return tellingen
+
+    ob_subledgers = find_descendant(company, "obSubledgers")
+    subledgers = find_descendant(company, "subledgers")
+    relaties = find_descendant(company, "customersSuppliers")
+    transacties = find_descendant(company, "transactions")
+
+    tellingen["obSbLine"] = _tel_elementen(ob_subledgers, "obSbLine")
+    tellingen["sbLine"] = _tel_elementen(subledgers, "sbLine")
+    for veld in ("invDt", "invDueDt", "matchKeyID"):
+        tellingen[f"obSbLine_{veld}"] = _tel_elementen(ob_subledgers, veld, gevuld=True)
+        tellingen[f"sbLine_{veld}"] = _tel_elementen(subledgers, veld, gevuld=True)
+    tellingen["relatie_opBalDesc"] = _tel_elementen(relaties, "opBalDesc", gevuld=True)
+    tellingen["relatie_clBalDesc"] = _tel_elementen(relaties, "clBalDesc", gevuld=True)
+    tellingen["settDate"] = _tel_elementen(transacties, "settDate", gevuld=True)
+    return tellingen
+
+
 def _parse_opening_balance(company: ET.Element | None) -> tuple[pd.DataFrame, ControlTotals]:
     opening = find_descendant(company, "openingBalance")
     columns = ["ob_nr", "ob_accID", "ob_amnt", "ob_amntTp"]
@@ -381,6 +449,7 @@ def parse_auditfile(file_name: str, file_bytes: bytes) -> Auditfile:
     }
     opening_balance, opening_totals = _parse_opening_balance(company)
     lines, transaction_totals = _parse_lines(company)
+    blokken = _tel_blokken(company)
 
     all_line_columns = TRANSACTION_COLUMNS + LINE_COLUMNS + VAT_LINE_COLUMNS
     lines = ensure_columns(lines, all_line_columns)
@@ -433,4 +502,5 @@ def parse_auditfile(file_name: str, file_bytes: bytes) -> Auditfile:
         opening_totals=opening_totals,
         transaction_totals=transaction_totals,
         duplicaten=duplicaten,
+        blokken=blokken,
     )

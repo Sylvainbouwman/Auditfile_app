@@ -45,6 +45,13 @@ class Relation:
     custSupName: str
     custSupTp: str = "C"
     country: str = "NL"
+    # Het openstaande bedrag per relatie bij begin en einde van het boekjaar.
+    # Bestaat alleen in XAF 4.0 (opBalDesc/clBalDesc met een D/C-indicatie) en
+    # wordt daar als bedrag geschreven, niet als omschrijving.
+    openstaand_begin: str = ""
+    openstaand_begin_tp: str = "D"
+    openstaand_eind: str = ""
+    openstaand_eind_tp: str = "D"
 
 
 @dataclass
@@ -109,6 +116,10 @@ class AuditfileSpec:
     vat_codes: list[VatCode] = field(default_factory=list)
     relations: list[Relation] = field(default_factory=list)
     opening_lines: list[OpeningLine] = field(default_factory=list)
+    # Omschrijving van de beginbalans van het grootboek. In XAF 3.2 heet dat veld
+    # opBalDesc, dezelfde naam die XAF 4.0 gebruikt voor een bedrag per relatie.
+    # Nodig om te kunnen testen dat die twee niet worden verward.
+    opening_balance_desc: str = ""
     journals: list[Journal] = field(default_factory=list)
     period_count: int = 12
     # Eigen periodetabel als (nummer, begindatum, einddatum). Nodig om een
@@ -181,6 +192,13 @@ def build_xaf(spec: AuditfileSpec) -> bytes:
             out.append(_tag("custSupID", relation.custSupID, 8))
             out.append(_tag("custSupName", relation.custSupName, 8))
             out.append(_tag("custSupTp", relation.custSupTp, 8))
+            if is_40:
+                out.append(_tag("opBalDesc", relation.openstaand_begin, 8))
+                if relation.openstaand_begin:
+                    out.append(_tag("opBalTp", relation.openstaand_begin_tp, 8))
+                out.append(_tag("clBalDesc", relation.openstaand_eind, 8))
+                if relation.openstaand_eind:
+                    out.append(_tag("clBalTp", relation.openstaand_eind_tp, 8))
             out.append("        <streetAddress>\n")
             out.append(_tag("streetname", "Teststraat", 10))
             out.append(_tag("city", "Testplaats", 10))
@@ -233,6 +251,9 @@ def build_xaf(spec: AuditfileSpec) -> bytes:
     opening_pairs = [(line.amnt, line.amntTp) for line in spec.opening_lines]
     count, debit, credit = spec.opening_totals_override or _totals(opening_pairs)
     out.append("    <openingBalance>\n")
+    if not is_40 and spec.opening_balance_desc:
+        out.append(_tag("opBalDate", spec.start_date, 6))
+        out.append(_tag("opBalDesc", spec.opening_balance_desc, 6))
     out.append(_tag("linesCount", str(count), 6))
     out.append(_tag("totalDebit", debit, 6))
     out.append(_tag("totalCredit", credit, 6))

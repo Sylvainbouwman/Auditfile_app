@@ -520,6 +520,79 @@ def _uit_controles(af: Auditfile) -> list[Bevinding]:
     return bevindingen
 
 
+def _uit_capability(af: Auditfile) -> list[Bevinding]:
+    """Wat het bestand niet toelaat, is ook een bevinding.
+
+    Een memorandum dat zwijgt over een controle die niet kon worden uitgevoerd,
+    wekt de indruk dat er niets aan de hand is. Daarom komt het bewijsniveau voor
+    openstaande posten hier terug zodra het de uitspraak beperkt, en de
+    RGS-dekking zodra de indeling op omschrijvingen moet terugvallen.
+    """
+    from .capability import (
+        NIVEAU_GEEN,
+        NIVEAU_NAAM,
+        NIVEAU_RECONSTRUCTIE,
+        NIVEAU_VERVALDATUM,
+        openstaande_posten_niveau,
+    )
+
+    bevindingen = []
+    niveau, uitleg = openstaande_posten_niveau(af)
+    if niveau == NIVEAU_GEEN:
+        bevindingen.append(
+            Bevinding(
+                categorie="Bestandsgegevens",
+                onderwerp="Openstaande posten niet te bepalen",
+                ernst=NIET_MOGELIJK,
+                toelichting=uitleg,
+                pagina="Bestandscontrole",
+            )
+        )
+    elif niveau > NIVEAU_VERVALDATUM:
+        bevindingen.append(
+            Bevinding(
+                categorie="Bestandsgegevens",
+                onderwerp=f"Openstaande posten alleen op niveau {niveau}: {NIVEAU_NAAM[niveau].lower()}",
+                ernst=SIGNAAL if niveau < NIVEAU_RECONSTRUCTIE else WAARSCHUWING,
+                toelichting=uitleg,
+                pagina="Bestandscontrole",
+            )
+        )
+
+    rekeningen = len(af.accounts)
+    if rekeningen:
+        met_rgs = int((af.accounts["RGScode"].astype(str).str.strip() != "").sum())
+        aandeel = met_rgs / rekeningen * 100
+        if met_rgs == 0:
+            bevindingen.append(
+                Bevinding(
+                    categorie="Bestandsgegevens",
+                    onderwerp="Geen RGS-codes in het rekeningschema",
+                    ernst=WAARSCHUWING,
+                    toelichting="Elke controle die rekeningen selecteert valt terug op de "
+                    "omschrijving. Dat werkt, maar het is minder hard dan een code uit het "
+                    "bestand; de gebruikte methode staat per controle in de tabel.",
+                    aantal_regels=rekeningen,
+                    pagina="Bestandscontrole",
+                )
+            )
+        elif aandeel < 99.5:
+            bronnen = sorted({bron for bron in af.accounts["RGSbron"].astype(str) if bron})
+            bevindingen.append(
+                Bevinding(
+                    categorie="Bestandsgegevens",
+                    onderwerp="Rekeningschema maar gedeeltelijk van RGS-codes voorzien",
+                    ernst=SIGNAAL,
+                    toelichting=f"{met_rgs} van de {rekeningen} rekeningen hebben een code "
+                    f"({aandeel:.0f}%), herkomst {' en '.join(bronnen) or 'onbekend'}. Voor de "
+                    "rekeningen zonder code beslist de omschrijving.",
+                    aantal_regels=rekeningen - met_rgs,
+                    pagina="Bestandscontrole",
+                )
+            )
+    return bevindingen
+
+
 def _uit_jaarvergelijking(vergelijking: pd.DataFrame, top: int = 10) -> list[Bevinding]:
     from .comparison import build_opvallende_verschillen
 
@@ -592,6 +665,7 @@ def verzamel_bevindingen(
             vergelijking = compare_saldi(vorig, huidig)
         bevindingen += _uit_jaarvergelijking(vergelijking)
     bevindingen += _uit_integriteit(huidig, f"{huidig.boekjaar or 'huidig jaar'}")
+    bevindingen += _uit_capability(huidig)
     bevindingen += _uit_btw(huidig, gebruik, samenvatting)
     bevindingen += _uit_controles(huidig)
 
