@@ -563,7 +563,11 @@ def build_omzet_per_periode(af: Auditfile) -> pd.DataFrame:
     if lines.empty:
         return pd.DataFrame(columns=kolommen)
 
-    masker, _ = _selecteer(lines, "WOmz", r"omzet|opbrengst|verkoop|provisie|\brevenue\b")
+    # Het rekeningtype uit het auditfile hoort erbij: zonder die grens vindt de
+    # zoekterm "omzet" ook "Omzetbelasting", en dat is een balansrekening.
+    masker, _ = _selecteer(
+        lines, "WOmz", r"omzet|opbrengst|verkoop|provisie|\brevenue\b", rekeningtype="P"
+    )
     omzet = lines[masker & lines["periode"].notna()].copy()
     if omzet.empty:
         return pd.DataFrame(columns=kolommen)

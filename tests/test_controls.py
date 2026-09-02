@@ -278,3 +278,43 @@ def test_personeelskosten_zonder_fte_schatting(af_40):
     """De tool mag geen aantal medewerkers uit het loonbedrag afleiden."""
     kosten = build_personeelskosten_per_periode(af_40)
     assert "fte" not in " ".join(kosten.columns).lower()
+
+
+def test_omzetbelasting_telt_niet_als_omzet():
+    """Zonder RGS-codes valt de selectie terug op de omschrijving.
+
+    De zoekterm "omzet" vindt dan ook "Omzetbelasting". Het rekeningtype uit het
+    auditfile (B of P) moet die balansrekening buiten de omzet houden.
+    """
+    spec = AuditfileSpec(
+        versie="3.2",
+        accounts=[
+            Account("1300", "Debiteuren", "B"),
+            Account("1800", "Omzetbelasting hoog tarief", "B"),
+            Account("8000", "Omzet hoog tarief", "P"),
+        ],
+        journals=[
+            Journal(
+                "VRK",
+                "Verkoopboek",
+                [
+                    Transaction(
+                        "V1",
+                        "2025-01-31",
+                        1,
+                        [
+                            Line("1300", "1210.00", "D"),
+                            Line("8000", "1000.00", "C"),
+                            Line("1800", "210.00", "C"),
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    af = parse_auditfile("zonder_rgs.xaf", build_xaf(spec))
+    assert set(af.accounts["RGSbron"]) == {""}, "dit bestand hoort geen RGS-codes te hebben"
+
+    per_periode = build_omzet_per_periode(af)
+    januari = per_periode[per_periode["periode"] == 1].iloc[0]
+    assert round(float(januari["omzet"]), 2) == 1000.00
