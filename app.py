@@ -904,6 +904,15 @@ def pagina_controles(huidig: Auditfile) -> None:
         "Periodieke lasten",
         "Komen vaste lasten in elke periode voor, en zijn de bedragen gelijkmatig?",
     )
+    buiten_beschouwing = controls.afsluitperioden(huidig)
+    if buiten_beschouwing:
+        st.caption(
+            "Periode "
+            + ", ".join(str(periode) for periode in buiten_beschouwing)
+            + " uit de periodetabel telt hier niet mee: die beslaat geen eigen tijdvak "
+            "en is een beginbalans- of afsluitperiode. Boekingen daarin komen wel in de "
+            "grootboekkaarten terug."
+        )
     toon_tabel(
         controls.build_periodieke_controles(huidig),
         hoogte=440,

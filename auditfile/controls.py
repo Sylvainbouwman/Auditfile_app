@@ -118,6 +118,68 @@ def _selecteer(
     return masker, "RGS-code" if op_rgs.any() else "omschrijving"
 
 
+# --- Boekingsperioden -------------------------------------------------------
+
+
+def _periodenreeksen(af: Auditfile) -> list[tuple[int, str, str]]:
+    """Periodenummer met begin- en einddatum, op nummer gesorteerd."""
+    if af.periods.empty or "periodNumber" not in af.periods.columns:
+        return []
+    reeksen = []
+    for _, rij in af.periods.iterrows():
+        nummer = pd.to_numeric(rij.get("periodNumber"), errors="coerce")
+        if pd.isna(nummer):
+            continue
+        reeksen.append(
+            (
+                int(nummer),
+                str(rij.get("startDatePeriod", "") or "").strip(),
+                str(rij.get("endDatePeriod", "") or "").strip(),
+            )
+        )
+    return sorted(reeksen)
+
+
+def boekingsperioden(af: Auditfile) -> list[int]:
+    """De perioden waarin je boekingen mag verwachten.
+
+    De periodetabel bevat niet alleen de gewone boekingsperioden. Pakketten
+    zetten er ook een periode 0 in voor de beginbalans en een periode 13 of 14
+    voor de jaarafsluiting. Die meerekenen levert onterechte signalen op: dan
+    ontbreken de huur en de lonen "in periode 13", terwijl daar niets hoort te
+    staan.
+
+    Een periode geldt als boekingsperiode wanneer zij een echt tijdvak beslaat
+    (einddatum na begindatum) en niet overlapt met een eerder aanvaarde periode.
+    Daarmee vallen een afsluitperiode van één dag en een periode 13 die december
+    nog eens overdoet er allebei buiten, terwijl een administratie met dertien
+    vierwekelijkse perioden gewoon dertien perioden houdt.
+
+    Ontbreken de datums, dan is er niets te toetsen en gelden alle perioden vanaf
+    1; het alternatief zou een aanname over de nummering zijn.
+    """
+    reeksen = _periodenreeksen(af)
+    if not reeksen:
+        return []
+    if any(not start or not eind for _, start, eind in reeksen):
+        return [nummer for nummer, _, _ in reeksen if nummer >= 1]
+
+    aanvaard: list[tuple[int, str, str]] = []
+    for nummer, start, eind in reeksen:
+        if nummer < 1 or eind <= start:
+            continue
+        if any(start <= eerder_eind and eerder_start <= eind for _, eerder_start, eerder_eind in aanvaard):
+            continue
+        aanvaard.append((nummer, start, eind))
+    return [nummer for nummer, _, _ in aanvaard]
+
+
+def afsluitperioden(af: Auditfile) -> list[int]:
+    """De perioden uit de tabel die geen gewone boekingsperiode zijn."""
+    regulier = set(boekingsperioden(af))
+    return [nummer for nummer, _, _ in _periodenreeksen(af) if nummer not in regulier]
+
+
 # --- Periodieke controles ---------------------------------------------------
 
 # Kostensoorten waarvan een boeking in elke periode wordt verwacht, met de
@@ -164,8 +226,9 @@ def build_periodieke_controles(af: Auditfile) -> pd.DataFrame:
 
     # Het aantal perioden komt uit de periodetabel; alleen als die ontbreekt
     # wordt teruggevallen op de hoogste periode die daadwerkelijk voorkomt.
-    if not af.periods.empty:
-        verwachte_perioden = set(af.periods["periodNumber"].astype(int))
+    regulier = boekingsperioden(af)
+    if regulier:
+        verwachte_perioden = set(regulier)
     else:
         verwachte_perioden = set(range(1, int(lines["periode"].max()) + 1))
 
@@ -601,11 +664,8 @@ def build_omzet_per_periode(af: Auditfile) -> pd.DataFrame:
     # Omzet staat credit; als positief bedrag getoond.
     per_periode = -per_periode
 
-    perioden = (
-        sorted(af.periods["periodNumber"].astype(int))
-        if not af.periods.empty
-        else sorted(per_periode.index)
-    )
+    regulier = boekingsperioden(af)
+    perioden = regulier if regulier else sorted(per_periode.index)
     labels = af.period_labels
     rijen = []
     for periode in perioden:
@@ -641,11 +701,8 @@ def build_personeelskosten_per_periode(af: Auditfile) -> pd.DataFrame:
         return pd.DataFrame(columns=kolommen)
 
     per_periode = loon.groupby(loon["periode"].astype(int))["bedrag"].sum()
-    perioden = (
-        sorted(af.periods["periodNumber"].astype(int))
-        if not af.periods.empty
-        else sorted(per_periode.index)
-    )
+    regulier = boekingsperioden(af)
+    perioden = regulier if regulier else sorted(per_periode.index)
     bedragen = [float(per_periode.get(periode, 0.0)) for periode in perioden]
     gevuld = [bedrag for bedrag in bedragen if abs(bedrag) > 0.005]
     gemiddelde = float(np.mean(gevuld)) if gevuld else 0.0

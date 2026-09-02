@@ -111,6 +111,10 @@ class AuditfileSpec:
     opening_lines: list[OpeningLine] = field(default_factory=list)
     journals: list[Journal] = field(default_factory=list)
     period_count: int = 12
+    # Eigen periodetabel als (nummer, begindatum, einddatum). Nodig om een
+    # afsluitperiode of een periode 0 te kunnen nabouwen; is die leeg, dan
+    # worden period_count maandperioden gegenereerd.
+    periods: list[tuple[int, str, str]] | None = None
     # Laat de controletotalen bewust afwijken om de integriteitscontrole te testen.
     opening_totals_override: tuple[int, str, str] | None = None
     transaction_totals_override: tuple[int, str, str] | None = None
@@ -210,11 +214,19 @@ def build_xaf(spec: AuditfileSpec) -> bytes:
         out.append("    </vatCodes>\n")
 
     out.append("    <periods>\n")
-    for number in range(1, spec.period_count + 1):
+    perioden = spec.periods or [
+        (
+            nummer,
+            f"{spec.fiscal_year}-{nummer:02d}-01",
+            f"{spec.fiscal_year}-{nummer:02d}-28",
+        )
+        for nummer in range(1, spec.period_count + 1)
+    ]
+    for nummer, start_datum, eind_datum in perioden:
         out.append("      <period>\n")
-        out.append(_tag("periodNumber", str(number), 8))
-        out.append(_tag("startDatePeriod", f"{spec.fiscal_year}-{number:02d}-01", 8))
-        out.append(_tag("endDatePeriod", f"{spec.fiscal_year}-{number:02d}-28", 8))
+        out.append(_tag("periodNumber", str(nummer), 8))
+        out.append(_tag("startDatePeriod", start_datum, 8))
+        out.append(_tag("endDatePeriod", eind_datum, 8))
         out.append("      </period>\n")
     out.append("    </periods>\n")
 
