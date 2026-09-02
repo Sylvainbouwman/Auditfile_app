@@ -286,6 +286,7 @@ def build_xaf(spec: AuditfileSpec) -> bytes:
 
 STANDAARD_REKENINGEN = [
     Account("0100", "Inventaris", "B", "BMvaBeg", "BMvaBeg"),
+    Account("0500", "Eigen vermogen", "B", "BEivKap", "BEivKap"),
     Account("1000", "Kas", "B", "BLimKas", "BLimKas"),
     Account("1100", "Bank", "B", "BLimBan", "BLimBan"),
     Account("1300", "Debiteuren", "B", "BVorDeb", "BVorDeb"),
@@ -448,3 +449,77 @@ def eenvoudige_spec(versie: str = "4.0") -> AuditfileSpec:
         ],
         journals=journals,
     )
+
+
+# --- Twee opeenvolgende boekjaren -------------------------------------------
+
+# De rekening waarop het resultaat van vorig jaar wordt bestemd.
+EIGEN_VERMOGEN_REKENING = "0500"
+
+
+def verschuif_boekjaar(spec: AuditfileSpec, boekjaar: str) -> AuditfileSpec:
+    """Zet een spec om naar een ander boekjaar.
+
+    Alle datums schuiven mee, zodat de boekingen binnen het boekjaar blijven
+    vallen en de periodencontrole klopt.
+    """
+    spec.fiscal_year = boekjaar
+    spec.start_date = f"{boekjaar}-01-01"
+    spec.end_date = f"{boekjaar}-12-31"
+    for journaal in spec.journals:
+        for transactie in journaal.transactions:
+            transactie.trDt = f"{boekjaar}{transactie.trDt[4:]}"
+            for regel in transactie.lines:
+                regel.effDate = f"{boekjaar}{regel.effDate[4:]}"
+    return spec
+
+
+def beginbalans_uit(xaf_bytes: bytes, eigen_vermogen: str = EIGEN_VERMOGEN_REKENING) -> list[OpeningLine]:
+    """De beginbalans die volgt op een gegeven auditfile.
+
+    Per balansrekening het eindsaldo, met het resultaat van dat jaar bestemd op
+    de eigenvermogensrekening. Zo sluit het volgende boekjaar aan, precies zoals
+    de jaarovergangscontrole verwacht: buiten het eigen vermogen gelijk aan de
+    eindstand, en het eigen vermogen toegenomen met het resultaat.
+    """
+    from .parsing import parse_auditfile
+
+    af = parse_auditfile("vorig_jaar.xaf", xaf_bytes)
+    if af.saldo.empty:
+        return []
+    is_balans = af.saldo["accTp"].astype(str).str.upper().eq("B")
+    resultaat = float(af.saldo.loc[~is_balans, "mutaties_boekjaar"].sum())
+
+    saldi: dict[str, float] = {
+        str(rij.rekening): float(rij.eindsaldo) for rij in af.saldo[is_balans].itertuples()
+    }
+    saldi[eigen_vermogen] = saldi.get(eigen_vermogen, 0.0) + resultaat
+
+    regels = []
+    for rekening, saldo in sorted(saldi.items()):
+        if abs(saldo) < 0.005:
+            continue
+        regels.append(
+            OpeningLine(rekening, f"{abs(saldo):.2f}", "D" if saldo > 0 else "C")
+        )
+    return regels
+
+
+def demopaar(
+    vorig_jaar: str = "2024",
+    huidig_jaar: str = "2025",
+    versie_vorig: str = "3.2",
+    versie_huidig: str = "4.0",
+) -> tuple[bytes, bytes]:
+    """Twee synthetische auditfiles die op elkaar aansluiten.
+
+    Het tweede jaar begint met de eindbalans van het eerste, inclusief de
+    bestemming van het resultaat. Daardoor laat de demo zien hoe een kloppende
+    jaarovergang eruitziet, in plaats van een verschil te tonen dat alleen aan
+    de demodata ligt. De twee XAF-versies verschillen bewust, zodat ook de
+    RGS-herkomst zichtbaar is.
+    """
+    vorige_bytes = build_xaf(verschuif_boekjaar(eenvoudige_spec(versie_vorig), vorig_jaar))
+    huidige_spec = verschuif_boekjaar(eenvoudige_spec(versie_huidig), huidig_jaar)
+    huidige_spec.opening_lines = beginbalans_uit(vorige_bytes)
+    return vorige_bytes, build_xaf(huidige_spec)

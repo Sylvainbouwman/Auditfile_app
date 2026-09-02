@@ -7,8 +7,16 @@ draaien; bij lokale uitvoering blijven de auditfiles op de eigen computer.
 
 ## Wat doet de tool?
 
-**Bestandscontrole.** Voordat er cijfers worden getoond wordt het auditfile
-getoetst aan de controletotalen die het zelf opgeeft: aantallen regels, totaal
+**Bestandscontrole.** Eerst de vraag of de twee bestanden bij elkaar horen:
+dezelfde onderneming, dezelfde valuta, aansluitende boekjaren, niet twee keer
+hetzelfde bestand en geen overlappende periodes. Een vergelijking van twee
+willekeurige auditfiles rekent namelijk gewoon door en ziet er plausibel uit.
+Daarna wordt de jaarovergang getoetst: de beginbalans van dit jaar hoort gelijk
+te zijn aan de eindbalans van vorig jaar, met het resultaat van vorig jaar
+bestemd in het eigen vermogen.
+
+Vervolgens wordt elk auditfile getoetst aan de controletotalen die het zelf
+opgeeft: aantallen regels, totaal
 debet en credit, sluit elke transactie op nul, staan alle boekingen op een
 bekende rekening en binnen het boekjaar. Wijkt daar iets af, dan staat dat
 bovenaan.

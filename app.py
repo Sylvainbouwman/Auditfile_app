@@ -11,11 +11,15 @@ import pandas as pd
 import streamlit as st
 
 from auditfile import controls, vat
-from auditfile.demo import build_xaf, eenvoudige_spec
+from auditfile.demo import demopaar
 from auditfile.comparison import (
+    build_jaarovergang,
+    build_jaarovergang_verloop,
     build_opvallende_verschillen,
     build_rubriek_vergelijking,
     compare_saldi,
+    controleer_bestandenpaar,
+    jaarovergang_sluit_aan,
 )
 from auditfile.excel import build_excel_export, exportnaam
 from auditfile.formatting import euro, euro_kort, procent, toon_tabel
@@ -55,18 +59,13 @@ PAGINAS = [
 
 
 @st.cache_data(show_spinner=False)
-def bouw_demobestand(versie: str, boekjaar: str) -> bytes:
-    """Een volledig verzonnen auditfile, om de tool te tonen zonder klantdata."""
-    spec = eenvoudige_spec(versie)
-    spec.fiscal_year = boekjaar
-    spec.start_date = f"{boekjaar}-01-01"
-    spec.end_date = f"{boekjaar}-12-31"
-    for journaal in spec.journals:
-        for transactie in journaal.transactions:
-            transactie.trDt = f"{boekjaar}{transactie.trDt[4:]}"
-            for regel in transactie.lines:
-                regel.effDate = f"{boekjaar}{regel.effDate[4:]}"
-    return build_xaf(spec)
+def bouw_demobestanden() -> tuple[bytes, bytes]:
+    """Twee volledig verzonnen auditfiles die op elkaar aansluiten.
+
+    Om de tool te kunnen tonen zonder klantdata, inclusief de jaarovergang: het
+    tweede jaar begint met de eindbalans van het eerste.
+    """
+    return demopaar()
 
 
 @st.cache_data(show_spinner="Auditfile inlezen…")
@@ -122,9 +121,10 @@ def haal_bestanden_op() -> tuple[tuple[str, bytes], tuple[str, bytes]] | None:
             "Demomodus: de getoonde cijfers zijn verzonnen en komen uit "
             "`auditfile/demo.py`. Er wordt geen klantbestand gelezen."
         )
+        vorig_bytes, huidig_bytes = bouw_demobestanden()
         return (
-            ("demo_vorig_jaar.xaf", bouw_demobestand("3.2", "2024")),
-            ("demo_huidig_jaar.xaf", bouw_demobestand("4.0", "2025")),
+            ("demo_vorig_jaar.xaf", vorig_bytes),
+            ("demo_huidig_jaar.xaf", huidig_bytes),
         )
 
     if bron == "Testmap":
@@ -154,18 +154,31 @@ def haal_bestanden_op() -> tuple[tuple[str, bytes], tuple[str, bytes]] | None:
 
 
 def pagina_overzicht(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataFrame) -> None:
-    bevindingen = controleer_auditfile(huidig)
+    # De vergelijking gebruikt beide bestanden, dus telt de betrouwbaarheid van
+    # beide mee, plus de vraag of ze wel bij elkaar horen.
+    bevindingen = pd.concat(
+        [
+            controleer_bestandenpaar(vorig, huidig),
+            controleer_auditfile(huidig),
+            controleer_auditfile(vorig),
+        ],
+        ignore_index=True,
+    )
     telling = samenvatting(bevindingen)
 
     if telling[KRITIEK]:
         st.error(
-            f"{telling[KRITIEK]} kritieke bevinding(en) bij de bestandscontrole. "
-            "Beoordeel die eerst; ze raken de betrouwbaarheid van alle cijfers hieronder."
+            f"{telling[KRITIEK]} kritieke bevinding(en) bij de bestandscontrole, over de "
+            "twee bestanden samen. Beoordeel die eerst; ze raken de betrouwbaarheid van "
+            "alle cijfers hieronder."
         )
     elif telling[WAARSCHUWING]:
-        st.warning(f"{telling[WAARSCHUWING]} aandachtspunt(en) bij de bestandscontrole.")
+        st.warning(
+            f"{telling[WAARSCHUWING]} aandachtspunt(en) bij de bestandscontrole. "
+            "Zie de pagina Bestandscontrole."
+        )
     else:
-        st.success("Het auditfile is intern consistent.")
+        st.success("Beide auditfiles zijn intern consistent en horen bij elkaar.")
 
     kop("Kerncijfers huidig boekjaar")
     a, b, c, d = st.columns(4)
@@ -232,9 +245,17 @@ def pagina_overzicht(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataF
 
 def pagina_bestandscontrole(vorig: Auditfile, huidig: Auditfile) -> None:
     kop(
-        "Is dit auditfile intern consistent?",
+        "Horen deze twee bestanden bij elkaar?",
+        "De vergelijking rekent alles door zonder dat zelf te vragen. Twee auditfiles "
+        "van verschillende ondernemingen leveren dan een plausibel ogende jaarvergelijking "
+        "op, en dat is gevaarlijker dan een lege uitkomst.",
+    )
+    toon_tabel(controleer_bestandenpaar(vorig, huidig), kleur_op="ernst")
+
+    kop(
+        "Is elk auditfile intern consistent?",
         "Het bestand geeft zelf controletotalen op. Wijkt de inhoud daarvan af, dan "
-        "staan alle conclusies uit dit bestand op losse schroeven.",
+        "staan alle conclusies uit dat bestand op losse schroeven.",
     )
 
     for auditfile, aanduiding in ((huidig, "Huidig jaar"), (vorig, "Vorig jaar")):
@@ -253,6 +274,51 @@ def pagina_bestandscontrole(vorig: Auditfile, huidig: Auditfile) -> None:
             f"{huidig.xaf_versie}). Dat mag, maar let op: een oudere versie kan velden "
             "missen, zoals de RGS-code."
         )
+
+    kop(
+        "Sluit de jaarovergang aan?",
+        "De eindbalans van vorig jaar hoort, na bestemming van het resultaat, gelijk te "
+        "zijn aan de beginbalans van dit jaar.",
+    )
+    verloop = build_jaarovergang_verloop(vorig, huidig)
+    toon_tabel(verloop)
+    if not verloop.empty:
+        if jaarovergang_sluit_aan(verloop):
+            st.success(
+                "De jaarovergang sluit aan: de beginbalans komt overeen met de eindbalans "
+                "van vorig jaar, en de toename van het eigen vermogen met het resultaat."
+            )
+        else:
+            per_post = verloop.set_index("post")["bedrag"]
+            buiten = float(per_post.get("Verschil buiten het eigen vermogen", 0.0))
+            binnen = float(per_post.get("Onverklaard in het eigen vermogen", 0.0))
+            meldingen = []
+            if abs(buiten) >= 0.005:
+                meldingen.append(
+                    f"{euro(buiten)} verschil tussen de beginbalans en de eindstand van "
+                    "vorig jaar, buiten het eigen vermogen"
+                )
+            if abs(binnen) >= 0.005:
+                meldingen.append(
+                    f"{euro(binnen)} in het eigen vermogen dat niet uit het resultaat van "
+                    "vorig jaar volgt"
+                )
+            st.error(
+                "De jaarovergang sluit niet aan: "
+                + "; ".join(meldingen)
+                + ". Beoordeel dit voordat u de jaarvergelijking gebruikt."
+            )
+
+    overgang = build_jaarovergang(vorig, huidig)
+    afwijkend = overgang[overgang["signaal"] != ""] if not overgang.empty else overgang
+    with st.expander(f"Per balansrekening ({len(afwijkend)} met een verschil)"):
+        st.caption(
+            "Een verschil op één rekening is niet meteen een fout: bij de "
+            "resultaatbestemming verschuift het resultaat binnen het eigen vermogen, en "
+            "bij een omnummering verhuist een saldo naar een ander nummer. Het totaal "
+            "hierboven is de harde controle."
+        )
+        toon_tabel(overgang, kleur_op="signaal", hoogte=420)
 
     kop("Bedrijfsgegevens")
     links, rechts = st.columns(2)

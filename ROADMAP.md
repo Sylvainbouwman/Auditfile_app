@@ -34,6 +34,14 @@ Een fiscaal-inhoudelijke auditfile-analysetool die verder gaat dan bestaande sof
 
 ---
 
+### Bestandenpaar en jaarovergang (gereed)
+- Zelfde onderneming, zelfde valuta, aansluitende boekjaren, niet twee keer
+  hetzelfde bestand, geen overlappende periodes
+- Eindbalans vorig jaar tegenover beginbalans huidig jaar, met de
+  resultaatbestemming als verklaringsregel
+
+---
+
 ## Categorie 2: Logische controles samenstelpraktijk
 
 ### 12-maandscontrole
