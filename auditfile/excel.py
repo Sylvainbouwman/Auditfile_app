@@ -124,12 +124,13 @@ def bouw_werkbladen(
     vergelijking: pd.DataFrame,
     btw_mapping: dict[str, str] | None = None,
     aangifte: dict[str, float] | None = None,
+    aftrekbaarheid: dict[str, float] | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Stel alle werkbladen samen die in de export komen."""
     jaar_huidig = _jaarlabel(huidig)
     jaar_vorig = _jaarlabel(vorig)
 
-    gebruik = vat.pas_mapping_toe(vat.build_vat_usage(huidig), btw_mapping)
+    gebruik = vat.pas_mapping_toe(vat.build_vat_usage(huidig), btw_mapping, aftrekbaarheid)
     rubrieken = vat.build_rubric_summary(gebruik, aangifte)
 
     saldo = controls.voeg_rgs_rubriek_toe(huidig.saldo)
@@ -190,9 +191,12 @@ def build_excel_export(
     vergelijking: pd.DataFrame,
     btw_mapping: dict[str, str] | None = None,
     aangifte: dict[str, float] | None = None,
+    aftrekbaarheid: dict[str, float] | None = None,
 ) -> bytes:
     """Bouw het Excelbestand met alle werkbladen."""
-    werkbladen = bouw_werkbladen(huidig, vorig, vergelijking, btw_mapping, aangifte)
+    werkbladen = bouw_werkbladen(
+        huidig, vorig, vergelijking, btw_mapping, aangifte, aftrekbaarheid
+    )
     uitvoer = BytesIO()
     gebruikte_namen: set[str] = set()
 

@@ -17,6 +17,7 @@ from pathlib import Path
 LOCAL_DATA_DIR = Path(".local-testdata")
 BTW_AANGIFTE_PATH = LOCAL_DATA_DIR / "btw_aangifte.json"
 BTW_MAPPING_PATH = LOCAL_DATA_DIR / "btw_mapping.json"
+BTW_AFTREK_PATH = LOCAL_DATA_DIR / "btw_aftrekbaarheid.json"
 
 
 def _lees(path: Path) -> dict:
@@ -66,3 +67,24 @@ def load_vat_mapping(path: Path = BTW_MAPPING_PATH) -> dict:
 def save_vat_mapping(mapping: dict, path: Path = BTW_MAPPING_PATH) -> bool:
     """Bewaar de koppeling van btw-code aan aangifterubriek."""
     return _schrijf(mapping, path)
+
+
+def load_vat_deduction(path: Path = BTW_AFTREK_PATH) -> dict:
+    """Het aftrekbare aandeel per btw-code, in procenten.
+
+    Geldt alleen bij de rubrieken waarin de ondernemer de btw zelf verschuldigd
+    wordt. Een waarde die geen getal is wordt overgeslagen in plaats van de hele
+    invoer te laten vervallen.
+    """
+    aandelen = {}
+    for code, waarde in _lees(path).items():
+        try:
+            aandelen[str(code)] = float(waarde)
+        except (TypeError, ValueError):
+            continue
+    return aandelen
+
+
+def save_vat_deduction(aandelen: dict, path: Path = BTW_AFTREK_PATH) -> bool:
+    """Bewaar het aftrekbare aandeel per btw-code."""
+    return _schrijf(aandelen, path)

@@ -19,6 +19,21 @@ debet (positief). Op het aangifteformulier staan beide juist als positief
 bedrag. Elke rubriek heeft daarom een teken waarmee het grootboekbedrag naar
 een aangiftebedrag wordt omgerekend. Beide worden getoond, zodat de omrekening
 navolgbaar blijft en een onverwacht teken opvalt in plaats van weg te vallen.
+
+Btw die de ondernemer zelf verschuldigd wordt
+---------------------------------------------
+Bij verlegging, invoer en intracommunautaire verwerving wordt de ondernemer de
+btw zelf verschuldigd (rubriek 2a, 4a of 4b) en trekt hij diezelfde btw onder
+de gewone voorwaarden af in 5b. Eén btw-code draagt dan aan twee rubrieken bij.
+Het aftrekbare deel volgt niet uit het auditfile: art. 15 lid 1 Wet OB 1968
+staat de aftrek toe "voor zover de goederen en de diensten door de ondernemer
+worden gebruikt voor belaste handelingen". Dat aandeel staat daarom per code als
+invoer van de gebruiker, met 100% als uitgangspunt.
+
+Bij deze drie rubrieken is het teken in het grootboek niet betrouwbaar: welke
+kant van de tegenboeking het ``<vat>``-blok draagt, verschilt per pakket. De
+tool neemt daarom het absolute bedrag als verschuldigde btw en meldt het als een
+bedrag debet stond, in plaats van er stil een teruggaaf van te maken.
 """
 from __future__ import annotations
 
@@ -31,9 +46,12 @@ from .model import Auditfile
 from .vat_rubrics import (
     AFDRACHT,
     AFDRACHT_CODES,
+    AFTREK_RUBRIEK,
+    AFTREKBAAR_IN_5B,
     INFORMATIEF,
     ONBEKEND,
     RUBRIEK_PER_CODE,
+    STANDAARD_AFTREK_PCT,
     VOORBELASTING,
     VOORBELASTING_CODES,
     rubriek,
@@ -212,16 +230,26 @@ def _stel_rubriek_voor(rij: pd.Series) -> pd.Series:
 # --- Toewijzing en optelling ------------------------------------------------
 
 
-def pas_mapping_toe(usage: pd.DataFrame, mapping: dict[str, str] | None = None) -> pd.DataFrame:
+def pas_mapping_toe(
+    usage: pd.DataFrame,
+    mapping: dict[str, str] | None = None,
+    aftrekbaarheid: dict[str, float] | None = None,
+) -> pd.DataFrame:
     """Voeg de definitief gekozen rubriek per btw-code toe.
 
-    Een keuze van de gebruiker gaat altijd voor op het voorstel.
+    Een keuze van de gebruiker gaat altijd voor op het voorstel. Voor de
+    rubrieken waarin de ondernemer de btw zelf verschuldigd wordt (2a, 4a en 4b)
+    komt er een tweede bijdrage bij: dezelfde btw is aftrekbaar in 5b, voor het
+    aandeel dat de gebruiker per code in ``aftrekbaarheid`` opgeeft.
     """
     mapping = mapping or {}
+    aftrekbaarheid = aftrekbaarheid or {}
     result = usage.copy()
     if result.empty:
-        result["rubriek"] = pd.Series(dtype="object")
-        result["rubriek_bron"] = pd.Series(dtype="object")
+        for kolom in ["rubriek", "rubriek_bron"]:
+            result[kolom] = pd.Series(dtype="object")
+        for kolom in ["aftrekbaar_pct", "btw_aftrekbaar_5b"]:
+            result[kolom] = pd.Series(dtype="float64")
         return result
 
     gekozen = result["btw_code"].astype(str).map(mapping)
@@ -236,11 +264,60 @@ def pas_mapping_toe(usage: pd.DataFrame, mapping: dict[str, str] | None = None) 
         grondslag * grondslag_teken(code)
         for grondslag, code in zip(result["grondslag_grootboek"], result["rubriek"])
     ]
-    result["btw_aangifte"] = [
-        btw * btw_teken(code) if pd.notna(btw) else 0.0
-        for btw, code in zip(result["btw_grootboek"], result["rubriek"])
+
+    # Het aftrekbare aandeel geldt alleen bij 2a, 4a en 4b. Bij andere rubrieken
+    # blijft de kolom leeg in plaats van 0 of 100 te suggereren.
+    verlegd = result["rubriek"].isin(AFTREKBAAR_IN_5B)
+    result["aftrekbaar_pct"] = [
+        float(aftrekbaarheid.get(str(code), STANDAARD_AFTREK_PCT)) if is_verlegd else float("nan")
+        for code, is_verlegd in zip(result["btw_code"], verlegd)
     ]
+
+    btw = pd.to_numeric(result["btw_grootboek"], errors="coerce").fillna(0.0)
+    tekens = np.array([btw_teken(code) for code in result["rubriek"]], dtype="float64")
+    # Bij verlegging is het teken in het grootboek niet betrouwbaar; zie de
+    # moduletoelichting. Het absolute bedrag is de verschuldigde btw.
+    result["btw_aangifte"] = np.where(verlegd, btw.abs(), btw * tekens)
+    result["btw_aftrekbaar_5b"] = np.where(
+        verlegd,
+        btw.abs() * result["aftrekbaar_pct"].fillna(0.0) / 100.0,
+        0.0,
+    )
     return result
+
+
+def _bijdragen(usage_met_rubriek: pd.DataFrame) -> pd.DataFrame:
+    """Zet het gebruik per btw-code om in bijdragen aan aangifterubrieken.
+
+    Een btw-code draagt normaal aan één rubriek bij. Bij 2a, 4a en 4b draagt hij
+    aan twee bij: de verschuldigde btw in die rubriek en het aftrekbare deel in
+    5b. Door dat als losse bijdragen op te tellen blijft de optelling per
+    rubriek een gewone groepering, en is per rubriek te zien wat uit verlegging
+    komt en wat rechtstreeks is geboekt.
+    """
+    kolommen = ["rubriek", "aantal_regels", "grondslag_aangifte", "btw_aangifte", "uit_verlegging"]
+    direct = usage_met_rubriek[["rubriek", "aantal_regels", "grondslag_aangifte", "btw_aangifte"]].copy()
+    direct["uit_verlegging"] = 0.0
+    if "btw_aftrekbaar_5b" not in usage_met_rubriek.columns:
+        return direct[kolommen]
+
+    aftrekbaar = pd.to_numeric(usage_met_rubriek["btw_aftrekbaar_5b"], errors="coerce").fillna(0.0)
+    telt_mee = aftrekbaar.abs() >= 0.005
+    if not telt_mee.any():
+        return direct[kolommen]
+
+    # De regels zijn al bij de eigen rubriek geteld; ze hier nog eens meetellen
+    # zou het aantal boekingsregels verdubbelen.
+    aftrek = pd.DataFrame(
+        {
+            "rubriek": AFTREK_RUBRIEK,
+            "aantal_regels": 0,
+            "grondslag_aangifte": 0.0,
+            "btw_aangifte": aftrekbaar[telt_mee].to_numpy(),
+            "uit_verlegging": aftrekbaar[telt_mee].to_numpy(),
+        }
+    )
+    return pd.concat([direct[kolommen], aftrek[kolommen]], ignore_index=True)
 
 
 def voorstelstatus(usage_met_rubriek: pd.DataFrame) -> dict[str, float]:
@@ -272,6 +349,7 @@ def build_rubric_summary(usage_met_rubriek: pd.DataFrame, aangifte: dict[str, fl
         "aantal_regels",
         "grondslag_volgens_xaf",
         "btw_volgens_xaf",
+        "waarvan_uit_verlegging",
         "btw_volgens_aangifte",
         "verschil",
         "status",
@@ -281,11 +359,13 @@ def build_rubric_summary(usage_met_rubriek: pd.DataFrame, aangifte: dict[str, fl
 
     aangifte = aangifte or {}
     samenvatting = (
-        usage_met_rubriek.groupby("rubriek", dropna=False)
+        _bijdragen(usage_met_rubriek)
+        .groupby("rubriek", dropna=False)
         .agg(
             aantal_regels=("aantal_regels", "sum"),
             grondslag_volgens_xaf=("grondslag_aangifte", "sum"),
             btw_volgens_xaf=("btw_aangifte", "sum"),
+            waarvan_uit_verlegging=("uit_verlegging", "sum"),
         )
         .reset_index()
     )
@@ -620,6 +700,32 @@ def build_vat_anomalies(af: Auditfile, usage_met_rubriek: pd.DataFrame | None = 
                     + ". De verdeling over 1a, 1b en 1c is daardoor niet zuiver uit de codes af te leiden.",
                 }
             )
+
+        # 5b. Verlegde btw die debet in het grootboek staat. Verschuldigde btw
+        #     hoort credit te staan; staat hij debet, dan legt het pakket
+        #     mogelijk alleen de aftrekzijde vast en ontbreekt de tegenboeking.
+        if "rubriek" in usage_met_rubriek.columns:
+            grootboek = pd.to_numeric(
+                usage_met_rubriek["btw_grootboek"], errors="coerce"
+            ).fillna(0.0)
+            debet_verlegd = usage_met_rubriek[
+                usage_met_rubriek["rubriek"].isin(AFTREKBAAR_IN_5B) & (grootboek > 0.005)
+            ]
+            if not debet_verlegd.empty:
+                signalen.append(
+                    {
+                        "signaal": "Verschuldigde btw staat debet in het grootboek",
+                        "aantal_regels": int(debet_verlegd["aantal_regels"].sum()),
+                        "bedrag": float(debet_verlegd["btw_grootboek"].sum()),
+                        "toelichting": "Bij "
+                        + ", ".join(debet_verlegd["btw_code"])
+                        + " hoort de btw tot een rubriek waarin de ondernemer die zelf "
+                        "verschuldigd wordt (2a, 4a of 4b), maar staat het bedrag debet. "
+                        "De tool neemt het absolute bedrag als verschuldigde btw en zet "
+                        "het aftrekbare deel in 5b. Controleer of de tegenboeking van de "
+                        "verschuldigde btw ontbreekt.",
+                    }
+                )
 
         # 6. Codes die niet aan een rubriek konden worden gekoppeld.
         niet_ingedeeld = usage_met_rubriek[usage_met_rubriek["rubriek"] == ONBEKEND]

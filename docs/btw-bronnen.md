@@ -62,6 +62,28 @@ en draagt zelf geen btw af. De afnemer geeft de verlegde btw aan in rubriek 2a e
 trekt die onder de gewone voorwaarden af in 5b. Bij vrijgesteld gebruik vervalt
 die aftrek en blijft de btw uit 2a drukken.
 
+## Aftrek van btw die de ondernemer zelf verschuldigd wordt
+
+- Art. 15 lid 1 Wet OB 1968: <https://wetten.overheid.nl/BWBR0002629/2026-01-01>
+  (versie 1 januari 2026, geraadpleegd 2 september 2026).
+
+Letterlijk uit dat artikel, voor de drie rubrieken die de tool als aftrekbaar in
+5b behandelt:
+
+| Rubriek | Verschuldigd wegens | Aftrekgrondslag |
+|---|---|---|
+| 2a | verlegging, art. 12 lid 2 tot en met 5 | art. 15 lid 1 onderdeel c, onder 2° |
+| 4a | invoer | art. 15 lid 1 onderdeel c, onder 1° |
+| 4b | intracommunautaire verwerving, art. 17a lid 1 | art. 15 lid 1 onderdeel b |
+
+De slotzin van art. 15 lid 1 stelt de voorwaarde: "een en ander voor zover de
+goederen en de diensten door de ondernemer worden gebruikt voor belaste
+handelingen." Het aftrekbare aandeel volgt dus niet uit het auditfile. De tool
+gaat uit van 100% en laat dat per btw-code aanpassen; bij vrijgesteld of gemengd
+gebruik hoort een lager aandeel en blijft de btw uit 2a, 4a of 4b drukken. Voor
+onroerende zaken in gemengd gebruik geeft dezelfde bepaling een aftrek naar
+evenredigheid van het zakelijke gebruik.
+
 ## Intracommunautair en invoer
 
 - Uitvoer buiten de EU: rubriek 3a, nultarief op grond van Tabel II, onderdeel a,

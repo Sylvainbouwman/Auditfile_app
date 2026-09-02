@@ -114,6 +114,30 @@ SUBTOTAAL_OMSCHRIJVING = "Verschuldigde btw (rubrieken 1 tot en met 4)"
 RUBRIEK_CODES: tuple[str, ...] = tuple(rubriek.code for rubriek in RUBRIEKEN)
 RUBRIEK_PER_CODE: dict[str, Rubriek] = {rubriek.code: rubriek for rubriek in RUBRIEKEN}
 
+# Rubrieken waarvan de aangegeven btw onder de gewone voorwaarden óók als
+# voorbelasting in 5b terugkomt. Het gaat om btw die de ondernemer zelf
+# verschuldigd wordt in plaats van in rekening gebracht krijgt:
+#
+#   2a  verlegde btw, verschuldigd op grond van art. 12 lid 2 tot en met 5
+#       Wet OB 1968 en aftrekbaar op grond van art. 15 lid 1 onderdeel c, 2°;
+#   4a  invoer, aftrekbaar op grond van art. 15 lid 1 onderdeel c, 1°;
+#   4b  intracommunautaire verwerving, aftrekbaar op grond van art. 15 lid 1
+#       onderdeel b.
+#
+# De aftrek geldt volgens de slotzin van art. 15 lid 1 "voor zover de goederen
+# en de diensten door de ondernemer worden gebruikt voor belaste handelingen".
+# Dat aandeel is dus geen constante en kan de tool niet uit het auditfile
+# afleiden; het staat per btw-code als invoer van de gebruiker, met 100% als
+# uitgangspunt. Zie docs/btw-bronnen.md voor de vindplaatsen.
+AFTREKBAAR_IN_5B: tuple[str, ...] = ("2a", "4a", "4b")
+
+# De rubriek waarin die aftrek terechtkomt.
+AFTREK_RUBRIEK = "5b"
+
+# Uitgangspunt voor het aftrekbare aandeel: volledig aftrekbaar. Dat is het
+# normale geval bij een ondernemer met uitsluitend belaste prestaties.
+STANDAARD_AFTREK_PCT = 100.0
+
 # Codes die in de eindtelling meetellen aan de afdrachtzijde respectievelijk als
 # voorbelasting.
 AFDRACHT_CODES: tuple[str, ...] = tuple(r.code for r in RUBRIEKEN if r.zijde == AFDRACHT)

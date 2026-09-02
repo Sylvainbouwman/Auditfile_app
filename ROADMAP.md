@@ -10,6 +10,8 @@ Een fiscaal-inhoudelijke auditfile-analysetool die verder gaat dan bestaande sof
 ### BTW-rondrekening (in ontwikkeling)
 - XAF → aangifterubriek → netto BTW
 - Invoer per rubriek (1a, 1e, 2a/5b, 5b)
+- Verlegging, invoer en verwerving: verschuldigd in 2a, 4a of 4b én aftrekbaar in
+  5b, met een aftrekbaar aandeel per btw-code (gereed)
 - Samenvatting en verschillenanalyse
 - Suppletie-indicatie bij afwijking
 

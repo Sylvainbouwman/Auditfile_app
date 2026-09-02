@@ -70,6 +70,35 @@ def test_runtime_pad_ligt_in_lokale_datamap() -> None:
     )
 
 
+def test_alle_schrijfpaden_zijn_genegeerd() -> None:
+    """Elk pad waar de app naar schrijft moet door Git genegeerd zijn.
+
+    Niet alleen de aangiftebedragen: de btw-koppeling en het aftrekbare aandeel
+    per code zijn even klant-afgeleid, want de btw-codes komen uit het auditfile
+    van een klant. Komt er een schrijfpad bij, dan hoort het hier ook in.
+    """
+    from auditfile import settings
+
+    paden = [
+        settings.BTW_AANGIFTE_PATH,
+        settings.BTW_MAPPING_PATH,
+        settings.BTW_AFTREK_PATH,
+    ]
+    for pad in paden:
+        assert settings.LOCAL_DATA_DIR in pad.parents, (
+            f"Schrijfpad '{pad}' ligt niet in '{settings.LOCAL_DATA_DIR}'."
+        )
+        result = _git("check-ignore", pad.as_posix())
+        assert result.returncode == 0, (
+            f"Schrijfpad '{pad}' is NIET git-ignored (returncode={result.returncode})."
+        )
+        getrackt = _git("ls-files", "--error-unmatch", pad.as_posix())
+        assert getrackt.returncode == GIT_NIET_GETRACKT, (
+            f"Schrijfpad '{pad}' wordt door Git gevolgd "
+            f"(returncode={getrackt.returncode}, verwacht {GIT_NIET_GETRACKT})."
+        )
+
+
 def test_synthetische_write_read_zonder_git_wijziging() -> None:
     """Schrijf en lees synthetische aangiftebedragen via de app-helpers.
 

@@ -27,11 +27,19 @@ from auditfile.settings import (
     BTW_MAPPING_PATH,
     LOCAL_DATA_DIR,
     load_declared_vat,
+    load_vat_deduction,
     load_vat_mapping,
     save_declared_vat,
+    save_vat_deduction,
     save_vat_mapping,
 )
-from auditfile.vat_rubrics import ONBEKEND, RUBRIEKEN, keuzelijst, rubriek
+from auditfile.vat_rubrics import (
+    AFTREKBAAR_IN_5B,
+    ONBEKEND,
+    RUBRIEKEN,
+    keuzelijst,
+    rubriek,
+)
 
 APP_VERSIE = "3.0"
 
@@ -168,7 +176,9 @@ def pagina_overzicht(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataF
     kerncijfer(c, "Relaties", f"{len(huidig.relations):n}".replace(",", "."))
     kerncijfer(d, "Btw-codes gebruikt", f"{len(vat.build_vat_usage(huidig))}")
 
-    gebruik = vat.pas_mapping_toe(vat.build_vat_usage(huidig), huidige_mapping())
+    gebruik = vat.pas_mapping_toe(
+        vat.build_vat_usage(huidig), huidige_mapping(), huidige_aftrekbaarheid()
+    )
     rubrieken = vat.build_rubric_summary(gebruik, huidige_aangifte())
     positie = vat.build_vat_position(rubrieken)
 
@@ -319,6 +329,10 @@ def huidige_aangifte() -> dict[str, float]:
     return st.session_state.get("btw_aangifte", {})
 
 
+def huidige_aftrekbaarheid() -> dict[str, float]:
+    return st.session_state.get("btw_aftrekbaarheid", {})
+
+
 def pagina_btw(huidig: Auditfile) -> None:
     gebruik_ruw = vat.build_vat_usage(huidig)
     if gebruik_ruw.empty:
@@ -339,7 +353,8 @@ def pagina_btw(huidig: Auditfile) -> None:
         )
 
         opgeslagen = huidige_mapping()
-        bewerkbaar = vat.pas_mapping_toe(gebruik_ruw, opgeslagen)[
+        opgeslagen_aftrek = huidige_aftrekbaarheid()
+        bewerkbaar = vat.pas_mapping_toe(gebruik_ruw, opgeslagen, opgeslagen_aftrek)[
             [
                 "btw_code",
                 "omschrijving",
@@ -401,6 +416,61 @@ def pagina_btw(huidig: Auditfile) -> None:
             str(code): str(gekozen)
             for code, gekozen in zip(bewerkt["btw_code"], bewerkt["rubriek"])
         }
+        # Het aftrekbare aandeel heeft alleen betekenis bij de rubrieken waarin de
+        # ondernemer de btw zelf verschuldigd wordt. Een eigen tabel voor die
+        # codes is duidelijker dan een kolom die bij de meeste rijen leeg hoort
+        # te blijven, en houdt de fiscale uitleg bij de invoer.
+        verlegde_codes = [
+            str(code)
+            for code, gekozen in zip(bewerkt["btw_code"], bewerkt["rubriek"])
+            if str(gekozen) in AFTREKBAAR_IN_5B
+        ]
+        nieuwe_aftrek = {code: opgeslagen_aftrek.get(code, 100.0) for code in verlegde_codes}
+
+        if verlegde_codes:
+            kop(
+                "Hoeveel van die btw is aftrekbaar?",
+                "Bij verlegging, invoer en intracommunautaire verwerving wordt de "
+                "onderneming de btw zelf verschuldigd en is diezelfde btw aftrekbaar in "
+                "rubriek 5b. Art. 15 lid 1 Wet OB 1968 staat die aftrek toe voor zover de "
+                "goederen en diensten worden gebruikt voor belaste handelingen. Bij "
+                "uitsluitend belaste prestaties is dat 100% en komt het saldo op nihil; "
+                "verlaag het aandeel bij vrijgesteld of gemengd gebruik.",
+            )
+            aftrek_frame = bewerkt[bewerkt["btw_code"].astype(str).isin(verlegde_codes)][
+                ["btw_code", "omschrijving", "rubriek", "btw_grootboek"]
+            ].copy()
+            aftrek_frame["aftrekbaar_pct"] = [
+                nieuwe_aftrek[str(code)] for code in aftrek_frame["btw_code"]
+            ]
+            aftrek_bewerkt = st.data_editor(
+                aftrek_frame,
+                hide_index=True,
+                width="stretch",
+                disabled=["btw_code", "omschrijving", "rubriek", "btw_grootboek"],
+                column_config={
+                    "btw_code": st.column_config.TextColumn("Btw-code", width="small"),
+                    "omschrijving": st.column_config.TextColumn("Omschrijving in het bestand"),
+                    "rubriek": st.column_config.TextColumn("Rubriek", width="small"),
+                    "btw_grootboek": st.column_config.NumberColumn("Btw", format="euro"),
+                    "aftrekbaar_pct": st.column_config.NumberColumn(
+                        "Aftrekbaar in 5b",
+                        min_value=0.0,
+                        max_value=100.0,
+                        step=1.0,
+                        format="%.0f%%",
+                        required=True,
+                    ),
+                },
+                key="btw_aftrek_editor",
+            )
+            nieuwe_aftrek = {
+                str(code): float(aandeel)
+                for code, aandeel in zip(
+                    aftrek_bewerkt["btw_code"], aftrek_bewerkt["aftrekbaar_pct"]
+                )
+                if pd.notna(aandeel)
+            }
         # Twee verschillende dingen die de knop rechtvaardigen, met elk hun eigen
         # melding: een keuze die van de getoonde indeling afwijkt, en een code
         # die nog op een voorstel staat. Ze op één hoop gooien zou na het wissen
@@ -410,7 +480,10 @@ def pagina_btw(huidig: Auditfile) -> None:
             for code, waarde in zip(bewerkbaar["btw_code"], bewerkbaar["rubriek"])
         }
         afwijkend = [
-            code for code, keuze in nieuwe_mapping.items() if getoond.get(code) != keuze
+            code
+            for code, keuze in nieuwe_mapping.items()
+            if getoond.get(code) != keuze
+            or nieuwe_aftrek.get(code) != opgeslagen_aftrek.get(code, nieuwe_aftrek.get(code))
         ]
         op_voorstel = [code for code in nieuwe_mapping if code not in opgeslagen]
 
@@ -422,18 +495,21 @@ def pagina_btw(huidig: Auditfile) -> None:
             help="Legt de rubriek per btw-code vast als uw keuze. Pas daarna telt die mee.",
         ):
             st.session_state["btw_mapping"] = nieuwe_mapping
-            if not save_vat_mapping(nieuwe_mapping):
+            st.session_state["btw_aftrekbaarheid"] = nieuwe_aftrek
+            if not (save_vat_mapping(nieuwe_mapping) and save_vat_deduction(nieuwe_aftrek)):
                 st.warning(f"De koppeling kon niet worden bewaard in {BTW_MAPPING_PATH}.")
             st.rerun()
 
         if wissen.button(
             "Vastlegging wissen",
-            disabled=not opgeslagen,
+            disabled=not (opgeslagen or opgeslagen_aftrek),
             help="Verwijdert uw keuzes, zodat de tabel weer de voorstellen van de tool toont.",
         ):
             st.session_state["btw_mapping"] = {}
+            st.session_state["btw_aftrekbaarheid"] = {}
             st.session_state.pop("btw_mapping_editor", None)
-            if not save_vat_mapping({}):
+            st.session_state.pop("btw_aftrek_editor", None)
+            if not (save_vat_mapping({}) and save_vat_deduction({})):
                 st.warning(f"De koppeling kon niet worden gewist in {BTW_MAPPING_PATH}.")
             st.rerun()
 
@@ -477,7 +553,7 @@ def pagina_btw(huidig: Auditfile) -> None:
             )
             st.caption("Vindplaatsen staan in docs/btw-bronnen.md.")
 
-    gebruik = vat.pas_mapping_toe(gebruik_ruw, huidige_mapping())
+    gebruik = vat.pas_mapping_toe(gebruik_ruw, huidige_mapping(), huidige_aftrekbaarheid())
 
     with tabs[1]:
         kop(
@@ -485,8 +561,14 @@ def pagina_btw(huidig: Auditfile) -> None:
             "Vul per rubriek het totaal in van de aangiften over het boekjaar. De bedragen "
             "worden bewaard op de computer waar de app draait en komen niet in Git terecht.",
         )
+        # De invoervelden volgen de rubrieken van de aansluiting, niet alleen de
+        # rubrieken die rechtstreeks uit de btw-codes komen: 5b kan ook door de
+        # aftrek van verlegde btw ontstaan en moet dan invulbaar zijn.
+        rubrieken_basis = vat.build_rubric_summary(gebruik)
         rubrieken_in_gebruik = [
-            code for code in gebruik["rubriek"].unique() if code != ONBEKEND and rubriek(code).heeft_btw
+            code
+            for code in rubrieken_basis["rubriek"]
+            if code != ONBEKEND and rubriek(code).heeft_btw
         ]
         if not rubrieken_in_gebruik:
             st.caption("Er zijn nog geen rubrieken met een btw-bedrag toegewezen.")
@@ -497,7 +579,10 @@ def pagina_btw(huidig: Auditfile) -> None:
             # dit tabblad heeft geopend. Een leeg veld blijft leeg: niet
             # ingevuld is iets anders dan een aangifte van nul.
             opgeslagen_aangifte = huidige_aangifte()
-            with st.form("btw_aangifte"):
+            # De sleutel mag niet gelijk zijn aan de session-state-sleutel
+            # "btw_aangifte": Streamlit staat niet toe dat een waarde onder de
+            # sleutel van een widget zelf wordt gezet.
+            with st.form("btw_aangifte_formulier"):
                 ingevoerd: dict[str, float] = {}
                 kolommen = st.columns(min(4, len(rubrieken_in_gebruik)))
                 for index, code in enumerate(sorted(rubrieken_in_gebruik)):
@@ -754,7 +839,12 @@ def pagina_export(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataFram
     if st.button("Werkboek samenstellen", type="primary"):
         with st.spinner("Bezig met samenstellen…"):
             inhoud = build_excel_export(
-                huidig, vorig, vergelijking, huidige_mapping(), huidige_aangifte()
+                huidig,
+                vorig,
+                vergelijking,
+                huidige_mapping(),
+                huidige_aangifte(),
+                huidige_aftrekbaarheid(),
             )
         st.download_button(
             "Download het werkboek",
@@ -811,6 +901,8 @@ def main() -> None:
         st.session_state["btw_mapping"] = load_vat_mapping()
     if "btw_aangifte" not in st.session_state:
         st.session_state["btw_aangifte"] = load_declared_vat()
+    if "btw_aftrekbaarheid" not in st.session_state:
+        st.session_state["btw_aftrekbaarheid"] = load_vat_deduction()
 
     st.sidebar.markdown(
         f"**{huidig.bedrijfsnaam or 'Onbekende onderneming'}**  \n"

@@ -612,3 +612,138 @@ def test_voorbelastingcode_met_meerdere_tarieven_geeft_geen_signaal():
     usage = pas_mapping_toe(build_vat_usage(af))
     signalen = set(build_vat_anomalies(af, usage)["signaal"])
     assert "Btw-code met meerdere tarieven in een afdrachtrubriek" not in signalen
+
+
+# --- Verlegde btw: 2a, 4a en 4b komen ook in 5b terug -----------------------
+
+
+def _af_verlegde_inkoop(vat_amnt_tp: str = "C"):
+    """Een sluitende verlegde inkoop van 1.000 met 210 btw.
+
+    De kosten staan debet, de crediteur credit, en de verlegde btw staat zowel
+    als schuld als als vordering in het grootboek. Welke van die twee kanten het
+    ``<vat>``-blok draagt, verschilt per boekhoudpakket; met ``vat_amnt_tp`` is
+    dat om te draaien.
+    """
+    spec = AuditfileSpec(
+        accounts=[
+            Account("1600", "Crediteuren", "B"),
+            Account("1800", "Btw te betalen", "B"),
+            Account("1810", "Btw te vorderen", "B"),
+            Account("4000", "Onderaanneming", "P"),
+        ],
+        vat_codes=[VatCode("VL", "Inkoop btw verlegd 21%", "1800", "1810")],
+        journals=[
+            Journal(
+                "INK",
+                "Inkoopboek",
+                [
+                    Transaction(
+                        "I1",
+                        "2025-01-31",
+                        1,
+                        [
+                            Line(
+                                "4000",
+                                "1000.00",
+                                "D",
+                                "Onderaanneming verlegd",
+                                vatID="VL",
+                                vatPerc="21",
+                                vatAmnt="210.00",
+                                vatAmntTp=vat_amnt_tp,
+                            ),
+                            Line("1800", "210.00", "C", "Verlegde btw verschuldigd"),
+                            Line("1810", "210.00", "D", "Verlegde btw aftrekbaar"),
+                            Line("1600", "1000.00", "C", "Crediteur"),
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    return parse_auditfile("verlegd.xaf", build_xaf(spec))
+
+
+def _verlegde_inkoop(vat_amnt_tp: str = "C") -> pd.DataFrame:
+    return build_vat_usage(_af_verlegde_inkoop(vat_amnt_tp))
+
+
+def test_volledig_aftrekbare_verlegging_geeft_netto_nul():
+    """Verschuldigd in 2a en aftrekbaar in 5b: per saldo nihil.
+
+    Zonder de bijdrage aan 5b zou de tool hier een teruggaaf of een afdracht van
+    210 tonen, en dat is precies de verkeerde uitkomst.
+    """
+    toegepast = pas_mapping_toe(_verlegde_inkoop(), {})
+    assert toegepast.iloc[0]["rubriek"] == "2a"
+    assert round(float(toegepast.iloc[0]["aftrekbaar_pct"]), 2) == 100.00
+
+    samenvatting = build_rubric_summary(toegepast)
+    per_rubriek = samenvatting.set_index("rubriek")["btw_volgens_xaf"]
+    assert round(per_rubriek["2a"], 2) == 210.00
+    assert round(per_rubriek["5b"], 2) == 210.00
+    assert round(build_vat_position(samenvatting)["netto"], 2) == 0.00
+
+
+def test_teken_in_het_grootboek_verandert_de_uitkomst_niet():
+    """Welke kant van de tegenboeking het vat-blok draagt, mag niet uitmaken."""
+    credit = build_rubric_summary(pas_mapping_toe(_verlegde_inkoop("C"), {}))
+    debet = build_rubric_summary(pas_mapping_toe(_verlegde_inkoop("D"), {}))
+    for samenvatting in (credit, debet):
+        per_rubriek = samenvatting.set_index("rubriek")["btw_volgens_xaf"]
+        assert round(per_rubriek["2a"], 2) == 210.00
+        assert round(per_rubriek["5b"], 2) == 210.00
+        assert round(build_vat_position(samenvatting)["netto"], 2) == 0.00
+
+
+def test_verschuldigde_btw_debet_geeft_een_signaal():
+    """Een onverwacht teken moet opvallen in plaats van weg te vallen."""
+    af = _af_verlegde_inkoop("D")
+    toegepast = pas_mapping_toe(build_vat_usage(af), {})
+    assert float(toegepast.iloc[0]["btw_grootboek"]) > 0
+    signalen = build_vat_anomalies(af, toegepast)
+    assert "Verschuldigde btw staat debet in het grootboek" in set(signalen["signaal"])
+
+    # Bij de gebruikelijke creditboeking hoort dat signaal er niet te zijn.
+    zonder = build_vat_anomalies(
+        _af_verlegde_inkoop("C"), pas_mapping_toe(_verlegde_inkoop("C"), {})
+    )
+    assert "Verschuldigde btw staat debet in het grootboek" not in set(zonder["signaal"])
+
+
+def test_vrijgesteld_gebruik_laat_de_btw_drukken():
+    """Zonder aftrekrecht blijft de verlegde btw verschuldigd."""
+    toegepast = pas_mapping_toe(_verlegde_inkoop(), {}, {"VL": 0.0})
+    samenvatting = build_rubric_summary(toegepast)
+    per_rubriek = samenvatting.set_index("rubriek")["btw_volgens_xaf"]
+    assert round(per_rubriek["2a"], 2) == 210.00
+    assert "5b" not in per_rubriek.index
+    assert round(build_vat_position(samenvatting)["netto"], 2) == 210.00
+
+
+def test_gemengd_gebruik_rekent_met_het_aandeel():
+    """Bij 60% aftrekrecht blijft 40% van de verlegde btw drukken."""
+    toegepast = pas_mapping_toe(_verlegde_inkoop(), {}, {"VL": 60.0})
+    samenvatting = build_rubric_summary(toegepast)
+    per_rubriek = samenvatting.set_index("rubriek")
+    assert round(per_rubriek.loc["5b", "btw_volgens_xaf"], 2) == 126.00
+    assert round(per_rubriek.loc["5b", "waarvan_uit_verlegging"], 2) == 126.00
+    assert round(build_vat_position(samenvatting)["netto"], 2) == 84.00
+
+
+def test_aftrekbaar_aandeel_blijft_leeg_bij_andere_rubrieken(usage):
+    """Buiten 2a, 4a en 4b heeft een aftrekbaar aandeel geen betekenis."""
+    toegepast = pas_mapping_toe(usage, {"1": "1a", "3": "5b"})
+    per_code = toegepast.set_index("btw_code")
+    assert pd.isna(per_code.loc["1", "aftrekbaar_pct"])
+    assert pd.isna(per_code.loc["3", "aftrekbaar_pct"])
+    assert float(per_code.loc["1", "btw_aftrekbaar_5b"]) == 0.0
+
+
+def test_voorbelasting_uit_facturen_telt_niet_als_verlegging(usage):
+    """De kolom moet onderscheiden waar 5b vandaan komt."""
+    samenvatting = build_rubric_summary(pas_mapping_toe(usage, {"3": "5b"}))
+    per_rubriek = samenvatting.set_index("rubriek")
+    assert per_rubriek.loc["5b", "btw_volgens_xaf"] > 0
+    assert round(per_rubriek.loc["5b", "waarvan_uit_verlegging"], 2) == 0.00
