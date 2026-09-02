@@ -1,0 +1,20 @@
+{
+  "toelichting": "Alleen aantoonbaar synthetische of openbare voorbeeldwaarden. Elke regel draagt haar eigen bron. Voeg nooit een waarde toe waarvan de herkomst niet is vastgesteld. Waarden uit een klantauditfile horen hier niet in, ook niet ingekort of aangepast.",
+  "btw_identificatienummers": [
+    {
+      "nummer": "NL000000000B01",
+      "herkomst": "synthetisch",
+      "bron": "Vaste placeholder in auditfile/demo.py (AuditfileSpec.tax_reg_ident) voor het synthetische demobedrijf 'Testbedrijf Synthetisch BV'. Uitsluitend nullen in het nummerdeel, dus het is geen uitgegeven btw-identificatienummer. De privacyscan herkent deze waarde zowel als btw-id als naar vorm als IBAN.",
+      "url": null,
+      "gecontroleerd": "2026-09-02"
+    }
+  ],
+  "rekeningnummers": [
+    {
+      "nummer": "00000000",
+      "herkomst": "synthetisch",
+      "bron": "Vaste placeholder voor het KvK-nummer in auditfile/demo.py (AuditfileSpec.commerce_nr).",
+      "gecontroleerd": "2026-09-02"
+    }
+  ]
+}
