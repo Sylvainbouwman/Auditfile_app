@@ -780,3 +780,67 @@ def test_voorbelasting_uit_facturen_telt_niet_als_verlegging(usage):
     per_rubriek = samenvatting.set_index("rubriek")
     assert per_rubriek.loc["5b", "btw_volgens_xaf"] > 0
     assert round(per_rubriek.loc["5b", "waarvan_uit_verlegging"], 2) == 0.00
+
+
+# --- Grondslagen uit de aangifte -------------------------------------------
+
+
+def test_rubriek_zonder_btw_wordt_op_de_grondslag_vergeleken():
+    """Bij 1e, 3a, 3b en 3c is de grondslag het enige dat te vergelijken valt."""
+    usage = _usage_voor_code(
+        VatCode("E", "Omzet verlegd"),
+        [
+            Line("8000", "5000.00", "C", vatID="E", vatPerc="0", vatAmnt="0.00", vatAmntTp="C"),
+            Line("1300", "5000.00", "D"),
+        ],
+    )
+    toegepast = pas_mapping_toe(usage, {"E": "1e"})
+
+    zonder = build_rubric_summary(toegepast).set_index("rubriek")
+    assert zonder.loc["1e", "status"] == "Niet ingevuld"
+    assert pd.isna(zonder.loc["1e", "verschil_grondslag"])
+
+    sluit_aan = build_rubric_summary(toegepast, {}, {"1e": 5000.0}).set_index("rubriek")
+    assert sluit_aan.loc["1e", "status"] == "Sluit aan"
+    assert round(sluit_aan.loc["1e", "verschil_grondslag"], 2) == 0.00
+
+    wijkt_af = build_rubric_summary(toegepast, {}, {"1e": 4000.0}).set_index("rubriek")
+    assert wijkt_af.loc["1e", "status"] == "Verschil"
+    assert round(wijkt_af.loc["1e", "verschil_grondslag"], 2) == 1000.00
+
+
+def test_kloppende_btw_met_afwijkende_grondslag_valt_op(usage):
+    """Een goede btw over een verkeerde grondslag mag niet als 'sluit aan' gelden."""
+    toegepast = pas_mapping_toe(usage, {"1": "1a"})
+    per_rubriek = build_rubric_summary(toegepast).set_index("rubriek")
+    btw = float(per_rubriek.loc["1a", "btw_volgens_xaf"])
+    grondslag = float(per_rubriek.loc["1a", "grondslag_volgens_xaf"])
+
+    goed = build_rubric_summary(toegepast, {"1a": btw}, {"1a": grondslag}).set_index("rubriek")
+    assert goed.loc["1a", "status"] == "Sluit aan"
+
+    scheef = build_rubric_summary(
+        toegepast, {"1a": btw}, {"1a": grondslag + 2500.0}
+    ).set_index("rubriek")
+    assert scheef.loc["1a", "status"] == "Verschil in grondslag"
+
+
+def test_grondslag_alleen_in_de_aangifte_maakt_een_eigen_regel(usage):
+    """Ook zonder btw-bedrag hoort een aangegeven rubriek in de aansluiting."""
+    samenvatting = build_rubric_summary(pas_mapping_toe(usage), {}, {"3b": 12000.0})
+    per_rubriek = samenvatting.set_index("rubriek")
+    assert per_rubriek.loc["3b", "status"] == "Alleen in de aangifte"
+    assert round(per_rubriek.loc["3b", "verschil_grondslag"], 2) == -12000.00
+
+
+def test_niet_ingedeelde_codes_krijgen_een_eigen_status():
+    """De restpost is geen rubriek en hoort niet als 'niet ingevuld' te tonen."""
+    usage = _usage_voor_code(
+        VatCode("X", "Code X"),
+        [
+            Line("4000", "1000.00", "D", vatID="X", vatPerc="0", vatAmnt="0.00", vatAmntTp="D"),
+            Line("1600", "1000.00", "C"),
+        ],
+    )
+    samenvatting = build_rubric_summary(pas_mapping_toe(usage))
+    assert samenvatting.set_index("rubriek").loc[ONBEKEND, "status"] == "Niet ingedeeld"

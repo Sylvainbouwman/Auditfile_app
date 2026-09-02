@@ -83,6 +83,7 @@ def test_alle_schrijfpaden_zijn_genegeerd() -> None:
         settings.BTW_AANGIFTE_PATH,
         settings.BTW_MAPPING_PATH,
         settings.BTW_AFTREK_PATH,
+        settings.BTW_GRONDSLAG_PATH,
     ]
     for pad in paden:
         assert settings.LOCAL_DATA_DIR in pad.parents, (

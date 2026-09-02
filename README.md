@@ -27,9 +27,13 @@ zodat zichtbaar blijft wie wat heeft bepaald. Bij verlegging, invoer en
 intracommunautaire verwerving draagt één btw-code aan twee rubrieken bij: de
 verschuldigde btw in 2a, 4a of 4b en dezelfde btw als voorbelasting in 5b. Het
 aftrekbare aandeel staat per code op 100% en is aanpasbaar bij vrijgesteld of
-gemengd gebruik. Daarna volgt de optelling per rubriek, de vergelijking met de
-ingediende aangiften, een rondrekening over de btw-grootboekrekeningen en een
-reeks signalen op regelniveau.
+gemengd gebruik. Daarna volgt de optelling per rubriek en de vergelijking met de
+ingediende aangiften. Alle rubrieken van het formulier zijn invulbaar, zowel de
+btw als het bedrag waarover die is berekend, ook wanneer een rubriek niet in het
+auditfile voorkomt: dan is dat juist het verschil. Een leeg veld betekent niet
+ingevuld en is iets anders dan een aangifte van nul. Verder is er een
+rondrekening over de btw-grootboekrekeningen en een reeks signalen op
+regelniveau.
 
 **Analytische controles.** Komen vaste lasten in elke periode voor, zijn er
 ongebruikelijke boekingen (weekend, ronde bedragen, grote memoriaalposten in de

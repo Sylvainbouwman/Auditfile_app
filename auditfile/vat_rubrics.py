@@ -36,6 +36,10 @@ class Rubriek:
     zijde: str
     heeft_btw: bool
     toelichting: str = ""
+    # Vraagt het formulier bij deze rubriek ook een bedrag waarover de
+    # omzetbelasting wordt berekend? Bij alle rubrieken behalve de voorbelasting
+    # is dat zo; zie de tabel in docs/btw-bronnen.md.
+    heeft_grondslag: bool = True
 
     @property
     def label(self) -> str:
@@ -101,6 +105,7 @@ RUBRIEKEN: tuple[Rubriek, ...] = (
         True,
         "De aan de onderneming in rekening gebrachte btw, inclusief de btw uit de "
         "rubrieken 2a, 4a en 4b voor zover die aftrekbaar is.",
+        heeft_grondslag=False,
     ),
 )
 
@@ -153,6 +158,7 @@ ONBEKEND_RUBRIEK = Rubriek(
     False,
     "Deze btw-code kon niet automatisch aan een rubriek worden gekoppeld en telt "
     "niet mee in de eindberekening zolang er geen rubriek is gekozen.",
+    heeft_grondslag=False,
 )
 
 

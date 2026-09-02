@@ -18,6 +18,7 @@ LOCAL_DATA_DIR = Path(".local-testdata")
 BTW_AANGIFTE_PATH = LOCAL_DATA_DIR / "btw_aangifte.json"
 BTW_MAPPING_PATH = LOCAL_DATA_DIR / "btw_mapping.json"
 BTW_AFTREK_PATH = LOCAL_DATA_DIR / "btw_aftrekbaarheid.json"
+BTW_GRONDSLAG_PATH = LOCAL_DATA_DIR / "btw_grondslagen.json"
 
 
 def _lees(path: Path) -> dict:
@@ -67,6 +68,16 @@ def load_vat_mapping(path: Path = BTW_MAPPING_PATH) -> dict:
 def save_vat_mapping(mapping: dict, path: Path = BTW_MAPPING_PATH) -> bool:
     """Bewaar de koppeling van btw-code aan aangifterubriek."""
     return _schrijf(mapping, path)
+
+
+def load_declared_base(path: Path = BTW_GRONDSLAG_PATH) -> dict:
+    """De aangegeven grondslag per rubriek: het bedrag waarover de btw loopt."""
+    return _lees(path)
+
+
+def save_declared_base(grondslagen: dict, path: Path = BTW_GRONDSLAG_PATH) -> bool:
+    """Bewaar de aangegeven grondslag per rubriek."""
+    return _schrijf(grondslagen, path)
 
 
 def load_vat_deduction(path: Path = BTW_AFTREK_PATH) -> dict:

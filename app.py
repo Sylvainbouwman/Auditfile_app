@@ -26,9 +26,11 @@ from auditfile.settings import (
     BTW_AANGIFTE_PATH,
     BTW_MAPPING_PATH,
     LOCAL_DATA_DIR,
+    load_declared_base,
     load_declared_vat,
     load_vat_deduction,
     load_vat_mapping,
+    save_declared_base,
     save_declared_vat,
     save_vat_deduction,
     save_vat_mapping,
@@ -180,7 +182,7 @@ def pagina_overzicht(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataF
     gebruik = vat.pas_mapping_toe(
         vat.build_vat_usage(huidig), huidige_mapping(), huidige_aftrekbaarheid()
     )
-    rubrieken = vat.build_rubric_summary(gebruik, huidige_aangifte())
+    rubrieken = vat.build_rubric_summary(gebruik, huidige_aangifte(), huidige_grondslagen())
     positie = vat.build_vat_position(rubrieken)
 
     kop(
@@ -332,6 +334,10 @@ def huidige_aangifte() -> dict[str, float]:
 
 def huidige_aftrekbaarheid() -> dict[str, float]:
     return st.session_state.get("btw_aftrekbaarheid", {})
+
+
+def huidige_grondslagen() -> dict[str, float]:
+    return st.session_state.get("btw_grondslagen", {})
 
 
 def pagina_btw(huidig: Auditfile) -> None:
@@ -567,30 +573,28 @@ def pagina_btw(huidig: Auditfile) -> None:
             "Git terecht.",
         )
         rubrieken_basis = vat.build_rubric_summary(gebruik)
-        bedragen_per_rubriek = dict(
+        btw_per_rubriek = dict(
             zip(rubrieken_basis["rubriek"], rubrieken_basis["btw_volgens_xaf"])
         )
-        invulbaar = [code for code in RUBRIEK_CODES if rubriek(code).heeft_btw]
+        grondslag_per_rubriek = dict(
+            zip(rubrieken_basis["rubriek"], rubrieken_basis["grondslag_volgens_xaf"])
+        )
 
-        # Een formulier, geen veld dat zichzelf bewaart. Streamlit voert de code
-        # van alle tabbladen uit bij elke herberekening, dus een veld dat zijn
-        # eigen waarde wegschrijft doet dat ook zonder dat iemand dit tabblad
-        # heeft geopend.
-        opgeslagen_aangifte = huidige_aangifte()
-        # De sleutel mag niet gelijk zijn aan de session-state-sleutel
-        # "btw_aangifte": Streamlit staat niet toe dat een waarde onder de
-        # sleutel van een widget zelf wordt gezet.
-        with st.form("btw_aangifte_formulier"):
+        def invoervelden(
+            codes: list[str], opgeslagen: dict[str, float], volgens_xaf: dict[str, float], soort: str
+        ) -> dict[str, float]:
+            """Eén rij invoervelden per rubriek; een leeg veld blijft leeg."""
             ingevoerd: dict[str, float] = {}
             kolommen = st.columns(4)
-            for index, code in enumerate(invulbaar):
+            for index, code in enumerate(codes):
                 with kolommen[index % len(kolommen)]:
-                    bestaand = opgeslagen_aangifte.get(code)
-                    volgens_xaf = bedragen_per_rubriek.get(code)
-                    if volgens_xaf is None:
-                        herkomst = "Komt niet voor in dit auditfile."
-                    else:
-                        herkomst = f"Volgens dit auditfile {euro(volgens_xaf)}."
+                    bestaand = opgeslagen.get(code)
+                    bedrag = volgens_xaf.get(code)
+                    herkomst = (
+                        "Komt niet voor in dit auditfile."
+                        if bedrag is None
+                        else f"Volgens dit auditfile {euro(bedrag)}."
+                    )
                     waarde = st.number_input(
                         f"Rubriek {code}",
                         value=float(bestaand) if bestaand is not None else None,
@@ -598,18 +602,51 @@ def pagina_btw(huidig: Auditfile) -> None:
                         format="%.2f",
                         placeholder="niet ingevuld",
                         help=f"{rubriek(code).omschrijving}. {herkomst}",
-                        key=f"aangifte_{code}",
+                        key=f"{soort}_{code}",
                     )
                     if waarde is not None:
                         ingevoerd[code] = float(waarde)
+            return ingevoerd
+
+        # Een formulier, geen veld dat zichzelf bewaart. Streamlit voert de code
+        # van alle tabbladen uit bij elke herberekening, dus een veld dat zijn
+        # eigen waarde wegschrijft doet dat ook zonder dat iemand dit tabblad
+        # heeft geopend.
+        opgeslagen_aangifte = huidige_aangifte()
+        opgeslagen_grondslagen = huidige_grondslagen()
+        # De sleutel mag niet gelijk zijn aan de session-state-sleutel
+        # "btw_aangifte": Streamlit staat niet toe dat een waarde onder de
+        # sleutel van een widget zelf wordt gezet.
+        with st.form("btw_aangifte_formulier"):
+            st.markdown("**Omzetbelasting per rubriek**")
+            ingevoerd = invoervelden(
+                [code for code in RUBRIEK_CODES if rubriek(code).heeft_btw],
+                opgeslagen_aangifte,
+                btw_per_rubriek,
+                "aangifte",
+            )
+            st.markdown("**Bedrag waarover de omzetbelasting wordt berekend**")
+            st.caption(
+                "Bij 1e, 3a, 3b en 3c vraagt het formulier alleen dit bedrag. Zonder deze "
+                "invoer zijn die rubrieken nergens mee te vergelijken."
+            )
+            ingevoerde_grondslagen = invoervelden(
+                [code for code in RUBRIEK_CODES if rubriek(code).heeft_grondslag],
+                opgeslagen_grondslagen,
+                grondslag_per_rubriek,
+                "grondslag",
+            )
             bewaren = st.form_submit_button("Aangiftebedragen bewaren", type="primary")
         if bewaren:
             st.session_state["btw_aangifte"] = ingevoerd
-            if not save_declared_vat(ingevoerd):
+            st.session_state["btw_grondslagen"] = ingevoerde_grondslagen
+            if not (
+                save_declared_vat(ingevoerd) and save_declared_base(ingevoerde_grondslagen)
+            ):
                 st.warning(f"De aangiftebedragen konden niet worden bewaard in {BTW_AANGIFTE_PATH}.")
             st.rerun()
 
-        rubrieken = vat.build_rubric_summary(gebruik, huidige_aangifte())
+        rubrieken = vat.build_rubric_summary(gebruik, huidige_aangifte(), huidige_grondslagen())
         kop("Aansluiting per rubriek")
         toon_voorstelwaarschuwing(gebruik, verwijs=False)
         toon_tabel(rubrieken, kleur_op="status")
@@ -633,7 +670,7 @@ def pagina_btw(huidig: Auditfile) -> None:
             )
 
     with tabs[2]:
-        rubrieken = vat.build_rubric_summary(gebruik, huidige_aangifte())
+        rubrieken = vat.build_rubric_summary(gebruik, huidige_aangifte(), huidige_grondslagen())
         kop(
             "Verloop van de btw-rekeningen",
             "Twee onafhankelijke wegen naar hetzelfde bedrag: de btw-codes op de "
@@ -848,6 +885,7 @@ def pagina_export(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataFram
                 huidige_mapping(),
                 huidige_aangifte(),
                 huidige_aftrekbaarheid(),
+                huidige_grondslagen(),
             )
         st.download_button(
             "Download het werkboek",
@@ -906,6 +944,8 @@ def main() -> None:
         st.session_state["btw_aangifte"] = load_declared_vat()
     if "btw_aftrekbaarheid" not in st.session_state:
         st.session_state["btw_aftrekbaarheid"] = load_vat_deduction()
+    if "btw_grondslagen" not in st.session_state:
+        st.session_state["btw_grondslagen"] = load_declared_base()
 
     st.sidebar.markdown(
         f"**{huidig.bedrijfsnaam or 'Onbekende onderneming'}**  \n"

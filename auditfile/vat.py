@@ -341,13 +341,25 @@ def voorstelstatus(usage_met_rubriek: pd.DataFrame) -> dict[str, float]:
     }
 
 
-def build_rubric_summary(usage_met_rubriek: pd.DataFrame, aangifte: dict[str, float] | None = None) -> pd.DataFrame:
-    """Tel op per aangifterubriek en vergelijk met de ingediende aangifte."""
+def build_rubric_summary(
+    usage_met_rubriek: pd.DataFrame,
+    aangifte: dict[str, float] | None = None,
+    grondslagen: dict[str, float] | None = None,
+) -> pd.DataFrame:
+    """Tel op per aangifterubriek en vergelijk met de ingediende aangifte.
+
+    ``aangifte`` bevat de aangegeven btw per rubriek, ``grondslagen`` het bedrag
+    waarover die btw is berekend. Bij de rubrieken zonder btw (1e, 3a, 3b en 3c)
+    is die grondslag het enige dat te vergelijken valt; zonder die invoer blijven
+    ze onvergelijkbaar.
+    """
     kolommen = [
         "rubriek",
         "omschrijving",
         "aantal_regels",
         "grondslag_volgens_xaf",
+        "grondslag_volgens_aangifte",
+        "verschil_grondslag",
         "btw_volgens_xaf",
         "waarvan_uit_verlegging",
         "btw_volgens_aangifte",
@@ -358,6 +370,7 @@ def build_rubric_summary(usage_met_rubriek: pd.DataFrame, aangifte: dict[str, fl
         return pd.DataFrame(columns=kolommen)
 
     aangifte = aangifte or {}
+    grondslagen = grondslagen or {}
     samenvatting = (
         _bijdragen(usage_met_rubriek)
         .groupby("rubriek", dropna=False)
@@ -373,10 +386,11 @@ def build_rubric_summary(usage_met_rubriek: pd.DataFrame, aangifte: dict[str, fl
     # Een rubriek die alleen in de aangifte staat hoort er ook bij. Anders valt
     # een rubriek die de administratie niet kent stilzwijgend buiten de
     # vergelijking, en dat is juist een verschil om naar te kijken.
+    aanwezig = set(samenvatting["rubriek"])
     ontbrekend = [
         code
-        for code in aangifte
-        if code in RUBRIEK_PER_CODE and code not in set(samenvatting["rubriek"])
+        for code in dict.fromkeys([*aangifte, *grondslagen])
+        if code in RUBRIEK_PER_CODE and code not in aanwezig
     ]
     if ontbrekend:
         samenvatting = pd.concat(
@@ -399,27 +413,60 @@ def build_rubric_summary(usage_met_rubriek: pd.DataFrame, aangifte: dict[str, fl
     # Een rubriek zonder ingevoerd bedrag is niet hetzelfde als een aangifte van
     # nul. Dat onderscheid moet blijven staan, want een aangifte van nul is een
     # bewuste uitspraak van de gebruiker en een leeg veld niet.
-    ingevuld = samenvatting["rubriek"].isin(aangifte)
+    btw_ingevuld = samenvatting["rubriek"].isin(aangifte)
+    grondslag_ingevuld = samenvatting["rubriek"].isin(grondslagen)
     samenvatting["btw_volgens_aangifte"] = samenvatting["rubriek"].map(
         lambda code: float(aangifte.get(code, 0.0) or 0.0)
+    )
+    samenvatting["grondslag_volgens_aangifte"] = samenvatting["rubriek"].map(
+        lambda code: float(grondslagen.get(code, 0.0) or 0.0)
     )
     # Het verschil behoudt zijn teken: een te lage en een te hoge aangifte
     # mogen elkaar niet opheffen.
     samenvatting["verschil"] = samenvatting["btw_volgens_xaf"] - samenvatting["btw_volgens_aangifte"]
-    samenvatting.loc[~ingevuld, "verschil"] = float("nan")
+    samenvatting["verschil_grondslag"] = (
+        samenvatting["grondslag_volgens_xaf"] - samenvatting["grondslag_volgens_aangifte"]
+    )
+    samenvatting.loc[~btw_ingevuld, "verschil"] = float("nan")
+    samenvatting.loc[~grondslag_ingevuld, "verschil_grondslag"] = float("nan")
 
-    def status(rij: pd.Series, is_ingevuld: bool) -> str:
-        if not rubriek(rij["rubriek"]).heeft_btw:
-            return "Alleen grondslag"
-        if not is_ingevuld:
-            return "Niet ingevuld"
-        if abs(rij["btw_volgens_xaf"]) < AFRONDINGSMARGE_EURO and abs(rij["btw_volgens_aangifte"]) >= AFRONDINGSMARGE_EURO:
+    def _vergelijk(volgens_xaf: float, volgens_aangifte: float, verschil: float) -> str:
+        if abs(volgens_xaf) < AFRONDINGSMARGE_EURO and abs(volgens_aangifte) >= AFRONDINGSMARGE_EURO:
             return "Alleen in de aangifte"
-        return "Sluit aan" if abs(rij["verschil"]) < AFRONDINGSMARGE_EURO else "Verschil"
+        return "Sluit aan" if abs(verschil) < AFRONDINGSMARGE_EURO else "Verschil"
+
+    def status(rij: pd.Series, heeft_btw_bedrag: bool, heeft_grondslag_bedrag: bool) -> str:
+        """De status volgt de grootheid waar het formulier om vraagt.
+
+        Bij een rubriek met btw is de btw de vergelijking en de grondslag een
+        aanvulling; bij een rubriek zonder btw is de grondslag alles wat er is.
+        """
+        soort = rubriek(rij["rubriek"])
+        if soort.code == ONBEKEND:
+            return "Niet ingedeeld"
+        if not soort.heeft_btw:
+            if not heeft_grondslag_bedrag:
+                return "Niet ingevuld"
+            return _vergelijk(
+                rij["grondslag_volgens_xaf"],
+                rij["grondslag_volgens_aangifte"],
+                rij["verschil_grondslag"],
+            )
+        if not heeft_btw_bedrag:
+            return "Niet ingevuld"
+        btw_status = _vergelijk(
+            rij["btw_volgens_xaf"], rij["btw_volgens_aangifte"], rij["verschil"]
+        )
+        if btw_status == "Sluit aan" and heeft_grondslag_bedrag:
+            if abs(rij["verschil_grondslag"]) >= AFRONDINGSMARGE_EURO:
+                return "Verschil in grondslag"
+        return btw_status
 
     samenvatting["status"] = [
-        status(rij, bool(is_ingevuld))
-        for (_, rij), is_ingevuld in zip(samenvatting.iterrows(), ingevuld)
+        status(rij, bool(heeft_btw_bedrag), bool(heeft_grondslag_bedrag))
+        for (_, rij), heeft_btw_bedrag, heeft_grondslag_bedrag in zip(
+            samenvatting.iterrows(), btw_ingevuld, grondslag_ingevuld
+        )
     ]
 
     # Sorteer op de volgorde van het aangifteformulier, met het onbekende blok

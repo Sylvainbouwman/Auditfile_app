@@ -12,6 +12,8 @@ Een fiscaal-inhoudelijke auditfile-analysetool die verder gaat dan bestaande sof
 - Invoer per rubriek (1a, 1e, 2a/5b, 5b)
 - Verlegging, invoer en verwerving: verschuldigd in 2a, 4a of 4b én aftrekbaar in
   5b, met een aftrekbaar aandeel per btw-code (gereed)
+- Alle rubrieken invulbaar, btw én grondslag, ook rubrieken die niet in het
+  auditfile voorkomen (gereed). Nog niet per aangiftetijdvak, alleen per jaar.
 - Samenvatting en verschillenanalyse
 - Suppletie-indicatie bij afwijking
 
