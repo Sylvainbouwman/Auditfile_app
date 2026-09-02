@@ -10,7 +10,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from auditfile import controls, vat
+from auditfile import controls, relatiesaldi, vat
 from auditfile.demo import demopaar
 from auditfile.capability import (
     NIVEAU_GEEN,
@@ -1251,6 +1251,47 @@ def pagina_controles(huidig: Auditfile) -> None:
             st.bar_chart(loon.set_index("maand")["loonkosten"], height=220)
 
 
+def toon_relatiesaldi(huidig: Auditfile) -> None:
+    """De openstaande bedragen per relatie uit XAF 4.0, met hun aansluiting.
+
+    Alleen zichtbaar wanneer het bestand die bedragen geeft. Een lege tabel met
+    nullen zou de indruk wekken dat er niets openstaat, terwijl het gegeven
+    ontbreekt; wat het bestand niet toelaat, staat op de Bestandscontrole.
+    """
+    if not relatiesaldi.heeft_relatiesaldi(huidig):
+        return
+
+    kop(
+        "Openstaande bedragen per relatie",
+        "XAF 4.0 geeft per debiteur en crediteur het openstaande bedrag bij begin en "
+        "einde van het boekjaar. Dat is een eindstand, geen factuurlijst en geen "
+        "ouderdom. De eerste controle is of die standen optellen tot het saldo van de "
+        "debiteuren- en de crediteurenrekening.",
+    )
+    aansluiting = relatiesaldi.build_relatiesaldo_aansluiting(huidig)
+    toon_tabel(aansluiting, kleur_op="signaal")
+    if not aansluiting.empty and (aansluiting["signaal"] == "verschil").any():
+        st.warning(
+            "De openstaande bedragen sluiten niet aan op het grootboek. Dat hoeft geen "
+            "fout te zijn: op een relatierekening staan vaker posten die niet aan een "
+            "relatie hangen, zoals een verzamelboeking of een afboeking. Beoordeel het "
+            "verschil voordat u de standen gebruikt."
+        )
+
+    with st.expander("Per relatie"):
+        st.caption(
+            "Het verloopverschil is de eindstand uit het bestand min de beginstand plus "
+            "de mutaties van het boekjaar op de relatierekening. Is dat niet nul, dan is "
+            "de stand niet uit het grootboek af te leiden."
+        )
+        toon_tabel(
+            relatiesaldi.build_relatiesaldi(huidig),
+            kleur_op="signaal",
+            hoogte=460,
+            leegmelding="Geen relatie met een openstaand bedrag.",
+        )
+
+
 def pagina_relaties(huidig: Auditfile) -> None:
     # De relatietabel en de relatie-id's op de boekingsregels komen los van
     # elkaar voor. Ontbreekt de tabel maar staan de id's er wel, dan is de
@@ -1280,9 +1321,12 @@ def pagina_relaties(huidig: Auditfile) -> None:
         "van het saldo in dit jaar, zonder het beginsaldo, en dus niet het openstaande "
         "bedrag. Een auditfile kán openstaande posten met een vervaldatum bevatten, maar "
         "alleen in XAF 3.2 en alleen wanneer het boekhoudpakket die subadministratie "
-        "vult; XAF 4.0 heeft die velden geschrapt en geeft in plaats daarvan een "
-        "openstaand bedrag per relatie. Deze tool leest die blokken nog niet."
+        "vult; die leest deze tool nog niet. XAF 4.0 heeft die velden geschrapt en geeft "
+        "in plaats daarvan een openstaand bedrag per relatie; dat leest de tool wel, en "
+        "het staat hieronder zodra het bestand het geeft."
     )
+
+    toon_relatiesaldi(huidig)
 
     kop(
         "Concentratie",

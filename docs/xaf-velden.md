@@ -48,7 +48,11 @@ vervaldatum in XAF is `invDueDt`, en die bestaat alleen in 3.2.
 
 Wie op tagnaam telt of leest, leest in een 3.2-bestand een omschrijving als
 openstaand bedrag. `_tel_blokken()` in `parsing.py` telt daarom uitsluitend
-binnen `customersSuppliers`.
+binnen `customersSuppliers`, en `_parse_relations()` leest de bedragen alleen
+wanneer de namespace 4.0 is. Ze komen getekend in het model terecht (debet
+positief, credit negatief) als `openstaand_begin` en `openstaand_eind`; bij 3.2
+blijven die kolommen leeg. `relatiesaldi.py` zet ze tegenover het saldo van de
+debiteuren- en de crediteurenrekening.
 
 ## Subadministratie (alleen 3.2)
 

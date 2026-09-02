@@ -421,6 +421,24 @@ RELATIEREKENINGEN: dict[str, tuple[str, str]] = {
     "crediteur": ("BSchCre", r"crediteur|leverancier|accounts payable"),
 }
 
+def soort_uit_code(code) -> str | None:
+    """Debiteur of crediteur volgens ``custSupTp``, of ``None`` bij onbekend.
+
+    XAF laat de codering aan het boekhoudpakket, dus komen zowel de Engelse
+    (C voor customer, S voor supplier) als de Nederlandse letters voor. Zegt de
+    code niets, dan geeft deze functie ``None`` terug en beslist de aanroeper met
+    zijn eigen terugval; dat is per gebruik iets anders. Deze vertaling staat op
+    één plaats zodat de relatie-analyse en de saldoaansluiting een relatie niet
+    verschillend kunnen indelen.
+    """
+    schoon = str(code).strip().upper()
+    if schoon in {"C", "D"}:  # customer respectievelijk debiteur
+        return "debiteur"
+    if schoon in {"S", "K"}:  # supplier respectievelijk crediteur
+        return "crediteur"
+    return None
+
+
 RELATIE_COLUMNS = [
     "relatie",
     "naam",
@@ -503,11 +521,9 @@ def build_relatie_analyse(af: Auditfile, soort: str = "debiteur", top: int = 20)
     # leverancier. De soort uit de relatietabel gaat voor; ontbreekt die, dan
     # geeft de factuurzijde de doorslag.
     def is_gezocht(rij: pd.Series) -> bool:
-        soort_code = str(rij["soort"]).strip().upper()
-        if soort_code in {"C", "D"}:  # customer respectievelijk debiteur
-            return soort == "debiteur"
-        if soort_code in {"S", "K"}:  # supplier respectievelijk crediteur
-            return soort == "crediteur"
+        volgens_code = soort_uit_code(rij["soort"])
+        if volgens_code is not None:
+            return volgens_code == soort
         return rij["gefactureerd"] > 0.005
 
     resultaat = totalen[totalen.apply(is_gezocht, axis=1)].copy()

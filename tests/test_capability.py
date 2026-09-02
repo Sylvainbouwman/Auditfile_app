@@ -178,9 +178,10 @@ def test_het_profiel_benoemt_aanwezig_en_dekking():
     assert bool(profiel.loc["Grootboekrekeningen", "aanwezig"])
     assert round(profiel.loc["RGS-codes", "dekking_pct"], 0) == 100
     assert not bool(profiel.loc["Subadministratie mutaties (sbLine, alleen 3.2)", "aanwezig"])
-    assert not bool(
-        profiel.loc["Openstaand bedrag per relatie (clBalDesc, alleen 4.0)", "aanwezig"]
-    )
+    # Het demobestand van het huidige jaar is XAF 4.0 en vult de openstaande
+    # bedragen per relatie; het bestand van vorig jaar is 3.2 en kent ze niet.
+    assert bool(profiel.loc["Openstaand bedrag per relatie (clBalDesc, alleen 4.0)", "aanwezig"])
+    assert round(profiel.loc["Openstaand bedrag per relatie (clBalDesc, alleen 4.0)", "dekking_pct"], 0) == 100
 
 
 def test_de_dekking_wordt_per_relatiesoort_gemeten():

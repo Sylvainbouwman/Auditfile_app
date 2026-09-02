@@ -56,6 +56,7 @@ rekenlogica dus nooit in `app.py`.
 | `formatting.py` | Presentatie van tabellen in de app |
 | `settings.py` | Lokale opslag van eigen invoer |
 | `capability.py` | Wat het bestand toelaat: aanwezige blokken, dekking, bewijsniveau |
+| `relatiesaldi.py` | Openstaande bedragen per relatie (XAF 4.0) en hun aansluiting |
 | `findings.py` | Uniform bevindingenmodel, materialiteit en de verzamelaar |
 | `demo.py` | Synthetische auditfiles: demodata én testfixtures |
 
@@ -113,6 +114,14 @@ rekenlogica dus nooit in `app.py`.
   kan. De veldsemantiek per versie staat in `docs/xaf-velden.md`, inclusief de
   valkuilen: `settDate` is geen vervaldatum, `effDate` betekent niet hetzelfde in
   beide versies, en `opBalDesc` is in 3.2 een omschrijving en in 4.0 een bedrag.
+
+- **Versiekennis blijft in de parser** — dat `opBalDesc` alleen in XAF 4.0 een
+  bedrag is, wordt één keer afgevangen: `_parse_relations()` leest de openstaande
+  bedragen per relatie alleen bij versie 4.0 en zet ze meteen om naar een
+  getekend getal in `openstaand_begin` en `openstaand_eind`. Bij 3.2 blijven die
+  kolommen leeg (NaN, niet nul). Geen enkele analysefunctie hoort daarna nog naar
+  de XAF-versie te vragen; doet ze dat wel, dan staat de kennis op twee plaatsen
+  en kan ze uiteenlopen.
 
 ## Data en privacy
 

@@ -52,6 +52,16 @@ RELATION_COLUMNS = [
     "commerceNr",
     "taxRegIdent",
     "taxRegistrationCountry",
+    # Het openstaande bedrag per relatie bij begin en einde van het boekjaar.
+    # Deze twee bestaan alleen in XAF 4.0 (opBalDesc/clBalDesc met opBalTp/
+    # clBalTp); in 3.2 blijven ze leeg. Ze staan hier al getekend, volgens
+    # dezelfde regel als elders: debet positief, credit negatief. Daardoor is een
+    # debiteurenstand positief en een crediteurenstand negatief, gelijk aan het
+    # grootboeksaldo, en hoeft geen enkele analysefunctie het teken nog om te
+    # rekenen of naar de XAF-versie te vragen. Leeg is NaN en niet nul: een
+    # ongevulde stand is iets anders dan een stand van nul.
+    "openstaand_begin",
+    "openstaand_eind",
 ]
 
 SALDO_COLUMNS = [

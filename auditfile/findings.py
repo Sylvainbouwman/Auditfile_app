@@ -593,6 +593,76 @@ def _uit_capability(af: Auditfile) -> list[Bevinding]:
     return bevindingen
 
 
+def _uit_relatiesaldi(af: Auditfile, top: int = 10) -> list[Bevinding]:
+    """De openstaande bedragen per relatie uit XAF 4.0.
+
+    Levert niets zolang het bestand die bedragen niet geeft; dat het niet kan,
+    staat al in ``_uit_capability``. Een verschil met het grootboek is een
+    waarschuwing en geen fout: er staan op een relatierekening vaker posten die
+    niet aan een relatie hangen, zoals een verzamelboeking of een afboeking.
+    """
+    from .relatiesaldi import build_relatiesaldi, build_relatiesaldo_aansluiting
+
+    aansluiting = build_relatiesaldo_aansluiting(af)
+    if aansluiting.empty:
+        return []
+
+    bevindingen = []
+    for _, rij in aansluiting.iterrows():
+        if rij["signaal"] != "verschil":
+            continue
+        bevindingen.append(
+            Bevinding(
+                categorie="Relaties",
+                onderwerp=f"Openstaande bedragen {rij['soort']}en sluiten niet aan op het grootboek",
+                ernst=WAARSCHUWING,
+                toelichting=str(rij["conclusie"]),
+                bedrag=_getal(rij.get("verschil_eind")),
+                aantal_regels=_aantal(rij.get("aantal_relaties")),
+                methode=str(rij["methode"]),
+                pagina="Relaties",
+            )
+        )
+
+    saldi = build_relatiesaldi(af)
+    if saldi.empty:
+        return bevindingen
+
+    afwijkend_teken = saldi[
+        saldi["signaal"].str.startswith(("Debiteur", "Crediteur"))
+    ].reindex(saldi["openstaand_eind"].abs().sort_values(ascending=False).index).dropna(how="all")
+    for _, rij in afwijkend_teken.head(top).iterrows():
+        naam = rij["naam"] or rij["relatie"]
+        bevindingen.append(
+            Bevinding(
+                categorie="Relaties",
+                onderwerp=f"{rij['soort'].capitalize()} {rij['relatie']} staat aan de andere kant",
+                ernst=SIGNAAL,
+                toelichting=f"{naam}: {rij['signaal']}",
+                bedrag=_getal(rij.get("openstaand_eind")),
+                pagina="Relaties",
+            )
+        )
+
+    verloop = saldi[saldi["verloop_verschil"].abs() > 0.005]
+    if not verloop.empty:
+        bevindingen.append(
+            Bevinding(
+                categorie="Relaties",
+                onderwerp="Verloop van de openstaande bedragen sluit niet op de boekingen aan",
+                ernst=WAARSCHUWING,
+                toelichting=f"Bij {len(verloop)} relatie(s) geeft de beginstand plus de mutaties "
+                "van het boekjaar niet de eindstand uit het bestand. De standen zijn dan niet uit "
+                "het grootboek af te leiden; beoordeel welke boekingen buiten de relatierekening "
+                "om zijn gegaan.",
+                bedrag=float(verloop["verloop_verschil"].abs().sum()),
+                aantal_regels=len(verloop),
+                pagina="Relaties",
+            )
+        )
+    return bevindingen
+
+
 def _uit_jaarvergelijking(vergelijking: pd.DataFrame, top: int = 10) -> list[Bevinding]:
     from .comparison import build_opvallende_verschillen
 
@@ -668,5 +738,6 @@ def verzamel_bevindingen(
     bevindingen += _uit_capability(huidig)
     bevindingen += _uit_btw(huidig, gebruik, samenvatting)
     bevindingen += _uit_controles(huidig)
+    bevindingen += _uit_relatiesaldi(huidig)
 
     return naar_frame(bevindingen, materialiteit)

@@ -195,8 +195,30 @@ def _parse_vat_codes(company: ET.Element | None) -> tuple[pd.DataFrame, list[str
     return schoon[VAT_CODE_COLUMNS].reset_index(drop=True), dubbel
 
 
-def _parse_relations(company: ET.Element | None) -> tuple[pd.DataFrame, list[str]]:
-    """Debiteuren en crediteuren uit customersSuppliers."""
+# De openstaande bedragen per relatie, met hun D/C-indicatie. Bron- en
+# doelnaam staan hier naast elkaar omdat de brontag misleidend heet: opBalDesc
+# suggereert een omschrijving en is in XAF 4.0 een bedrag.
+RELATIESALDO_VELDEN: tuple[tuple[str, str, str], ...] = (
+    ("openstaand_begin", "opBalDesc", "opBalTp"),
+    ("openstaand_eind", "clBalDesc", "clBalTp"),
+)
+
+
+def _parse_relations(
+    company: ET.Element | None, versie: str = ""
+) -> tuple[pd.DataFrame, list[str]]:
+    """Debiteuren en crediteuren uit customersSuppliers.
+
+    De openstaande bedragen per relatie worden uitsluitend bij XAF 4.0 gelezen.
+    Dat is geen overbodige voorzichtigheid: ``opBalDesc`` bestaat in beide
+    versies en betekent in 3.2 een omschrijving van de beginbalans van het
+    grootboek. Zou een 3.2-bestand die tag binnen een relatie zetten, dan werd
+    een tekst als openstaand bedrag gelezen. De versiecontrole staat daarom hier
+    en nergens anders; verder in de tool zijn de kolommen simpelweg leeg.
+
+    Een waarde die geen getal is, wordt NaN en telt dus als niet aanwezig. Een
+    veld dat er staat maar niet te lezen is, mag niet als gegeven doorgaan.
+    """
     rows = []
     if company is not None:
         for element in company.iter():
@@ -210,10 +232,25 @@ def _parse_relations(company: ET.Element | None) -> tuple[pd.DataFrame, list[str
                 row["land"] = address_texts.get("country", "")
             rows.append(row)
 
-    columns = RELATION_COLUMNS + ["plaats", "land"]
-    df = ensure_columns(pd.DataFrame(rows), columns)
-    for column in columns:
+    tekstkolommen = [
+        kolom for kolom in RELATION_COLUMNS if kolom not in {naam for naam, _, _ in RELATIESALDO_VELDEN}
+    ] + ["plaats", "land"]
+    columns = tekstkolommen + [naam for naam, _, _ in RELATIESALDO_VELDEN]
+
+    ruw = pd.DataFrame(rows)
+    df = ensure_columns(ruw.copy(), tekstkolommen)
+    for column in tekstkolommen:
         df[column] = df[column].fillna("").astype(str).str.strip()
+
+    for naam, bedragtag, typetag in RELATIESALDO_VELDEN:
+        if versie == "4.0" and bedragtag in ruw.columns:
+            bedragen = pd.to_numeric(ruw[bedragtag].astype(str).str.strip(), errors="coerce")
+            soorten = ruw[typetag] if typetag in ruw.columns else pd.Series("", index=ruw.index)
+            getekend = signed_amount_series(bedragen.fillna(0.0), soorten)
+            df[naam] = getekend.where(bedragen.notna())
+        else:
+            df[naam] = pd.Series(float("nan"), index=df.index, dtype="float64")
+
     dubbel = _dubbele_waarden(df, "custSupID")
     schoon = df.drop_duplicates(subset=["custSupID"], keep="first")
     return schoon[columns].reset_index(drop=True), dubbel
@@ -433,9 +470,10 @@ def parse_auditfile(file_name: str, file_bytes: bytes) -> Auditfile:
     header = find_descendant(root, "header")
     company = find_descendant(root, "company")
 
+    versie = _xaf_version(root)
     accounts, dubbele_rekeningen = _parse_accounts(company)
     vat_codes, dubbele_btw_codes = _parse_vat_codes(company)
-    relations, dubbele_relaties = _parse_relations(company)
+    relations, dubbele_relaties = _parse_relations(company, versie)
     periods, dubbele_perioden = _parse_periods(company)
     duplicaten = {
         soort: waarden
@@ -488,7 +526,7 @@ def parse_auditfile(file_name: str, file_bytes: bytes) -> Auditfile:
 
     return Auditfile(
         bestandsnaam=file_name,
-        xaf_versie=_xaf_version(root),
+        xaf_versie=versie,
         vingerafdruk=vingerafdruk(file_bytes),
         company=child_texts(company) if company is not None else {},
         header=child_texts(header) if header is not None else {},

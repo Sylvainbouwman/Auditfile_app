@@ -83,6 +83,15 @@ geen gevulde relatiesaldi in het 4.0-bestand, en de factuurreferentie staat
 vrijwel alleen op de factuurzijde. Voor die dossiers is dus geen
 openstaande-postenanalyse mogelijk, en dat zegt de tool nu.
 
+### Relatiesaldi uit XAF 4.0 (gereed)
+Staan `opBalDesc`/`clBalDesc` wél gevuld, dan leest de tool de openstaande stand
+per relatie en zet die tegenover het saldo van de debiteuren- en de
+crediteurenrekening. Een verschil is een signaal en geen fout: op een
+relatierekening staan vaker posten die niet aan een relatie hangen. Per relatie
+volgt een signaal bij een onlogisch teken en bij een verloop dat niet op de
+boekingen aansluit. Dit is bewijsniveau 3: een eindstand, geen factuurlijst en
+geen ouderdom.
+
 ### Ouderdomsanalyse (indien open posten beschikbaar)
 - Vereist niveau 1 of 2: een gevulde XAF 3.2-subadministratie. Wacht op een
   bestand dat die levert; de capability-laag wijst het aan.
@@ -96,8 +105,9 @@ openstaande-postenanalyse mogelijk, en dat zegt de tool nu.
 
 ### Crediteurenscan
 - Achterstallige betalingen
-- Leveranciersconcentratie
-- Crediteuren met onlogisch debetsaldo
+- Leveranciersconcentratie (gereed)
+- Crediteuren met onlogisch debetsaldo — gereed voor bestanden met relatiesaldi;
+  zonder die standen is er geen saldo per crediteur om op te toetsen
 
 ---
 
@@ -190,11 +200,13 @@ Bijgewerkt op 1 september 2026.
 
 Bijgewerkt op 2 september 2026, na de volledige review en de capability-laag.
 
-1. **XAF 4.0-relatiesaldi inlezen.** `opBalDesc`/`opBalTp` en
-   `clBalDesc`/`clBalTp` per relatie opnemen in het model, met de tekenregel, en
-   aansluiten op de debiteuren- en crediteurenrekening in het grootboek. Klein
-   en correct; levert voor de nu beschikbare bestanden niets op omdat het pakket
-   die velden niet vult, maar wel voor bestanden die dat wel doen.
+1. **XAF 4.0-relatiesaldi inlezen.** Gereed. `opBalDesc`/`opBalTp` en
+   `clBalDesc`/`clBalTp` staan getekend in het model als `openstaand_begin` en
+   `openstaand_eind`, alleen bij versie 4.0 gelezen; `relatiesaldi.py` sluit ze
+   aan op de debiteuren- en crediteurenrekening en signaleert een onlogisch teken
+   en een verloop dat niet op de boekingen aansluit. Levert voor de nu
+   beschikbare bestanden niets op omdat het pakket die velden niet vult, wel voor
+   bestanden die dat wel doen.
 2. **XAF 3.2-subadministratie inlezen.** `obSbLine` en `sbLine` als eigen
    model, met factuurdatum, vervaldatum, afletterkenmerk en de koppeling naar de
    grootboekboeking. Dit is de enige bron in XAF met een echte vervaldatum.

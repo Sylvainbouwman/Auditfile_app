@@ -20,6 +20,7 @@ from .comparison import (
 from .findings import Materialiteit, grondslag_omzet, pas_review_toe, verzamel_bevindingen
 from .integrity import controleer_auditfile
 from .model import Auditfile
+from .relatiesaldi import build_relatiesaldi, build_relatiesaldo_aansluiting
 
 # Kolomnamen waarvan de inhoud als bedrag moet worden opgemaakt.
 BEDRAG_FRAGMENTEN = (
@@ -214,6 +215,10 @@ def bouw_werkbladen(
         "Loonkosten per periode": controls.build_personeelskosten_per_periode(huidig),
         "Debiteuren gefactureerd": controls.build_relatie_analyse(huidig, "debiteur", top=100),
         "Crediteuren gefactureerd": controls.build_relatie_analyse(huidig, "crediteur", top=100),
+        # Alleen gevuld bij XAF 4.0 met openstaande bedragen per relatie; bij een
+        # leeg blad zou de export suggereren dat er niets openstaat.
+        "Aansluiting relatiesaldi": build_relatiesaldo_aansluiting(huidig),
+        "Openstaand per relatie": build_relatiesaldi(huidig),
     }
 
 

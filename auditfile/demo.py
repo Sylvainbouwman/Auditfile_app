@@ -10,6 +10,7 @@ worden getest.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
 
@@ -538,6 +539,41 @@ def beginbalans_uit(xaf_bytes: bytes, eigen_vermogen: str = EIGEN_VERMOGEN_REKEN
     return regels
 
 
+# In de demo boekt elke relatie op één eigen balansrekening. Daardoor is de
+# openstaande stand per relatie gelijk aan het saldo van die rekening en laat de
+# demo een sluitende aansluiting zien. Een verschil hoort in een test thuis en
+# niet in de demodata, want daar zou het op een fout in de tool lijken.
+DEMO_RELATIEREKENING = {"D001": "1300", "C001": "1600"}
+
+
+def vul_relatiesaldi(spec: AuditfileSpec) -> AuditfileSpec:
+    """Geef elke relatie het openstaande bedrag van haar grootboekrekening.
+
+    Alleen zinvol bij XAF 4.0; in 3.2 worden de velden niet weggeschreven. De
+    saldi worden uit het bestand zelf gehaald in plaats van ingetypt, zodat de
+    demo blijft aansluiten wanneer de boekingen veranderen.
+
+    Werkt op een kopie: de specs zijn testfixtures met sessiebereik en een
+    wijziging in het ene geval zou anders in het andere opduiken.
+    """
+    from .parsing import parse_auditfile
+
+    kopie = deepcopy(spec)
+    saldi = parse_auditfile("demo.xaf", build_xaf(kopie)).saldo.set_index("rekening")
+    for relatie in kopie.relations:
+        rekening = DEMO_RELATIEREKENING.get(relatie.custSupID)
+        if rekening is None or rekening not in saldi.index:
+            continue
+        for saldokolom, bedrag_attr, type_attr in (
+            ("beginsaldo", "openstaand_begin", "openstaand_begin_tp"),
+            ("eindsaldo", "openstaand_eind", "openstaand_eind_tp"),
+        ):
+            saldo = float(saldi.at[rekening, saldokolom])
+            setattr(relatie, bedrag_attr, f"{abs(saldo):.2f}")
+            setattr(relatie, type_attr, "C" if saldo < 0 else "D")
+    return kopie
+
+
 def demopaar(
     vorig_jaar: str = "2024",
     huidig_jaar: str = "2025",
@@ -555,4 +591,6 @@ def demopaar(
     vorige_bytes = build_xaf(verschuif_boekjaar(eenvoudige_spec(versie_vorig), vorig_jaar))
     huidige_spec = verschuif_boekjaar(eenvoudige_spec(versie_huidig), huidig_jaar)
     huidige_spec.opening_lines = beginbalans_uit(vorige_bytes)
+    if versie_huidig == "4.0":
+        huidige_spec = vul_relatiesaldi(huidige_spec)
     return vorige_bytes, build_xaf(huidige_spec)

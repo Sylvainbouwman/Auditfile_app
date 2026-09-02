@@ -72,14 +72,24 @@ over de grootste relaties. Dit is geen omzet en geen openstaande-postenlijst; de
 netto mutatie is de verandering van het saldo in dit jaar, zonder beginsaldo, en
 dus niet het openstaande bedrag.
 
+Geeft het bestand XAF 4.0-relatiesaldi, dan staat daar de openstaande stand per
+debiteur en crediteur bij begin en einde van het boekjaar, met de aansluiting op
+het saldo van de debiteuren- en de crediteurenrekening. Loopt dat uiteen, dan
+staat er iets op de relatierekening dat niet aan een relatie hangt of ontbreekt
+er een relatie; de tool benoemt het verschil en concludeert niet. Per relatie
+komt er een signaal bij een onlogisch teken, zoals een crediteur met een
+debetsaldo, en bij een verloop dat niet op de boekingen aansluit.
+
 Openstaande posten met een ouderdom zijn niet principieel onmogelijk uit een
 auditfile, maar hangen aan de versie en aan het boekhoudpakket. XAF 3.2 heeft een
 optionele subadministratie (`obSbLine` en `sbLine`) met factuurdatum, vervaldatum
-en afletterkenmerk; XAF 4.0 heeft die blokken geschrapt en geeft per relatie een
-openstaand bedrag bij begin en einde van het boekjaar (`opBalDesc`/`clBalDesc`).
-Let op: `settDate` in 4.0 is géén vervaldatum maar de leverdatum, en `effDate` is
-de mutatiedatum in 3.2 en de factuurdatum in 4.0. Deze tool leest die blokken nog
-niet; zie `ROADMAP.md`.
+en afletterkenmerk; die leest de tool nog niet. XAF 4.0 heeft die blokken
+geschrapt en geeft per relatie een openstaand bedrag bij begin en einde van het
+boekjaar (`opBalDesc`/`clBalDesc`); dat is een eindstand, geen factuurlijst en
+geen ouderdom. Let op: `settDate` in 4.0 is géén vervaldatum maar de leverdatum,
+`effDate` is de mutatiedatum in 3.2 en de factuurdatum in 4.0, en `opBalDesc` is
+in 3.2 een omschrijving van de grootboekbeginbalans en pas in 4.0 een bedrag per
+relatie. Zie `ROADMAP.md` en `docs/xaf-velden.md`.
 
 **Fiscale signalen.** Posten die om een beoordeling vragen: boetes en
 dwangsommen, juridische kosten, representatie en horeca, rekening-courant met de
