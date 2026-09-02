@@ -96,6 +96,9 @@ rekenlogica dus nooit in `app.py`.
   niet mogelijk; `in orde` is geen bevinding. Materialiteit markeert een bevinding
   onder de drempel en laat haar nooit weg, en een bevinding zonder bedrag valt nooit
   onder de drempel: wat niet te wegen is, mag niet stilzwijgend onbelangrijk worden.
+  De beoordeling en de notitie van de gebruiker hangen aan `Bevinding.sleutel`, een
+  hash van categorie, onderwerp en rekening. Neem daar nooit het bedrag of de ernst
+  in op: dan zou een gewijzigd bedrag de vastgelegde beoordeling weggooien.
 - **Voorstel is geen vastlegging** — een voorstel van de tool telt mee in de berekening
   omdat er anders niets te zien is, maar heet dan `voorstel` en de uitkomst wordt als
   rekenvoorbeeld gemarkeerd. Vastleggen gebeurt alleen op een handeling van de

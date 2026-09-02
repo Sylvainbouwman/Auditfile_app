@@ -75,6 +75,7 @@ def test_alle_schrijfpaden_van_een_dossier_zijn_genegeerd() -> None:
         settings.AFTREK_BESTAND,
         settings.GRONDSLAG_BESTAND,
         settings.DOSSIER_BESTAND,
+        settings.REVIEW_BESTAND,
     )
     for bestand in bestanden:
         _controleer_pad(opslag.pad(bestand))

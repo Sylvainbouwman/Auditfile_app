@@ -16,7 +16,7 @@ from .comparison import (
     build_rubriek_vergelijking,
     controleer_bestandenpaar,
 )
-from .findings import Materialiteit, grondslag_omzet, verzamel_bevindingen
+from .findings import Materialiteit, grondslag_omzet, pas_review_toe, verzamel_bevindingen
 from .integrity import controleer_auditfile
 from .model import Auditfile
 
@@ -135,6 +135,7 @@ def bouw_werkbladen(
     aftrekbaarheid: dict[str, float] | None = None,
     grondslagen: dict[str, float] | None = None,
     materialiteit: Materialiteit | None = None,
+    review: dict | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Stel alle werkbladen samen die in de export komen."""
     jaar_huidig = _jaarlabel(huidig)
@@ -143,14 +144,17 @@ def bouw_werkbladen(
     gebruik = vat.pas_mapping_toe(vat.build_vat_usage(huidig), btw_mapping, aftrekbaarheid)
     rubrieken = vat.build_rubric_summary(gebruik, aangifte, grondslagen)
     materialiteit = materialiteit or Materialiteit(grondslag=grondslag_omzet(huidig))
-    bevindingen = verzamel_bevindingen(
-        huidig,
-        vorig,
-        gebruik=gebruik,
-        vergelijking=vergelijking,
-        aangifte=aangifte,
-        grondslagen=grondslagen,
-        materialiteit=materialiteit,
+    bevindingen = pas_review_toe(
+        verzamel_bevindingen(
+            huidig,
+            vorig,
+            gebruik=gebruik,
+            vergelijking=vergelijking,
+            aangifte=aangifte,
+            grondslagen=grondslagen,
+            materialiteit=materialiteit,
+        ),
+        review,
     )
 
     saldo = controls.voeg_rgs_rubriek_toe(huidig.saldo)
@@ -219,6 +223,7 @@ def build_excel_export(
     aftrekbaarheid: dict[str, float] | None = None,
     grondslagen: dict[str, float] | None = None,
     materialiteit: Materialiteit | None = None,
+    review: dict | None = None,
 ) -> bytes:
     """Bouw het Excelbestand met alle werkbladen."""
     werkbladen = bouw_werkbladen(
@@ -230,6 +235,7 @@ def build_excel_export(
         aftrekbaarheid,
         grondslagen,
         materialiteit,
+        review,
     )
     uitvoer = BytesIO()
     gebruikte_namen: set[str] = set()

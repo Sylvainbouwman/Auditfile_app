@@ -14,8 +14,11 @@ signaal (iets om naar te kijken) en niet mogelijk (de controle kon niet worden
 uitgevoerd, wat ook een bevinding is). De materialiteit is instelbaar met een
 vast bedrag en een percentage van de omzet; de hoogste van de twee geldt.
 Bevindingen onder de drempel worden gemarkeerd en niet weggelaten, en een
-bevinding zonder bedrag valt nooit onder de drempel. Dit is de lijst waaruit het
-reviewmemorandum kan worden opgebouwd.
+bevinding zonder bedrag valt nooit onder de drempel. Per bevinding is een
+beoordeling en een notitie vast te leggen; die hangen aan de bevinding en niet
+aan haar plaats in de lijst, dus ze staan er bij een volgende analyse van
+hetzelfde dossier weer bij. Dit is de lijst waaruit het reviewmemorandum kan
+worden opgebouwd.
 
 **Overzicht.** Een telling van de signalen per categorie, met de pagina waar ze
 staan. Een leeg blok op het overzicht betekende eerder niet dat er niets was: de

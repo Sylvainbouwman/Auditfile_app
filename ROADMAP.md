@@ -172,7 +172,7 @@ Bijgewerkt op 1 september 2026.
 | 7 | Lease- en huurdetectie | Gereed als periodieke controle |
 | 8 | AI-reviewpunten | Bevindingenlijst en materialiteit gereed; formulering gepland |
 | 9 | Ratio-analyse | Gepland |
-| 10 | Automatisch reviewmemorandum | Toekomst |
+| 10 | Automatisch reviewmemorandum | Bevindingen, materialiteit en beoordeling per bevinding gereed; het document zelf nog niet |
 
 ### Wat als eerste te doen staat
 

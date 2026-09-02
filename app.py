@@ -23,9 +23,13 @@ from auditfile.comparison import (
 )
 from auditfile.excel import build_excel_export, exportnaam
 from auditfile.findings import (
+    REVIEWSTATUSSEN,
     SIGNAAL,
+    TE_BEOORDELEN,
     Materialiteit,
     grondslag_omzet,
+    openstaande_bevindingen,
+    pas_review_toe,
     samenvatting_per_ernst,
     verzamel_bevindingen,
 )
@@ -365,6 +369,7 @@ def pagina_bevindingen(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.Dat
             "norm uit wet of standaard."
         )
 
+    opslag = huidige_opslag()
     bevindingen = verzamel_bevindingen(
         huidig,
         vorig,
@@ -376,6 +381,7 @@ def pagina_bevindingen(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.Dat
         grondslagen=huidige_grondslagen(),
         materialiteit=materialiteit,
     )
+    bevindingen = pas_review_toe(bevindingen, opslag.lees_review())
     telling = samenvatting_per_ernst(bevindingen)
 
     a, b, c, d = st.columns(4)
@@ -384,10 +390,15 @@ def pagina_bevindingen(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.Dat
     kerncijfer(c, "Signaal", str(telling[SIGNAAL]), "Iets om naar te kijken.")
     kerncijfer(
         d,
-        "Niet mogelijk",
-        str(telling[NIET_MOGELIJK]),
-        "Controle kon niet worden uitgevoerd; ook dat hoort in het memorandum.",
+        "Nog te beoordelen",
+        str(openstaande_bevindingen(bevindingen)),
+        "Bevindingen zonder vastgelegde status.",
     )
+    if telling[NIET_MOGELIJK]:
+        st.caption(
+            f"{telling[NIET_MOGELIJK]} controle(s) konden niet worden uitgevoerd. Ook dat "
+            "hoort in een memorandum te staan; ze staan onderaan de lijst."
+        )
 
     if bevindingen.empty:
         st.success("Geen bevindingen. Dat is zeldzaam: controleer of de bestanden kloppen.")
@@ -406,17 +417,92 @@ def pagina_bevindingen(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.Dat
     if gekozen:
         zichtbaar = zichtbaar[zichtbaar["categorie"].isin(gekozen)]
 
-    toon_tabel(
+    if zichtbaar.empty:
+        st.caption("Geen bevindingen binnen deze selectie.")
+        return
+
+    bewerkt = st.data_editor(
         zichtbaar,
-        kleur_op="ernst",
-        hoogte=560,
-        verberg=("sleutel",),
-        leegmelding="Geen bevindingen binnen deze selectie.",
+        hide_index=True,
+        width="stretch",
+        height=560,
+        disabled=[kolom for kolom in zichtbaar.columns if kolom not in ("status", "notitie")],
+        column_order=[
+            "ernst",
+            "categorie",
+            "onderwerp",
+            "bedrag",
+            "status",
+            "notitie",
+            "aantal_regels",
+            "rekening",
+            "boven_drempel",
+            "methode",
+            "toelichting",
+            "pagina",
+        ],
+        column_config={
+            "ernst": st.column_config.TextColumn("Ernst", width="small"),
+            "categorie": st.column_config.TextColumn("Categorie", width="small"),
+            "onderwerp": st.column_config.TextColumn("Onderwerp", width="large"),
+            "bedrag": st.column_config.NumberColumn("Bedrag", format="euro"),
+            "status": st.column_config.SelectboxColumn(
+                "Beoordeling", options=list(REVIEWSTATUSSEN), required=True, width="medium"
+            ),
+            "notitie": st.column_config.TextColumn(
+                "Notitie", width="large", help="Wat u hebt vastgesteld of afgesproken."
+            ),
+            "aantal_regels": st.column_config.NumberColumn("Regels", format="plain"),
+            "rekening": st.column_config.TextColumn("Rekening", width="small"),
+            "boven_drempel": st.column_config.CheckboxColumn("Boven de drempel"),
+            "methode": st.column_config.TextColumn("Gebaseerd op", width="small"),
+            "toelichting": st.column_config.TextColumn("Toelichting", width="large"),
+            "pagina": st.column_config.TextColumn("Te vinden op", width="small"),
+        },
+        key=f"bevindingen_editor_{opslag.sleutel}",
     )
-    st.caption(
-        f"{len(zichtbaar)} van de {len(bevindingen)} bevindingen in beeld. "
-        "De kolom Te vinden op wijst de pagina aan met de onderbouwing."
-    )
+
+    # Alleen wat de gebruiker heeft ingevuld wordt bewaard, op sleutel. Een
+    # bevinding op "Te beoordelen" zonder notitie is geen invoer en hoort niet in
+    # het bestand.
+    opgeslagen_review = opslag.lees_review()
+    nieuwe_review = dict(opgeslagen_review)
+    for sleutel, status, notitie in zip(bewerkt["sleutel"], bewerkt["status"], bewerkt["notitie"]):
+        sleutel = str(sleutel)
+        status = str(status)
+        notitie = str(notitie or "")
+        if status == TE_BEOORDELEN and not notitie:
+            nieuwe_review.pop(sleutel, None)
+        else:
+            nieuwe_review[sleutel] = {"status": status, "notitie": notitie}
+
+    openstaand = nieuwe_review != opgeslagen_review
+    bewaren, melding = st.columns([1, 4])
+    if bewaren.button(
+        "Beoordeling vastleggen",
+        type="primary",
+        disabled=not openstaand or not opslag.bruikbaar,
+        help="Bewaart de beoordeling en de notities bij dit dossier.",
+    ):
+        if not opslag.schrijf_review(nieuwe_review):
+            st.warning(f"De beoordeling kon niet worden bewaard in {opslag.map}.")
+        elif not opslag.schrijf_label(huidig.bedrijfsnaam, huidig.boekjaar):
+            st.warning(f"Het dossierlabel kon niet worden bewaard in {opslag.map}.")
+        st.rerun()
+
+    with melding:
+        if not opslag.bruikbaar:
+            st.caption(
+                "Dit auditfile is niet aan een dossier te koppelen, dus de beoordeling "
+                "wordt niet bewaard. Zie de pagina Btw voor de reden."
+            )
+        elif openstaand:
+            st.info("Er staan wijzigingen open die nog niet zijn vastgelegd.")
+        else:
+            st.caption(
+                f"{len(zichtbaar)} van de {len(bevindingen)} bevindingen in beeld. "
+                "De kolom Te vinden op wijst de pagina aan met de onderbouwing."
+            )
 
 
 def pagina_bestandscontrole(vorig: Auditfile, huidig: Auditfile) -> None:
@@ -602,7 +688,15 @@ def stel_dossier_in(huidig: Auditfile) -> DossierOpslag:
     for sleutel in [
         naam
         for naam in st.session_state
-        if str(naam).startswith(("btw_mapping_editor", "btw_aftrek_editor", "aangifte_", "grondslag_"))
+        if str(naam).startswith(
+            (
+                "btw_mapping_editor",
+                "btw_aftrek_editor",
+                "bevindingen_editor",
+                "aangifte_",
+                "grondslag_",
+            )
+        )
     ]:
         st.session_state.pop(sleutel, None)
     return opslag
@@ -1246,6 +1340,7 @@ def pagina_export(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataFram
                 huidige_aftrekbaarheid(),
                 huidige_grondslagen(),
                 huidige_materialiteit(huidig),
+                huidige_opslag().lees_review(),
             )
         st.download_button(
             "Download het werkboek",

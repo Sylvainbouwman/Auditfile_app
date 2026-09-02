@@ -44,6 +44,17 @@ SIGNAAL = "signaal"
 # Van zwaar naar licht, voor de sortering.
 ERNST_ORDE: tuple[str, ...] = (KRITIEK, WAARSCHUWING, SIGNAAL, NIET_MOGELIJK, IN_ORDE)
 
+# De statussen die een beoordelaar aan een bevinding kan hangen. Bewust kort en
+# in de taal van een dossier, want ze komen straks in het reviewmemorandum.
+TE_BEOORDELEN = "Te beoordelen"
+REVIEWSTATUSSEN: tuple[str, ...] = (
+    TE_BEOORDELEN,
+    "Beoordeeld, geen actie",
+    "Actie nodig",
+    "Opgelost",
+    "Niet van toepassing",
+)
+
 BEVINDING_COLUMNS = [
     "ernst",
     "categorie",
@@ -150,6 +161,41 @@ def naar_frame(bevindingen: list[Bevinding], materialiteit: Materialiteit | None
         .drop(columns=["_ernst", "_bedrag"])
         .reset_index(drop=True)
     )
+
+
+def pas_review_toe(
+    bevindingen: pd.DataFrame, review: dict[str, dict[str, str]] | None = None
+) -> pd.DataFrame:
+    """Voeg de reviewstatus en de notitie van de gebruiker toe.
+
+    De status hangt aan de sleutel van de bevinding en niet aan haar plaats in de
+    lijst: bij een volgende analyse van hetzelfde dossier staat de lijst anders
+    gesorteerd en kunnen er bevindingen bij komen of wegvallen. Een bevinding
+    zonder vastgelegde status staat op "Te beoordelen"; dat is een feitelijke
+    beschrijving en geen oordeel.
+    """
+    review = review or {}
+    result = bevindingen.copy()
+    if result.empty:
+        result["status"] = pd.Series(dtype="object")
+        result["notitie"] = pd.Series(dtype="object")
+        return result
+
+    result["status"] = [
+        str(review.get(str(sleutel), {}).get("status") or TE_BEOORDELEN)
+        for sleutel in result["sleutel"]
+    ]
+    result["notitie"] = [
+        str(review.get(str(sleutel), {}).get("notitie") or "") for sleutel in result["sleutel"]
+    ]
+    return result
+
+
+def openstaande_bevindingen(bevindingen: pd.DataFrame) -> int:
+    """Hoeveel bevindingen nog een beoordeling missen."""
+    if bevindingen.empty or "status" not in bevindingen.columns:
+        return len(bevindingen)
+    return int((bevindingen["status"] == TE_BEOORDELEN).sum())
 
 
 def samenvatting_per_ernst(bevindingen: pd.DataFrame) -> dict[str, int]:

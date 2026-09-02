@@ -43,6 +43,7 @@ MAPPING_BESTAND = "btw_mapping.json"
 AFTREK_BESTAND = "btw_aftrekbaarheid.json"
 GRONDSLAG_BESTAND = "btw_grondslagen.json"
 DOSSIER_BESTAND = "dossier.json"
+REVIEW_BESTAND = "bevindingen_review.json"
 
 # De paden van vóór de scheiding per dossier. Ze worden niet meer geschreven,
 # alleen nog gelezen om invoer uit een oudere versie te kunnen overnemen.
@@ -166,6 +167,26 @@ class DossierOpslag:
     def schrijf_aftrekbaarheid(self, aandelen: dict) -> bool:
         return self._schrijf_bestand(aandelen, AFTREK_BESTAND)
 
+    def lees_review(self) -> dict[str, dict[str, str]]:
+        """De reviewstatus en notitie per bevinding, op sleutel.
+
+        Een status van een bevinding die niet meer voorkomt blijft staan. Dat is
+        opzet: komt de bevinding terug, dan is de notitie er weer. Stilzwijgend
+        opruimen zou invoer van de gebruiker weggooien.
+        """
+        review = {}
+        for sleutel, waarde in self._lees_bestand(REVIEW_BESTAND).items():
+            if not isinstance(waarde, dict):
+                continue
+            review[str(sleutel)] = {
+                "status": str(waarde.get("status", "")),
+                "notitie": str(waarde.get("notitie", "")),
+            }
+        return review
+
+    def schrijf_review(self, review: dict) -> bool:
+        return self._schrijf_bestand(review, REVIEW_BESTAND)
+
     # --- Dossiergegevens ----------------------------------------------------
 
     def lees_label(self) -> dict[str, str]:
@@ -192,6 +213,7 @@ class DossierOpslag:
                 MAPPING_BESTAND,
                 AFTREK_BESTAND,
                 GRONDSLAG_BESTAND,
+                REVIEW_BESTAND,
             )
         )
 

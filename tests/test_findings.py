@@ -23,8 +23,11 @@ from auditfile.findings import (
     SIGNAAL,
     Bevinding,
     Materialiteit,
+    TE_BEOORDELEN,
     grondslag_omzet,
     naar_frame,
+    openstaande_bevindingen,
+    pas_review_toe,
     samenvatting_per_ernst,
     verzamel_bevindingen,
 )
@@ -270,3 +273,70 @@ def test_perioden_zonder_omzet_worden_samengevat():
     # drempel duwen terwijl juist de afwezigheid het punt is.
     assert pd.isna(omzet.iloc[0]["bedrag"])
     assert bool(omzet.iloc[0]["boven_drempel"])
+
+
+# --- Reviewstatus -----------------------------------------------------------
+
+
+def test_zonder_vastgelegde_status_staat_alles_te_beoordelen():
+    frame = pas_review_toe(naar_frame([Bevinding("A", "iets", SIGNAAL)]))
+    assert list(frame["status"]) == [TE_BEOORDELEN]
+    assert list(frame["notitie"]) == [""]
+    assert openstaande_bevindingen(frame) == 1
+
+
+def test_de_status_hangt_aan_de_sleutel_en_niet_aan_de_plaats():
+    """De lijst staat bij een volgende analyse anders gesorteerd."""
+    eerste = Bevinding("Btw", "Rubriek 1a: verschil", WAARSCHUWING, bedrag=100.0)
+    tweede = Bevinding("Boekingen", "Rond bedrag", SIGNAAL, bedrag=9000.0)
+    review = {eerste.sleutel: {"status": "Opgelost", "notitie": "Suppletie ingediend"}}
+
+    # Zelfde bevindingen, andere volgorde en een ander bedrag bij de eerste.
+    frame = pas_review_toe(
+        naar_frame(
+            [
+                tweede,
+                Bevinding("Btw", "Rubriek 1a: verschil", WAARSCHUWING, bedrag=250.0),
+            ]
+        ),
+        review,
+    )
+    per_onderwerp = frame.set_index("onderwerp")
+    assert per_onderwerp.loc["Rubriek 1a: verschil", "status"] == "Opgelost"
+    assert per_onderwerp.loc["Rubriek 1a: verschil", "notitie"] == "Suppletie ingediend"
+    assert per_onderwerp.loc["Rond bedrag", "status"] == TE_BEOORDELEN
+    assert openstaande_bevindingen(frame) == 1
+
+
+def test_een_status_van_een_verdwenen_bevinding_stoort_niet():
+    """Een oude status hoort niet als losse regel op te duiken."""
+    frame = pas_review_toe(
+        naar_frame([Bevinding("A", "bestaat nog", SIGNAAL)]),
+        {"onbekende-sleutel": {"status": "Opgelost", "notitie": "oud"}},
+    )
+    assert len(frame) == 1
+    assert list(frame["status"]) == [TE_BEOORDELEN]
+
+
+def test_review_op_een_lege_lijst_houdt_de_kolommen():
+    frame = pas_review_toe(naar_frame([]))
+    assert frame.empty
+    assert "status" in frame.columns and "notitie" in frame.columns
+    assert openstaande_bevindingen(frame) == 0
+
+
+def test_de_reviewstatus_wordt_per_dossier_bewaard(tmp_path):
+    """Twee dossiers mogen elkaars beoordeling niet zien."""
+    from auditfile.settings import DossierOpslag
+
+    eerste = DossierOpslag.voor("dossier-a", basis=tmp_path)
+    tweede = DossierOpslag.voor("dossier-b", basis=tmp_path)
+    bevinding = Bevinding("Btw", "Rubriek 1a: verschil", WAARSCHUWING)
+
+    assert eerste.schrijf_review({bevinding.sleutel: {"status": "Opgelost", "notitie": "ok"}})
+
+    assert eerste.lees_review()[bevinding.sleutel]["status"] == "Opgelost"
+    assert tweede.lees_review() == {}
+
+    frame = pas_review_toe(naar_frame([bevinding]), tweede.lees_review())
+    assert list(frame["status"]) == [TE_BEOORDELEN]
