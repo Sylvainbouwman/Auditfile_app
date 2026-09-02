@@ -253,9 +253,42 @@ def test_rubrieken_staan_in_volgorde_van_het_aangifteformulier(usage):
 def test_status_meldt_ontbrekende_aangifte(usage):
     samenvatting = build_rubric_summary(pas_mapping_toe(usage), {})
     assert set(samenvatting.loc[samenvatting["rubriek"] != ONBEKEND, "status"]) <= {
-        "Geen aangifte ingevuld",
+        "Niet ingevuld",
         "Alleen grondslag",
     }
+    # Zonder ingevoerde aangifte is er geen verschil te berekenen; dat moet leeg
+    # blijven in plaats van als nul te verschijnen.
+    assert samenvatting.loc[samenvatting["status"] == "Niet ingevuld", "verschil"].isna().all()
+
+
+def test_aangifte_van_nul_is_iets_anders_dan_niets_invullen(usage):
+    """Een bewuste nul is een uitspraak van de gebruiker, een leeg veld niet."""
+    toegepast = pas_mapping_toe(usage, {"1": "1a"})
+
+    leeg = build_rubric_summary(toegepast, {}).set_index("rubriek")
+    assert leeg.loc["1a", "status"] == "Niet ingevuld"
+
+    nul = build_rubric_summary(toegepast, {"1a": 0.0}).set_index("rubriek")
+    assert nul.loc["1a", "status"] == "Verschil"
+    assert round(nul.loc["1a", "verschil"], 2) == round(leeg.loc["1a", "btw_volgens_xaf"], 2)
+
+
+def test_rubriek_die_alleen_in_de_aangifte_staat_komt_erbij(usage):
+    """Rubriek 1d komt niet in dit auditfile voor, maar wel in de aangifte."""
+    toegepast = pas_mapping_toe(usage, {})
+    samenvatting = build_rubric_summary(toegepast, {"1d": 500.0})
+    per_rubriek = samenvatting.set_index("rubriek")
+
+    assert "1d" in per_rubriek.index
+    assert round(per_rubriek.loc["1d", "btw_volgens_xaf"], 2) == 0.00
+    assert round(per_rubriek.loc["1d", "verschil"], 2) == -500.00
+    assert per_rubriek.loc["1d", "status"] == "Alleen in de aangifte"
+
+
+def test_onbekende_rubriekcode_in_de_aangifte_wordt_genegeerd(usage):
+    """Alleen codes van het aangifteformulier komen erbij."""
+    samenvatting = build_rubric_summary(pas_mapping_toe(usage), {"9z": 100.0})
+    assert "9z" not in set(samenvatting["rubriek"])
 
 
 # --- Netto positie ----------------------------------------------------------

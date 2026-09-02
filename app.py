@@ -36,6 +36,7 @@ from auditfile.settings import (
 from auditfile.vat_rubrics import (
     AFTREKBAAR_IN_5B,
     ONBEKEND,
+    RUBRIEK_CODES,
     RUBRIEKEN,
     keuzelijst,
     rubriek,
@@ -558,53 +559,55 @@ def pagina_btw(huidig: Auditfile) -> None:
     with tabs[1]:
         kop(
             "Vergelijk met de ingediende aangiften",
-            "Vul per rubriek het totaal in van de aangiften over het boekjaar. De bedragen "
-            "worden bewaard op de computer waar de app draait en komen niet in Git terecht.",
+            "Vul per rubriek het totaal in van de aangiften over het boekjaar. Alle "
+            "rubrieken van het aangifteformulier staan er, ook die niet in dit auditfile "
+            "voorkomen: juist zo'n rubriek is een verschil om naar te kijken. Een leeg "
+            "veld betekent niet ingevuld en is iets anders dan een aangifte van nul. De "
+            "bedragen worden bewaard op de computer waar de app draait en komen niet in "
+            "Git terecht.",
         )
-        # De invoervelden volgen de rubrieken van de aansluiting, niet alleen de
-        # rubrieken die rechtstreeks uit de btw-codes komen: 5b kan ook door de
-        # aftrek van verlegde btw ontstaan en moet dan invulbaar zijn.
         rubrieken_basis = vat.build_rubric_summary(gebruik)
-        rubrieken_in_gebruik = [
-            code
-            for code in rubrieken_basis["rubriek"]
-            if code != ONBEKEND and rubriek(code).heeft_btw
-        ]
-        if not rubrieken_in_gebruik:
-            st.caption("Er zijn nog geen rubrieken met een btw-bedrag toegewezen.")
-        else:
-            # Een formulier, geen veld dat zichzelf bewaart. Streamlit voert de
-            # code van alle tabbladen uit bij elke herberekening, dus een veld
-            # dat zijn eigen waarde wegschrijft doet dat ook zonder dat iemand
-            # dit tabblad heeft geopend. Een leeg veld blijft leeg: niet
-            # ingevuld is iets anders dan een aangifte van nul.
-            opgeslagen_aangifte = huidige_aangifte()
-            # De sleutel mag niet gelijk zijn aan de session-state-sleutel
-            # "btw_aangifte": Streamlit staat niet toe dat een waarde onder de
-            # sleutel van een widget zelf wordt gezet.
-            with st.form("btw_aangifte_formulier"):
-                ingevoerd: dict[str, float] = {}
-                kolommen = st.columns(min(4, len(rubrieken_in_gebruik)))
-                for index, code in enumerate(sorted(rubrieken_in_gebruik)):
-                    with kolommen[index % len(kolommen)]:
-                        bestaand = opgeslagen_aangifte.get(code)
-                        waarde = st.number_input(
-                            f"Rubriek {code}",
-                            value=float(bestaand) if bestaand is not None else None,
-                            step=1.0,
-                            format="%.2f",
-                            placeholder="niet ingevuld",
-                            help=rubriek(code).omschrijving,
-                            key=f"aangifte_{code}",
-                        )
-                        if waarde is not None:
-                            ingevoerd[code] = float(waarde)
-                bewaren = st.form_submit_button("Aangiftebedragen bewaren", type="primary")
-            if bewaren:
-                st.session_state["btw_aangifte"] = ingevoerd
-                if not save_declared_vat(ingevoerd):
-                    st.warning(f"De aangiftebedragen konden niet worden bewaard in {BTW_AANGIFTE_PATH}.")
-                st.rerun()
+        bedragen_per_rubriek = dict(
+            zip(rubrieken_basis["rubriek"], rubrieken_basis["btw_volgens_xaf"])
+        )
+        invulbaar = [code for code in RUBRIEK_CODES if rubriek(code).heeft_btw]
+
+        # Een formulier, geen veld dat zichzelf bewaart. Streamlit voert de code
+        # van alle tabbladen uit bij elke herberekening, dus een veld dat zijn
+        # eigen waarde wegschrijft doet dat ook zonder dat iemand dit tabblad
+        # heeft geopend.
+        opgeslagen_aangifte = huidige_aangifte()
+        # De sleutel mag niet gelijk zijn aan de session-state-sleutel
+        # "btw_aangifte": Streamlit staat niet toe dat een waarde onder de
+        # sleutel van een widget zelf wordt gezet.
+        with st.form("btw_aangifte_formulier"):
+            ingevoerd: dict[str, float] = {}
+            kolommen = st.columns(4)
+            for index, code in enumerate(invulbaar):
+                with kolommen[index % len(kolommen)]:
+                    bestaand = opgeslagen_aangifte.get(code)
+                    volgens_xaf = bedragen_per_rubriek.get(code)
+                    if volgens_xaf is None:
+                        herkomst = "Komt niet voor in dit auditfile."
+                    else:
+                        herkomst = f"Volgens dit auditfile {euro(volgens_xaf)}."
+                    waarde = st.number_input(
+                        f"Rubriek {code}",
+                        value=float(bestaand) if bestaand is not None else None,
+                        step=1.0,
+                        format="%.2f",
+                        placeholder="niet ingevuld",
+                        help=f"{rubriek(code).omschrijving}. {herkomst}",
+                        key=f"aangifte_{code}",
+                    )
+                    if waarde is not None:
+                        ingevoerd[code] = float(waarde)
+            bewaren = st.form_submit_button("Aangiftebedragen bewaren", type="primary")
+        if bewaren:
+            st.session_state["btw_aangifte"] = ingevoerd
+            if not save_declared_vat(ingevoerd):
+                st.warning(f"De aangiftebedragen konden niet worden bewaard in {BTW_AANGIFTE_PATH}.")
+            st.rerun()
 
         rubrieken = vat.build_rubric_summary(gebruik, huidige_aangifte())
         kop("Aansluiting per rubriek")

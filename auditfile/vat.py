@@ -369,22 +369,58 @@ def build_rubric_summary(usage_met_rubriek: pd.DataFrame, aangifte: dict[str, fl
         )
         .reset_index()
     )
+
+    # Een rubriek die alleen in de aangifte staat hoort er ook bij. Anders valt
+    # een rubriek die de administratie niet kent stilzwijgend buiten de
+    # vergelijking, en dat is juist een verschil om naar te kijken.
+    ontbrekend = [
+        code
+        for code in aangifte
+        if code in RUBRIEK_PER_CODE and code not in set(samenvatting["rubriek"])
+    ]
+    if ontbrekend:
+        samenvatting = pd.concat(
+            [
+                samenvatting,
+                pd.DataFrame(
+                    {
+                        "rubriek": ontbrekend,
+                        "aantal_regels": 0,
+                        "grondslag_volgens_xaf": 0.0,
+                        "btw_volgens_xaf": 0.0,
+                        "waarvan_uit_verlegging": 0.0,
+                    }
+                ),
+            ],
+            ignore_index=True,
+        )
+
     samenvatting["omschrijving"] = samenvatting["rubriek"].map(lambda code: rubriek(code).omschrijving)
+    # Een rubriek zonder ingevoerd bedrag is niet hetzelfde als een aangifte van
+    # nul. Dat onderscheid moet blijven staan, want een aangifte van nul is een
+    # bewuste uitspraak van de gebruiker en een leeg veld niet.
+    ingevuld = samenvatting["rubriek"].isin(aangifte)
     samenvatting["btw_volgens_aangifte"] = samenvatting["rubriek"].map(
         lambda code: float(aangifte.get(code, 0.0) or 0.0)
     )
     # Het verschil behoudt zijn teken: een te lage en een te hoge aangifte
     # mogen elkaar niet opheffen.
     samenvatting["verschil"] = samenvatting["btw_volgens_xaf"] - samenvatting["btw_volgens_aangifte"]
+    samenvatting.loc[~ingevuld, "verschil"] = float("nan")
 
-    def status(rij: pd.Series) -> str:
+    def status(rij: pd.Series, is_ingevuld: bool) -> str:
         if not rubriek(rij["rubriek"]).heeft_btw:
             return "Alleen grondslag"
-        if rij["btw_volgens_aangifte"] == 0:
-            return "Geen aangifte ingevuld"
+        if not is_ingevuld:
+            return "Niet ingevuld"
+        if abs(rij["btw_volgens_xaf"]) < AFRONDINGSMARGE_EURO and abs(rij["btw_volgens_aangifte"]) >= AFRONDINGSMARGE_EURO:
+            return "Alleen in de aangifte"
         return "Sluit aan" if abs(rij["verschil"]) < AFRONDINGSMARGE_EURO else "Verschil"
 
-    samenvatting["status"] = samenvatting.apply(status, axis=1)
+    samenvatting["status"] = [
+        status(rij, bool(is_ingevuld))
+        for (_, rij), is_ingevuld in zip(samenvatting.iterrows(), ingevuld)
+    ]
 
     # Sorteer op de volgorde van het aangifteformulier, met het onbekende blok
     # aan het eind.
