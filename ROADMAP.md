@@ -19,7 +19,7 @@ Een fiscaal-inhoudelijke auditfile-analysetool die verder gaat dan bestaande sof
   aandachtspunten zitten, niet de aangiftecontrole per tijdvak. Een uitsplitsing
   per maand of kwartaal staat daarom niet op de rol.
 - Samenvatting en verschillenanalyse
-- Suppletie-indicatie bij afwijking
+- Suppletie-indicatie bij afwijking (gereed; zie Suppletiedetectie)
 
 ### BTW-anomalieën
 - Verkoop zonder BTW-code
@@ -29,7 +29,9 @@ Een fiscaal-inhoudelijke auditfile-analysetool die verder gaat dan bestaande sof
 - BTW op privé-uitgaven (signalering)
 
 ### Aangifte-detectie (zonder aangiftebestand)
-- Zoeken op omschrijvingen: BTW, OB, Omzetbelasting, Belastingdienst, Suppletie, Q1/Q2/Q3/Q4
+- Zoeken op omschrijvingen: BTW, OB, Omzetbelasting, Belastingdienst, Suppletie,
+  Q1/Q2/Q3/Q4. Gereed voor de suppletie: `suppletie.py` doet dit zoeken en leest
+  het tijdvak uit de omschrijving
 - Reconstructie aangiftetijdlijn op basis van boekingen
 
 ---
@@ -180,9 +182,15 @@ Automatisch gegenereerde aandachtspunten, bijvoorbeeld:
 - Ongebruikelijke privé-opnamen
 - Signalering mogelijke box 3-relevantie
 
-### Suppletiedetectie
+### Suppletiedetectie (gereed)
 - BTW-suppletie geboekt maar niet zichtbaar in rondrekening
 - Aansluiting suppletie op verschil XAF vs. aangifte
+
+`suppletie.py` zoekt op de btw-rekeningen naar boekingen die zichzelf een
+suppletie, naheffing, aanvullende aangifte of btw-correctie noemen, leest het
+tijdvak uit de omschrijving en zet het geboekte bedrag naast het verschil met
+de aangifte. De uitkomst staat op de pagina Btw onder de rondrekening en in de
+bevindingen.
 
 ### Lease- en huurdetectie
 - Operationele lease aanwezig maar niet zichtbaar als verplichting
@@ -238,7 +246,7 @@ Bijgewerkt op 3 september 2026.
 | 3 | Debiteuren per relatie en concentratie | Gereed |
 | 4 | Crediteuren per relatie en concentratie | Gereed |
 | 5 | RC DGA detectie | Gereed |
-| 6 | Suppletiedetectie | Gedeeltelijk: "overige mutaties" in de rondrekening |
+| 6 | Suppletiedetectie | Gereed: geboekte suppleties met tijdvak, naast het verschil met de aangifte |
 | 7 | Lease- en huurdetectie | Gereed als periodieke controle |
 | 8 | AI-reviewpunten | Gereed: bevindingen met materialiteit, en de formulering in het memorandum |
 | 9 | Ratio-analyse | Gereed |
@@ -246,7 +254,9 @@ Bijgewerkt op 3 september 2026.
 
 ### Wat als eerste te doen staat
 
-Bijgewerkt op 3 september 2026, na de ratio-analyse en het reviewmemorandum.
+Bijgewerkt op 3 september 2026, na de suppletiedetectie. Daarmee is de top 10
+hierboven volledig gereed; wat hieronder staat, is wat er per punt nog aan
+verfijning open staat.
 
 1. **XAF 4.0-relatiesaldi inlezen.** Gereed. `opBalDesc`/`opBalTp` en
    `clBalDesc`/`clBalTp` staan getekend in het model als `openstaand_begin` en
@@ -317,7 +327,20 @@ Bijgewerkt op 3 september 2026, na de ratio-analyse en het reviewmemorandum.
    percentages en verhoudingen in de signalen en de opbouw gaan sinds
    3 september 2026 via `notatie.procent()` en `notatie.getal()`, dus met een
    komma.
-7. **Reviewmemorandum als document.** Gereed als Markdown en Word.
+7. **Suppletiedetectie.** Gereed. `suppletie.py` beantwoordt de vraag die op
+   de rondrekening volgt: is er voor het verschil met de aangifte al een
+   suppletie geboekt? De rekeningen komen uit de btw-codetabel, aangevuld met
+   balansrekeningen die op hun omschrijving een btw-rekening zijn, want een
+   suppletie wordt vaak op een eigen "nog te betalen omzetbelasting" geboekt.
+   Boekingen uit de facturatie vallen af, anders vangt het woord "correctie"
+   de tegenboeking van elke creditnota op. Het tijdvak komt uit de
+   omschrijving; een suppletie met het tijdvak van een ander jaar telt apart en
+   niet mee in het restant. De uitkomst is een van acht statussen, met de
+   bijbehorende bevinding in het memorandum. **Wat rest**: een suppletie die
+   het pakket mét btw-code boekt, valt met de facturatie af. Dat is de prijs
+   voor het uitsluiten van de creditnota's; te beslissen of een boeking in een
+   memoriaaldagboek die uitsluiting mag doorbreken.
+8. **Reviewmemorandum als document.** Gereed als Markdown en Word.
    `memorandum.py` bouwt de bevindingen om naar een document met kop,
    uitgangspunten, samenvatting, de aandachtspunten per ernst, een eigen sectie
    voor wat niet kon worden vastgesteld, de al beoordeelde bevindingen achteraan

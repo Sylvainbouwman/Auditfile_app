@@ -90,6 +90,15 @@ ingevuld en is iets anders dan een aangifte van nul. Verder is er een
 rondrekening over de btw-grootboekrekeningen en een reeks signalen op
 regelniveau.
 
+**Suppletie.** Naast de rondrekening staat de vraag die daarop volgt: is er voor
+het verschil met de aangifte al een suppletie geboekt? De tool zoekt op de
+btw-rekeningen naar boekingen die zichzelf een suppletie, naheffing,
+aanvullende aangifte of btw-correctie noemen, leest het tijdvak uit de
+omschrijving en zet het geboekte bedrag naast het verschil met de aangifte, met
+het restant erbij. Boekingen uit de facturatie vallen af, want een suppletie is
+geen factuur. Een boeking is geen indiening: of er nog een suppletie moet
+worden gedaan, blijft een oordeel van de beoordelaar.
+
 **Analytische controles.** Komen vaste lasten in elke periode voor, zijn er
 ongebruikelijke boekingen (weekend, ronde bedragen, grote memoriaalposten in de
 laatste periode, omzet aan de verkeerde kant), staan balansposten aan de
@@ -207,6 +216,7 @@ opgebouwd; er wordt nooit klantdata gelezen.
 | `auditfile/integrity.py` | Controle op het bestand zelf |
 | `auditfile/vat.py` | Btw-analyse en rondrekening |
 | `auditfile/vat_rubrics.py` | Rubrieken van de aangifte omzetbelasting |
+| `auditfile/suppletie.py` | Geboekte suppleties en hun aansluiting op het verschil |
 | `auditfile/controls.py` | Analytische en fiscale controles |
 | `auditfile/comparison.py` | Jaar-op-jaar vergelijking |
 | `auditfile/ratios.py` | Brutomarge, personeelsquote, solvabiliteit en liquiditeit |

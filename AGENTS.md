@@ -50,6 +50,7 @@ rekenlogica dus nooit in `app.py`.
 | `integrity.py` | Controle van het bestand tegen zijn eigen controletotalen |
 | `vat_rubrics.py` | Rubrieken van de aangifte omzetbelasting |
 | `vat.py` | Btw-analyse, rubriekvoorstel, rondrekening, signalen |
+| `suppletie.py` | Geboekte suppleties en hun aansluiting op het verschil met de aangifte |
 | `controls.py` | Periodieke, analytische en fiscale controles |
 | `comparison.py` | Jaar-op-jaar vergelijking |
 | `ratios.py` | Ratio-analyse: brutomarge, personeelsquote, solvabiliteit, liquiditeit |
@@ -139,6 +140,18 @@ rekenlogica dus nooit in `app.py`.
   fiscale toets die de gebruikersinvoer met het bestandsgegeven op één hoop
   gooit, en laat de tool zeggen dat de toets niet kan wanneer de peildatum niet
   klopt of het bedrag voor dat jaar niet is vastgesteld.
+
+- **Een geboekte suppletie is geen ingediende suppletie** — `suppletie.py`
+  stelt vast dat er een boeking is die zichzelf zo noemt, met welk bedrag en
+  over welk tijdvak, en zet dat naast het verschil met de aangifte. Verder
+  gaat het niet: het auditfile bevat geen indiening, dus de tool zegt nooit
+  dat er is gesuppleerd of nog moet worden gesuppleerd. Twee afbakeningen
+  horen daarbij en mogen niet vervallen. Boekingen uit de facturatie vallen
+  af, dezelfde afzondering die de rondrekening maakt, anders vangt het woord
+  "correctie" de tegenboeking van elke creditnota op de btw-rekening op. En
+  een suppletie met een tijdvak van een ander jaar verklaart het verschil van
+  dit boekjaar niet; die telt apart. Een boeking zonder jaartal telt wel mee,
+  want zo wordt een suppletie over het eigen jaar gewoonlijk omschreven.
 
 - **Een rubriek gebruiken waarvoor zij bedoeld is** — dat `BVor` te ruim is
   voor *debiteuren* betekent niet dat de rubriek onbruikbaar is. Voor de

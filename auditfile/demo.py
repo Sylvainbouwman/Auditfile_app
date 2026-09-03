@@ -832,6 +832,65 @@ def vul_rekening_courant(
     return kopie
 
 
+# De rekening waarop de demo een suppletie boekt: de gewone btw-rekening staat
+# al in de btw-codetabel, dus een eigen rekening laat ook zien dat de detectie
+# een rekening vindt die de codetabel niet aanwijst.
+DEMO_SUPPLETIEREKENING = Account("1805", "Nog te betalen omzetbelasting", "B", "BSchObr", "BSchObr")
+
+# Het bedrag waarmee de demo een suppletie boekt. Klein genoeg om de cijfers van
+# de demo niet te overheersen, groot genoeg om boven een gewone
+# materialiteitsdrempel uit te komen en dus zichtbaar te zijn.
+DEMO_SUPPLETIEBEDRAG = 750.0
+
+
+def vul_suppletie(
+    spec: AuditfileSpec,
+    bedrag: float,
+    omschrijving: str = "Suppletie omzetbelasting Q4",
+    periode: int = 12,
+) -> AuditfileSpec:
+    """Boek een btw-suppletie in de spec.
+
+    Het bedrag staat credit op de suppletierekening en debet op de kosten, zodat
+    het bestand in balans blijft. Een negatief bedrag levert een teruggaaf op.
+    De omschrijving is een parameter, want juist die tekst is wat de detectie
+    moet vinden: een test hoort haar zelf te kiezen.
+
+    Werkt op een kopie, om dezelfde reden als ``vul_relatiesaldi()``.
+    """
+    kopie = deepcopy(spec)
+    boekjaar = kopie.fiscal_year or "2025"
+    if all(bestaand.accID != DEMO_SUPPLETIEREKENING.accID for bestaand in kopie.accounts):
+        kopie.accounts.append(DEMO_SUPPLETIEREKENING)
+
+    datum = f"{boekjaar}-{periode:02d}-28"
+    regels = [
+        Line(
+            DEMO_SUPPLETIEREKENING.accID,
+            f"{abs(bedrag):.2f}",
+            "C" if bedrag > 0 else "D",
+            omschrijving,
+            effDate=datum,
+            docRef="SUP001",
+        ),
+        Line(
+            "4400",
+            f"{abs(bedrag):.2f}",
+            "D" if bedrag > 0 else "C",
+            omschrijving,
+            effDate=datum,
+            docRef="SUP001",
+        ),
+    ]
+    transactie = Transaction("M910", datum, periode, regels, omschrijving)
+    for journaal in kopie.journals:
+        if journaal.jrnID == "MEM":
+            journaal.transactions.append(transactie)
+            return kopie
+    kopie.journals.append(Journal("MEM", "Memoriaal", [transactie]))
+    return kopie
+
+
 # De betalingstermijn waarmee de demo haar vervaldatums berekent. Een verzonnen
 # termijn voor verzonnen facturen; de tool neemt hem nergens aan, want in een
 # echt bestand staat de vervaldatum er zelf in.
@@ -1195,6 +1254,12 @@ def demopaar(
     # onder de wettelijke drempel: de demo hoort de werking te laten zien en
     # geen overschrijding te suggereren die er in deze cijfers niet is.
     huidige_spec = vul_rekening_courant(huidige_spec, DEMO_REKENING_COURANT_BEDRAG)
+    # Een geboekte suppletie, zodat de detectie in de demo iets te tonen heeft.
+    # Zonder jaartal in de omschrijving, want dat is de gewone manier om een
+    # suppletie over het eigen boekjaar te omschrijven.
+    huidige_spec = vul_suppletie(
+        huidige_spec, DEMO_SUPPLETIEBEDRAG, "Suppletie omzetbelasting Q3", periode=11
+    )
     if versie_huidig == "4.0":
         huidige_spec = vul_relatiesaldi(huidige_spec)
     return vorige_bytes, build_xaf(huidige_spec)

@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from auditfile import controls, openstaand, relatiesaldi, vat
+from auditfile import controls, openstaand, relatiesaldi, suppletie, vat
 from auditfile.demo import demopaar
 from auditfile.capability import (
     NIVEAU_GEEN,
@@ -1334,6 +1334,24 @@ def pagina_btw(huidig: Auditfile) -> None:
                     "facturatie en niet uit betalingen. Daar zitten correcties en eventuele "
                     "suppleties in."
                 )
+
+        kop(
+            "Suppletie",
+            "Is er een suppletie geboekt, en sluit die aan op het verschil tussen het "
+            "auditfile en de aangifte? Een boeking is geen indiening: of er nog een "
+            "suppletie moet worden gedaan, is aan de beoordelaar.",
+        )
+        gevonden = suppletie.detecteer_suppleties(huidig)
+        aansluiting = suppletie.bouw_aansluiting(huidig, rubrieken, gevonden, verloop)
+        toon_tabel(
+            gevonden,
+            leegmelding="Geen boeking gevonden die zichzelf een suppletie noemt.",
+        )
+        toon_tabel(
+            suppletie.naar_tabel(aansluiting),
+            leegmelding="Er is geen btw-rekening aangewezen; een aansluiting is niet te maken.",
+        )
+        st.caption(aansluiting.toelichting)
 
         kop("Btw-grootboekrekeningen")
         toon_tabel(
