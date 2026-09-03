@@ -55,6 +55,7 @@ rekenlogica dus nooit in `app.py`.
 | `ratios.py` | Ratio-analyse: brutomarge, personeelsquote, solvabiliteit, liquiditeit |
 | `excel.py` | Excel-export |
 | `formatting.py` | Presentatie van tabellen in de app |
+| `notatie.py` | Nederlandse notatie van losse bedragen, percentages en datums |
 | `settings.py` | Lokale opslag van eigen invoer |
 | `capability.py` | Wat het bestand toelaat: aanwezige blokken, dekking, bewijsniveau |
 | `relatiesaldi.py` | Openstaande bedragen per relatie (XAF 4.0) en hun aansluiting |

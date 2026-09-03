@@ -59,6 +59,7 @@ import pandas as pd
 
 from .controls import RELATIEREKENINGEN, _selecteer, soort_uit_code
 from .model import Auditfile
+from .notatie import euro
 
 # Kleiner dan een halve cent is afrondingsruis en geen openstaand bedrag.
 TOLERANTIE = 0.005
@@ -531,6 +532,6 @@ def _aansluitconclusie(soort: str, rekeningen: int, posten: int, verschil) -> st
         )
     return (
         f"Het eindsaldo van de {soort}enrekening en de som van de openstaande posten lopen "
-        f"{abs(float(verschil)):.2f} uiteen. Beoordeel welke boekingen op de rekening staan "
+        f"{euro(abs(float(verschil)))} uiteen. Beoordeel welke boekingen op de rekening staan "
         "die niet in de subadministratie zijn opgenomen."
     )

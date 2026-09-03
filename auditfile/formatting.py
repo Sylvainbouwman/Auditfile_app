@@ -14,6 +14,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from .notatie import datum_nl, euro, euro_kort, procent  # noqa: F401
+
 # Kolomnamen die een geldbedrag bevatten. De vergelijking gaat op hele woorden
 # en fragmenten, zodat samengestelde namen als "grondslag_volgens_xaf" ook
 # worden herkend.
@@ -325,32 +327,6 @@ def kleur_rijen(df: pd.DataFrame, kolom: str):
 
 # --- Losse waarden ----------------------------------------------------------
 
-
-def euro(waarde, decimalen: int = 2) -> str:
-    """Een bedrag in Nederlandse notatie, bijvoorbeeld ``€ 1.234,56``."""
-    getal = pd.to_numeric(waarde, errors="coerce")
-    if pd.isna(getal):
-        return "—"
-    opgemaakt = f"{float(getal):,.{decimalen}f}"
-    opgemaakt = opgemaakt.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
-    return f"€ {opgemaakt}"
-
-
-def euro_kort(waarde) -> str:
-    """Een bedrag zonder centen, voor kerncijfers."""
-    return euro(waarde, decimalen=0)
-
-
-def procent(waarde, decimalen: int = 1) -> str:
-    getal = pd.to_numeric(waarde, errors="coerce")
-    if pd.isna(getal):
-        return "—"
-    opgemaakt = f"{float(getal):,.{decimalen}f}".replace(".", ",")
-    return f"{opgemaakt}%"
-
-
-def datum_nl(waarde) -> str:
-    tijdstip = pd.to_datetime(waarde, errors="coerce")
-    if pd.isna(tijdstip):
-        return ""
-    return tijdstip.strftime("%d-%m-%Y")
+# De notatie zelf staat in ``notatie.py``. Een analysemodule die een bedrag in
+# een toelichting zet kan deze module niet importeren, want hier komt Streamlit
+# binnen; de namen blijven hier bestaan zodat de app ze op de oude plaats vindt.

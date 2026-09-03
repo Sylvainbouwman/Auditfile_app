@@ -322,9 +322,8 @@ Bijgewerkt op 3 september 2026, na de ratio-analyse en het reviewmemorandum.
    vóór eronder, dan bedrag: `naar_frame()` sorteert op ernst en bedrag,
    waardoor een bevinding zonder bedrag onderaan haar ernstgroep zou zakken
    terwijl zij juist altijd meetelt. **Wat rest**: de uitvoer naar Word of PDF,
-   en de toelichtingen van de jaarvergelijking geven hun bedragen nog als
-   `2520.00` in plaats van in Nederlandse notatie; dat valt in een tabel niet op
-   en in een doorlopend document wel.
+   en `memorandum.py` heeft nog een eigen `_euro`; die mag een verwijzing naar
+   `notatie.euro` worden zodra de Word-branch binnen is.
 
 ### Kleinere punten uit de review die nog openstaan
 
