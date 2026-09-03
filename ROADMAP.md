@@ -310,7 +310,10 @@ Bijgewerkt op 3 september 2026, na de ratio-analyse en het reviewmemorandum.
    rekeningschema. De omzetselectie sluit nu woorden als "inkoop" en "kosten"
    vooraf uit, maar een schema zonder RGS-codes en met eigenzinnige
    omschrijvingen kan nog steeds een rekening verkeerd indelen; de kolom
-   `methode` en de opbouw maken dat zichtbaar, ze voorkomen het niet.
+   `methode` en de opbouw maken dat zichtbaar, ze voorkomen het niet. De
+   percentages en verhoudingen in de signalen en de opbouw gaan sinds
+   3 september 2026 via `notatie.procent()` en `notatie.getal()`, dus met een
+   komma.
 7. **Reviewmemorandum als document.** Gereed als Markdown. `memorandum.py`
    bouwt de bevindingen om naar een document met kop, uitgangspunten,
    samenvatting, de aandachtspunten per ernst, een eigen sectie voor wat niet

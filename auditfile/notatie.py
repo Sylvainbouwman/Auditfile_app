@@ -24,14 +24,25 @@ import pandas as pd
 GEEN_WAARDE = "—"
 
 
-def euro(waarde, decimalen: int = 2) -> str:
-    """Een bedrag in Nederlandse notatie, bijvoorbeeld ``€ 1.234,56``."""
+def _nl(waarde, decimalen: int) -> str | None:
+    """Een getal met een komma als decimaalteken en een punt als duizendtal.
+
+    Niets bij een waarde die geen getal is; de aanroeper beslist wat er dan
+    staat, want dat verschilt per soort waarde: een bedrag, een percentage of
+    een verhouding.
+    """
     getal = pd.to_numeric(waarde, errors="coerce")
     if pd.isna(getal):
-        return GEEN_WAARDE
+        return None
     opgemaakt = f"{float(getal):,.{decimalen}f}"
     opgemaakt = opgemaakt.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
-    return f"€ {opgemaakt}"
+    return opgemaakt
+
+
+def euro(waarde, decimalen: int = 2) -> str:
+    """Een bedrag in Nederlandse notatie, bijvoorbeeld ``€ 1.234,56``."""
+    opgemaakt = _nl(waarde, decimalen)
+    return GEEN_WAARDE if opgemaakt is None else f"€ {opgemaakt}"
 
 
 def euro_kort(waarde) -> str:
@@ -40,11 +51,18 @@ def euro_kort(waarde) -> str:
 
 
 def procent(waarde, decimalen: int = 1) -> str:
-    getal = pd.to_numeric(waarde, errors="coerce")
-    if pd.isna(getal):
-        return GEEN_WAARDE
-    opgemaakt = f"{float(getal):,.{decimalen}f}".replace(".", ",")
-    return f"{opgemaakt}%"
+    opgemaakt = _nl(waarde, decimalen)
+    return GEEN_WAARDE if opgemaakt is None else f"{opgemaakt}%"
+
+
+def getal(waarde, decimalen: int = 2) -> str:
+    """Een getal dat geen bedrag en geen percentage is, zoals een verhouding.
+
+    De current ratio en het aantal procentpunten verschuiving staan in een
+    Nederlandse zin, dus met een komma: ``1,50`` en niet ``1.50``.
+    """
+    opgemaakt = _nl(waarde, decimalen)
+    return GEEN_WAARDE if opgemaakt is None else opgemaakt
 
 
 def datum_nl(waarde) -> str:
