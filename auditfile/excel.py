@@ -26,6 +26,7 @@ from .excessief_lenen import (
 from .findings import Materialiteit, grondslag_omzet, pas_review_toe, verzamel_bevindingen
 from .integrity import controleer_auditfile
 from .model import Auditfile
+from .ratios import build_ratio_opbouw, build_ratios
 from .openstaand import (
     build_openstaand_aansluiting,
     build_openstaande_posten,
@@ -214,6 +215,11 @@ def bouw_werkbladen(
         "Mutaties": mutaties.sort_values(["line_accID", "datum", "tx_nr"], na_position="last"),
         f"Vergelijking {jaar_vorig}-{jaar_huidig}": vergelijking,
         "Vergelijking per rubriek": build_rubriek_vergelijking(vergelijking),
+        # De ratio's staan naast hun opbouw: zonder die opbouw is niet na te
+        # gaan welke rekeningen in de teller en de noemer zitten.
+        "Ratio's": build_ratios(huidig, vorig),
+        f"Ratio-opbouw {jaar_huidig}": build_ratio_opbouw(huidig),
+        f"Ratio-opbouw {jaar_vorig}": build_ratio_opbouw(vorig),
         "Btw-codetabel": huidig.vat_codes,
         "Btw per code": gebruik,
         "Btw per rubriek": rubrieken,

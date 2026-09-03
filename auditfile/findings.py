@@ -875,6 +875,69 @@ def _uit_jaarvergelijking(vergelijking: pd.DataFrame, top: int = 10) -> list[Bev
     return bevindingen
 
 
+def _uit_ratios(huidig: Auditfile, vorig: Auditfile | None) -> list[Bevinding]:
+    """De ratio-analyse als bevindingen.
+
+    Het bedrag bij een verschuiving is het geldeffect ervan: de verschuiving in
+    procentpunten toegepast op de noemer van dit jaar. Zonder zo'n bedrag zou de
+    materialiteit niets op deze bevindingen kunnen toepassen, en vijf procentpunt
+    betekent bij een kleine omzet iets anders dan bij een grote. De toelichting
+    zegt erbij hoe het bedrag is bepaald, zodat het niet voor een gemeten post
+    wordt aangezien.
+    """
+    from .ratios import build_ratios
+
+    ratios = build_ratios(huidig, vorig)
+    if ratios.empty:
+        return []
+
+    bevindingen = []
+    for _, rij in ratios.iterrows():
+        ernst = str(rij["ernst"])
+        if ernst == IN_ORDE:
+            continue
+        naam = str(rij["ratio"])
+        signaal = str(rij["signaal"] or "")
+        eenheid = str(rij["eenheid"])
+        bedrag = None
+        if ernst == NIET_MOGELIJK:
+            toelichting = signaal or f"De {naam.lower()} is niet te bepalen."
+        else:
+            waarde = _getal(rij.get("waarde_huidig"))
+            stand = ""
+            if waarde is not None:
+                stand = f"{waarde:.1f}%" if eenheid == "%" else f"{waarde:.2f}"
+            toelichting = f"{naam}: {stand}. {signaal}".strip() if stand else signaal
+            verschuiving = _getal(rij.get("verschuiving"))
+            teller = _getal(rij.get("teller_bedrag"))
+            noemer = _getal(rij.get("noemer_bedrag"))
+            if naam == "Solvabiliteit" and teller is not None and teller < 0:
+                bedrag = teller
+            elif eenheid == "%" and verschuiving is not None and noemer is not None:
+                bedrag = abs(verschuiving) / 100.0 * abs(noemer)
+                toelichting += (
+                    f" Het bedrag is de verschuiving van {abs(verschuiving):.1f} procentpunt "
+                    "toegepast op de noemer van dit jaar."
+                )
+            elif eenheid == "x" and teller is not None and noemer is not None:
+                bedrag = noemer - teller
+                toelichting += (
+                    " Het bedrag is het tekort ten opzichte van de kortlopende schulden."
+                )
+        bevindingen.append(
+            Bevinding(
+                categorie="Ratio's",
+                onderwerp=naam,
+                ernst=ernst,
+                toelichting=toelichting,
+                bedrag=bedrag,
+                methode=str(rij["methode"]),
+                pagina="Jaarvergelijking",
+            )
+        )
+    return bevindingen
+
+
 def grondslag_omzet(af: Auditfile) -> float:
     """De omzet van het boekjaar, als grondslag voor de materialiteit.
 
@@ -883,12 +946,13 @@ def grondslag_omzet(af: Auditfile) -> float:
     absolute drempel; een verzonnen grondslag zou de drempel onnavolgbaar maken.
     """
     from .controls import _selecteer
+    from .ratios import OMZET_PATROON, OMZET_RGS
 
     if af.saldo.empty:
         return 0.0
-    masker, _ = _selecteer(
-        af.saldo, "WOmz", r"omzet|opbrengst|verkoop|provisie|\brevenue\b", rekeningtype="P"
-    )
+    # Dezelfde omzetdefinitie als de ratio-analyse. Twee definities zouden een
+    # materialiteit opleveren die op een andere omzet rust dan de brutomarge.
+    masker, _ = _selecteer(af.saldo, OMZET_RGS, OMZET_PATROON, rekeningtype="P")
     return abs(float(af.saldo.loc[masker, "mutaties_boekjaar"].sum()))
 
 
@@ -929,5 +993,6 @@ def verzamel_bevindingen(
     bevindingen += _uit_relatiesaldi(huidig)
     bevindingen += _uit_openstaande_posten(huidig)
     bevindingen += _uit_excessief_lenen(huidig, excessief_lenen)
+    bevindingen += _uit_ratios(huidig, vorig)
 
     return naar_frame(bevindingen, materialiteit)
