@@ -925,6 +925,243 @@ def vul_subadministratie(spec: AuditfileSpec) -> AuditfileSpec:
     return kopie
 
 
+# Rekeningen die de standaardspec niet heeft en die de ratio-analyse wel nodig
+# heeft: zonder een kostprijsrekening is er geen brutomarge en zonder voorraad
+# geen verschil tussen de current ratio en de quick ratio.
+DEMO_VOORRAAD = Account("3000", "Voorraad handelsgoederen", "B", "BVrdHan", "BVrdHan")
+DEMO_KOSTPRIJS = Account("7000", "Inkoopwaarde van de omzet", "P", "WKprInk", "WKprInk")
+
+# Bewust geen ronde bedragen: die zouden de signalering op ronde boekingen
+# vullen met posten die alleen aan de demodata liggen. De verhoudingen zijn
+# gekozen om herkenbare ratio's op te leveren en geen norm te suggereren.
+DEMO_RATIO_OMZET = 138_400.0
+DEMO_RATIO_BTW = 29_064.0
+DEMO_RATIO_KOSTPRIJS = 61_750.0
+DEMO_RATIO_LOON_PER_MAAND = 1_987.50
+DEMO_RATIO_ONTVANGST = 99_500.0
+DEMO_RATIO_VOORRAAD_BEGIN = 76_500.0
+
+
+def vul_ratioposten(spec: AuditfileSpec, met_beginbalans: bool = True) -> AuditfileSpec:
+    """Zet omzet, kostprijs, voorraad en loon in de spec, voor de ratio-analyse.
+
+    De standaardspec kent geen kostprijs van de omzet, geen voorraad en geen
+    loonboeking. Daarmee is de brutomarge niet te bepalen en zijn de current en
+    de quick ratio aan elkaar gelijk, dus valt het gedrag van de ratio-analyse
+    er niet mee te tonen.
+
+    Elke transactie is op zichzelf in balans en de extra beginbalansregels
+    tellen op tot nul, zodat het bestand sluitend blijft en de eigen
+    controletotalen blijven kloppen. Het loon wordt over twaalf maanden
+    verdeeld: één boeking in december zou de twaalfmaandscontrole laten
+    aanslaan op iets wat alleen aan de demodata ligt.
+
+    ``met_beginbalans`` uit laten staan als de beginbalans van elders komt,
+    zoals bij het tweede jaar van ``demopaar()``: daar volgt de voorraad al uit
+    de eindbalans van het eerste jaar.
+
+    Werkt op een kopie, om dezelfde reden als ``vul_relatiesaldi()``.
+    """
+    kopie = deepcopy(spec)
+    boekjaar = kopie.fiscal_year or "2025"
+
+    for rekening in (DEMO_VOORRAAD, DEMO_KOSTPRIJS):
+        if all(bestaand.accID != rekening.accID for bestaand in kopie.accounts):
+            kopie.accounts.append(rekening)
+
+    if met_beginbalans:
+        kopie.opening_lines = list(kopie.opening_lines) + [
+            OpeningLine(DEMO_VOORRAAD.accID, f"{DEMO_RATIO_VOORRAAD_BEGIN:.2f}", "D"),
+            OpeningLine(EIGEN_VERMOGEN_REKENING, f"{DEMO_RATIO_VOORRAAD_BEGIN:.2f}", "C"),
+        ]
+
+    verkoop = Transaction(
+        "V900",
+        f"{boekjaar}-06-30",
+        6,
+        [
+            Line(
+                "1300",
+                f"{DEMO_RATIO_OMZET + DEMO_RATIO_BTW:.2f}",
+                "D",
+                "Verkoopfactuur handelsgoederen",
+                effDate=f"{boekjaar}-06-30",
+                docRef="V900",
+                custSupID="D001",
+            ),
+            Line(
+                "8000",
+                f"{DEMO_RATIO_OMZET:.2f}",
+                "C",
+                "Omzet handelsgoederen",
+                effDate=f"{boekjaar}-06-30",
+                docRef="V900",
+                vatID="1",
+                vatPerc="21",
+                vatAmnt=f"{DEMO_RATIO_BTW:.2f}",
+                vatAmntTp="C",
+            ),
+            Line(
+                "1800",
+                f"{DEMO_RATIO_BTW:.2f}",
+                "C",
+                "Btw hoog",
+                effDate=f"{boekjaar}-06-30",
+                docRef="V900",
+            ),
+        ],
+        "Verkoop handelsgoederen",
+    )
+
+    memoriaal = [
+        # Inkoop en verbruik in hetzelfde jaar, zodat de voorraad op zijn
+        # beginstand blijft. Alleen verbruiken zou de voorraad na twee jaar
+        # negatief maken, en dan komt de quick ratio boven de current ratio uit:
+        # rekenkundig juist, maar onmogelijk als beeld.
+        Transaction(
+            "M905",
+            f"{boekjaar}-03-31",
+            3,
+            [
+                Line(
+                    DEMO_VOORRAAD.accID,
+                    f"{DEMO_RATIO_KOSTPRIJS:.2f}",
+                    "D",
+                    "Inkoop handelsgoederen",
+                    effDate=f"{boekjaar}-03-31",
+                    docRef="M905",
+                ),
+                Line(
+                    "1600",
+                    f"{DEMO_RATIO_KOSTPRIJS:.2f}",
+                    "C",
+                    "Inkoop handelsgoederen",
+                    effDate=f"{boekjaar}-03-31",
+                    docRef="M905",
+                ),
+            ],
+            "Inkoop handelsgoederen",
+        ),
+        Transaction(
+            "M906",
+            f"{boekjaar}-04-30",
+            4,
+            [
+                Line(
+                    "1600",
+                    f"{DEMO_RATIO_KOSTPRIJS:.2f}",
+                    "D",
+                    "Betaling crediteuren",
+                    effDate=f"{boekjaar}-04-30",
+                    docRef="M906",
+                ),
+                Line(
+                    "1100",
+                    f"{DEMO_RATIO_KOSTPRIJS:.2f}",
+                    "C",
+                    "Betaling crediteuren",
+                    effDate=f"{boekjaar}-04-30",
+                    docRef="M906",
+                ),
+            ],
+            "Betaling crediteuren",
+        ),
+        Transaction(
+            "M910",
+            f"{boekjaar}-06-30",
+            6,
+            [
+                Line(
+                    DEMO_KOSTPRIJS.accID,
+                    f"{DEMO_RATIO_KOSTPRIJS:.2f}",
+                    "D",
+                    "Voorraadverbruik",
+                    effDate=f"{boekjaar}-06-30",
+                    docRef="M910",
+                ),
+                Line(
+                    DEMO_VOORRAAD.accID,
+                    f"{DEMO_RATIO_KOSTPRIJS:.2f}",
+                    "C",
+                    "Voorraadverbruik",
+                    effDate=f"{boekjaar}-06-30",
+                    docRef="M910",
+                ),
+            ],
+            "Voorraadverbruik",
+        ),
+        Transaction(
+            "M930",
+            f"{boekjaar}-09-30",
+            9,
+            [
+                Line(
+                    "1100",
+                    f"{DEMO_RATIO_ONTVANGST:.2f}",
+                    "D",
+                    "Ontvangst debiteuren",
+                    effDate=f"{boekjaar}-09-30",
+                    docRef="M930",
+                ),
+                Line(
+                    "1300",
+                    f"{DEMO_RATIO_ONTVANGST:.2f}",
+                    "C",
+                    "Ontvangst debiteuren",
+                    effDate=f"{boekjaar}-09-30",
+                    docRef="M930",
+                    custSupID="D001",
+                ),
+            ],
+            "Ontvangst debiteuren",
+        ),
+    ]
+    for maand in range(1, 13):
+        datum = f"{boekjaar}-{maand:02d}-28"
+        memoriaal.append(
+            Transaction(
+                f"M8{maand:02d}",
+                datum,
+                maand,
+                [
+                    Line(
+                        "4200",
+                        f"{DEMO_RATIO_LOON_PER_MAAND:.2f}",
+                        "D",
+                        "Brutolonen",
+                        effDate=datum,
+                        docRef=f"M8{maand:02d}",
+                    ),
+                    Line(
+                        "1100",
+                        f"{DEMO_RATIO_LOON_PER_MAAND:.2f}",
+                        "C",
+                        "Betaling lonen",
+                        effDate=datum,
+                        docRef=f"M8{maand:02d}",
+                    ),
+                ],
+                "Loonboeking",
+            )
+        )
+
+    for journaal in kopie.journals:
+        if journaal.jrnID == "VRK":
+            journaal.transactions.append(verkoop)
+            break
+    else:
+        kopie.journals.append(Journal("VRK", "Verkoopboek", [verkoop], jrnTp="S"))
+
+    for journaal in kopie.journals:
+        if journaal.jrnID == "MEM":
+            journaal.transactions.extend(memoriaal)
+            break
+    else:
+        kopie.journals.append(Journal("MEM", "Memoriaal", memoriaal))
+
+    return kopie
+
+
 def demopaar(
     vorig_jaar: str = "2024",
     huidig_jaar: str = "2025",
@@ -939,11 +1176,19 @@ def demopaar(
     de demodata ligt. De twee XAF-versies verschillen bewust, zodat ook de
     RGS-herkomst zichtbaar is.
     """
+    # De ratioposten gaan vooraf aan de subadministratie: die leidt haar posten
+    # uit de boekingen af, en anders zou het grootboek een debiteurenpost kennen
+    # die in de subadministratie ontbreekt.
     vorige_spec = vul_subadministratie(
-        verschuif_boekjaar(eenvoudige_spec(versie_vorig), vorig_jaar)
+        vul_ratioposten(verschuif_boekjaar(eenvoudige_spec(versie_vorig), vorig_jaar))
     )
     vorige_bytes = build_xaf(vorige_spec)
-    huidige_spec = verschuif_boekjaar(eenvoudige_spec(versie_huidig), huidig_jaar)
+    # Het tweede jaar krijgt zijn beginbalans uit de eindbalans van het eerste,
+    # dus daar hoeft de voorraad niet opnieuw te worden opgevoerd.
+    huidige_spec = vul_ratioposten(
+        verschuif_boekjaar(eenvoudige_spec(versie_huidig), huidig_jaar),
+        met_beginbalans=False,
+    )
     huidige_spec.opening_lines = beginbalans_uit(vorige_bytes)
     # Een kleine rekening-courant met de aandeelhouder, zodat de drempeltoets
     # excessief lenen in de demo iets te tonen heeft. Het bedrag blijft ruim
