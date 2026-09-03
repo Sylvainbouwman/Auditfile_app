@@ -35,7 +35,9 @@ hebt beoordeeld verhuizen met hun status en notitie naar een sectie achteraan,
 zodat de hoofdlijst overhoudt wat nog aandacht vraagt. Onderaan staat de
 verantwoording: het bewijsniveau voor de openstaande posten, de RGS-dekking van
 het rekeningschema, hoeveel bevindingen onder de drempel liggen en hoeveel er
-nog geen beoordeling hebben. Het stuk is te downloaden als Markdown-bestand.
+nog geen beoordeling hebben. Het stuk is te downloaden als Word-document
+(`.docx`) en als Markdown-bestand. Beide komen uit dezelfde opbouw, dus de
+formulering staat maar op één plek en de twee vormen kunnen niet uiteenlopen.
 
 **Overzicht.** Een telling van de signalen per categorie, met de pagina waar ze
 staan. Een leeg blok op het overzicht betekende eerder niet dat er niets was: de
@@ -201,7 +203,7 @@ opgebouwd; er wordt nooit klantdata gelezen.
 | `auditfile/openstaand.py` | Openstaande posten en ouderdom (XAF 3.2) |
 | `auditfile/excessief_lenen.py` | Drempeltoets excessief lenen |
 | `auditfile/findings.py` | Bevindingen, materialiteit en beoordeling |
-| `auditfile/memorandum.py` | Het reviewmemorandum als document |
+| `auditfile/memorandum.py` | Het reviewmemorandum als document (Markdown en Word) |
 | `auditfile/capability.py` | Wat het bestand toelaat en met welk bewijsniveau |
 | `auditfile/excel.py` | Excel-export |
 | `auditfile/formatting.py` | Presentatie van tabellen |
