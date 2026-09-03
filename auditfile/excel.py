@@ -17,6 +17,12 @@ from .comparison import (
     build_rubriek_vergelijking,
     controleer_bestandenpaar,
 )
+from .excessief_lenen import (
+    Invoer as ExcessiefLenenInvoer,
+    build_afwijkende_codering,
+    build_drempeltoets,
+    build_rc_rekeningen,
+)
 from .findings import Materialiteit, grondslag_omzet, pas_review_toe, verzamel_bevindingen
 from .integrity import controleer_auditfile
 from .model import Auditfile
@@ -143,6 +149,7 @@ def bouw_werkbladen(
     grondslagen: dict[str, float] | None = None,
     materialiteit: Materialiteit | None = None,
     review: dict | None = None,
+    excessief_lenen: ExcessiefLenenInvoer | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Stel alle werkbladen samen die in de export komen."""
     jaar_huidig = _jaarlabel(huidig)
@@ -160,6 +167,7 @@ def bouw_werkbladen(
             aangifte=aangifte,
             grondslagen=grondslagen,
             materialiteit=materialiteit,
+            excessief_lenen=excessief_lenen,
         ),
         review,
     )
@@ -229,6 +237,11 @@ def bouw_werkbladen(
         "Aansluiting openstaande posten": build_openstaand_aansluiting(huidig),
         "Ouderdomsopbouw": build_ouderdom(huidig),
         "Openstaande posten": build_openstaande_posten(huidig),
+        # De drempeltoets excessief lenen. Het blad blijft leeg wanneer er geen
+        # rekening-courant met een aandeelhouder of bestuurder is gevonden.
+        "Excessief lenen": build_drempeltoets(huidig, excessief_lenen),
+        "Rekening-courant rekeningen": build_rc_rekeningen(huidig),
+        "RC afwijkend gecodeerd": build_afwijkende_codering(huidig),
     }
 
 
@@ -242,6 +255,7 @@ def build_excel_export(
     grondslagen: dict[str, float] | None = None,
     materialiteit: Materialiteit | None = None,
     review: dict | None = None,
+    excessief_lenen: ExcessiefLenenInvoer | None = None,
 ) -> bytes:
     """Bouw het Excelbestand met alle werkbladen."""
     werkbladen = bouw_werkbladen(
@@ -254,6 +268,7 @@ def build_excel_export(
         grondslagen,
         materialiteit,
         review,
+        excessief_lenen,
     )
     uitvoer = BytesIO()
     gebruikte_namen: set[str] = set()

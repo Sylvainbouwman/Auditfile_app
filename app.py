@@ -29,6 +29,7 @@ from auditfile.comparison import (
     controleer_bestandenpaar,
     jaarovergang_sluit_aan,
 )
+from auditfile import excessief_lenen
 from auditfile.excel import build_excel_export, exportnaam
 from auditfile.findings import (
     REVIEWSTATUSSEN,
@@ -388,6 +389,7 @@ def pagina_bevindingen(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.Dat
         aangifte=huidige_aangifte(),
         grondslagen=huidige_grondslagen(),
         materialiteit=materialiteit,
+        excessief_lenen=huidige_excessief_lenen(),
     )
     bevindingen = pas_review_toe(bevindingen, opslag.lees_review())
     telling = samenvatting_per_ernst(bevindingen)
@@ -702,6 +704,21 @@ def huidige_grondslagen() -> dict[str, float]:
     return st.session_state.get("btw_grondslagen", {})
 
 
+def huidige_excessief_lenen() -> excessief_lenen.Invoer:
+    """De dossiergegevens bij de drempeltoets excessief lenen.
+
+    Niets ingevuld betekent nul, en dat is geen vaststelling dat de bedragen
+    nul zijn: de opbouw op de fiscale pagina laat elke regel zien met de bron
+    erbij.
+    """
+    bewaard = st.session_state.get("excessief_lenen", {})
+    return excessief_lenen.Invoer(
+        eigenwoningschuld=float(bewaard.get("eigenwoningschuld", 0.0) or 0.0),
+        andere_vennootschappen=float(bewaard.get("andere_vennootschappen", 0.0) or 0.0),
+        eerder_belast_voordeel=float(bewaard.get("eerder_belast_voordeel", 0.0) or 0.0),
+    )
+
+
 def stel_dossier_in(huidig: Auditfile) -> DossierOpslag:
     """Laad de invoer van dit dossier, en niets van een ander.
 
@@ -718,6 +735,7 @@ def stel_dossier_in(huidig: Auditfile) -> DossierOpslag:
     st.session_state["btw_aangifte"] = opslag.lees_aangifte()
     st.session_state["btw_aftrekbaarheid"] = opslag.lees_aftrekbaarheid()
     st.session_state["btw_grondslagen"] = opslag.lees_grondslagen()
+    st.session_state["excessief_lenen"] = opslag.lees_excessief_lenen()
     # De widgets houden hun eigen waarde vast; die moet mee met het dossier.
     for sleutel in [
         naam
@@ -729,6 +747,7 @@ def stel_dossier_in(huidig: Auditfile) -> DossierOpslag:
                 "bevindingen_editor",
                 "aangifte_",
                 "grondslag_",
+                "el_",
             )
         )
     ]:
@@ -750,6 +769,7 @@ def bewaar_invoer(opslag: DossierOpslag, huidig: Auditfile, **onderdelen) -> boo
         "aftrekbaarheid": opslag.schrijf_aftrekbaarheid,
         "aangifte": opslag.schrijf_aangifte,
         "grondslagen": opslag.schrijf_grondslagen,
+        "excessief_lenen": opslag.schrijf_excessief_lenen,
     }
     for naam, inhoud in onderdelen.items():
         gelukt = schrijvers[naam](inhoud) and gelukt
@@ -1481,6 +1501,137 @@ def pagina_relaties(huidig: Auditfile) -> None:
         toon_tabel(huidig.relations, hoogte=400)
 
 
+def toon_excessief_lenen(huidig: Auditfile) -> None:
+    """De drempeltoets bij de Wet excessief lenen bij eigen vennootschap.
+
+    Het formulier bewaart alleen op de knop. Streamlit voert de code van elke
+    pagina uit bij iedere herberekening, dus een veld dat zichzelf wegschrijft
+    zou invoer vastleggen zonder dat iemand daarom heeft gevraagd.
+    """
+    kop(
+        "Drempeltoets excessief lenen",
+        "De stand van de rekening-courant en de leningen met de aandeelhouder, gezet "
+        "tegenover het maximumbedrag van art. 4.14a Wet IB 2001.",
+    )
+
+    opslag = huidige_opslag()
+    invoer = huidige_excessief_lenen()
+    toets = excessief_lenen.beoordeel(huidig, invoer)
+    rekeningen = excessief_lenen.build_rc_rekeningen(huidig)
+    afwijkend = excessief_lenen.build_afwijkende_codering(huidig)
+
+    with st.expander("Wat deze toets wel en niet zegt"):
+        st.markdown(
+            """
+- De wet toetst de schulden van de belastingplichtige **en zijn partner** aan
+  **alle** vennootschappen waarin een aanmerkelijk belang wordt gehouden. Dit
+  auditfile is het grootboek van één vennootschap.
+- De peildatum is het einde van het kalenderjaar (lid 4). Alleen bij een boekjaar
+  dat op 31 december eindigt valt de balansdatum daarmee samen.
+- De eigenwoningschuld blijft buiten beschouwing voor zover daarvoor een recht van
+  hypotheek aan de vennootschap is verstrekt (lid 6), met overgangsrecht voor een
+  op 31 december 2022 bestaande schuld (art. 10a.23). Dat staat niet in het
+  grootboek.
+- Het maximumbedrag wordt verhoogd met eerder in aanmerking genomen fictief
+  regulier voordeel (lid 2).
+- De selectie loopt over de RGS-codes voor aandeelhouders en bestuurders;
+  commissarissen en overigen vallen erbuiten. Een rekening-courant met een andere
+  codering staat hieronder apart.
+"""
+        )
+        st.caption(f"Peildatum: {toets.peildatum.toelichting}")
+
+    if toets.status == excessief_lenen.STATUS_GEEN_REKENING:
+        st.info(excessief_lenen.conclusie(toets))
+    else:
+        a, b, c, d = st.columns(4)
+        kerncijfer(a, "Saldo volgens auditfile", euro(toets.saldo_auditfile))
+        kerncijfer(b, "Te toetsen schuld", euro(toets.te_toetsen))
+        kerncijfer(
+            c,
+            "Maximumbedrag",
+            euro(toets.maximum) if toets.maximum is not None else "niet vast te stellen",
+            toets.maximum_toelichting,
+        )
+        kerncijfer(
+            d,
+            "Bovenmatig deel",
+            euro(toets.bovenmatig) if toets.bovenmatig is not None else "onbekend",
+            f"Uitkomst: {toets.status}.",
+        )
+
+        if toets.status == excessief_lenen.STATUS_BOVEN:
+            st.warning(excessief_lenen.conclusie(toets))
+        elif toets.status in (
+            excessief_lenen.STATUS_NABIJ,
+            excessief_lenen.STATUS_NIET_MOGELIJK,
+        ):
+            st.info(excessief_lenen.conclusie(toets))
+        else:
+            st.caption(excessief_lenen.conclusie(toets))
+
+    with st.form("excessief_lenen_formulier"):
+        st.markdown("**Wat het grootboek niet weet**")
+        st.caption(
+            "Deze bedragen komen uit het dossier en niet uit het auditfile. Ze worden pas "
+            "bewaard als u hieronder op bewaren klikt."
+        )
+        een, twee, drie = st.columns(3)
+        eigenwoningschuld = een.number_input(
+            "Eigenwoningschuld met hypotheekrecht",
+            value=float(invoer.eigenwoningschuld),
+            step=1000.0,
+            format="%.2f",
+            help="Art. 4.14a lid 6 Wet IB 2001. Wordt van de te toetsen schuld afgehaald.",
+            key=f"el_eigenwoningschuld_{opslag.sleutel}",
+        )
+        andere = twee.number_input(
+            "Schulden aan andere vennootschappen en van de partner",
+            value=float(invoer.andere_vennootschappen),
+            step=1000.0,
+            format="%.2f",
+            help="Art. 4.14a lid 3. Wordt bij de te toetsen schuld opgeteld.",
+            key=f"el_andere_{opslag.sleutel}",
+        )
+        eerder = drie.number_input(
+            "Eerder belast fictief regulier voordeel",
+            value=float(invoer.eerder_belast_voordeel),
+            step=1000.0,
+            format="%.2f",
+            help="Art. 4.14a lid 2. Verhoogt het maximumbedrag.",
+            key=f"el_eerder_{opslag.sleutel}",
+        )
+        bewaren = st.form_submit_button("Dossiergegevens bewaren", type="primary")
+    if bewaren:
+        gegevens = {
+            "eigenwoningschuld": float(eigenwoningschuld),
+            "andere_vennootschappen": float(andere),
+            "eerder_belast_voordeel": float(eerder),
+        }
+        st.session_state["excessief_lenen"] = gegevens
+        if not bewaar_invoer(opslag, huidig, excessief_lenen=gegevens):
+            st.warning(f"De dossiergegevens konden niet worden bewaard in {opslag.map}.")
+        st.rerun()
+
+    if toets.status != excessief_lenen.STATUS_GEEN_REKENING:
+        kop("Opbouw van de toets")
+        toon_tabel(excessief_lenen.opbouw(toets))
+
+    with st.expander(f"Geselecteerde rekeningen ({len(rekeningen)})"):
+        toon_tabel(
+            rekeningen,
+            leegmelding="Geen rekening-courant of lening met een aandeelhouder of bestuurder gevonden.",
+        )
+
+    if not afwijkend.empty:
+        st.warning(
+            "Er staan rekeningen in het schema waarvan de omschrijving op een "
+            "rekening-courant wijst, terwijl de RGS-code ze buiten de toets houdt. "
+            "Beoordeel of ze in de opbouw thuishoren."
+        )
+        toon_tabel(afwijkend)
+
+
 def pagina_fiscale_signalen(huidig: Auditfile) -> None:
     kop(
         "Posten die om een fiscale beoordeling vragen",
@@ -1490,14 +1641,16 @@ def pagina_fiscale_signalen(huidig: Auditfile) -> None:
     signalen = controls.build_fiscale_signalen(huidig)
     if signalen.empty:
         st.caption("Geen posten gevonden die om een fiscale beoordeling vragen.")
-        return
+    else:
+        for onderwerp in signalen["onderwerp"].unique():
+            deel = signalen[signalen["onderwerp"] == onderwerp]
+            totaal = deel["bedrag"].sum()
+            with st.expander(f"{onderwerp} — {euro(totaal)} over {len(deel)} rekening(en)"):
+                st.caption(deel.iloc[0]["toelichting"])
+                toon_tabel(deel[["rekening", "omschrijving", "aantal_regels", "bedrag"]])
 
-    for onderwerp in signalen["onderwerp"].unique():
-        deel = signalen[signalen["onderwerp"] == onderwerp]
-        totaal = deel["bedrag"].sum()
-        with st.expander(f"{onderwerp} — {euro(totaal)} over {len(deel)} rekening(en)"):
-            st.caption(deel.iloc[0]["toelichting"])
-            toon_tabel(deel[["rekening", "omschrijving", "aantal_regels", "bedrag"]])
+    st.divider()
+    toon_excessief_lenen(huidig)
 
 
 def pagina_grootboekkaarten(huidig: Auditfile) -> None:
@@ -1565,6 +1718,7 @@ def pagina_export(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataFram
                 huidige_grondslagen(),
                 huidige_materialiteit(huidig),
                 huidige_opslag().lees_review(),
+                huidige_excessief_lenen(),
             )
         st.download_button(
             "Download het werkboek",

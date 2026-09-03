@@ -114,6 +114,26 @@ relatie. Zie `ROADMAP.md` en `docs/xaf-velden.md`.
 dwangsommen, juridische kosten, representatie en horeca, rekening-courant met de
 directie, auto en privegebruik, giften. De tool signaleert en concludeert niet.
 
+Op dezelfde pagina staat de **drempeltoets excessief lenen**. De tool selecteert
+de rekening-courant- en leningrekeningen met aandeelhouders en bestuurders op hun
+RGS-code en zet het eindsaldo tegenover het maximumbedrag van art. 4.14a lid 2
+Wet IB 2001 (€ 700.000 per 31 december 2023, € 500.000 daarna; het bedrag wordt
+niet geïndexeerd). De opbouw staat regel voor regel, met per regel de bron:
+auditfile, wet of gebruiker.
+
+Dat laatste is nodig, want tussen het grootboek en de wet zit een gat dat een
+auditfile niet dicht. De wet toetst de belastingplichtige en zijn partner over
+alle vennootschappen waarin een aanmerkelijk belang wordt gehouden, per
+31 december; dit bestand is het grootboek van één vennootschap op de
+balansdatum. De eigenwoningschuld waarvoor een recht van hypotheek is verstrekt
+blijft buiten beschouwing, en het maximumbedrag wordt verhoogd met eerder belast
+fictief regulier voordeel. Die drie bedragen vult u zelf in; ze worden bewaard in
+de dossiermap en pas op de bewaarknop. Eindigt het boekjaar niet op 31 december,
+of is voor die peildatum geen bedrag vastgesteld, dan geeft de tool de gemeten
+stand wel maar noemt zij de toets niet mogelijk. Een rekening-courant met een
+RGS-code buiten de selectie, zoals "rekening-courant overigen", telt niet mee in
+het bedrag maar wordt apart gemeld.
+
 **Excel-export.** Ruim twintig werkbladen met Nederlandse getalnotatie, filters
 en vastgezette koppen. Bedragen zijn getallen, dus optelbaar.
 
@@ -157,6 +177,11 @@ opgebouwd; er wordt nooit klantdata gelezen.
 | `auditfile/vat_rubrics.py` | Rubrieken van de aangifte omzetbelasting |
 | `auditfile/controls.py` | Analytische en fiscale controles |
 | `auditfile/comparison.py` | Jaar-op-jaar vergelijking |
+| `auditfile/relatiesaldi.py` | Openstaande bedragen per relatie (XAF 4.0) |
+| `auditfile/openstaand.py` | Openstaande posten en ouderdom (XAF 3.2) |
+| `auditfile/excessief_lenen.py` | Drempeltoets excessief lenen |
+| `auditfile/findings.py` | Bevindingen, materialiteit en beoordeling |
+| `auditfile/capability.py` | Wat het bestand toelaat en met welk bewijsniveau |
 | `auditfile/excel.py` | Excel-export |
 | `auditfile/formatting.py` | Presentatie van tabellen |
 | `auditfile/settings.py` | Lokale opslag van eigen invoer |
@@ -170,8 +195,9 @@ staan in [`docs/btw-bronnen.md`](docs/btw-bronnen.md).
 
 De repository is publiek. Er staat geen klantdata in en die mag er ook niet in
 komen, ook niet als voorbeeld. Eigen invoer (aangiftebedragen, grondslagen, de
-koppeling van btw-codes aan rubrieken en het aftrekbare aandeel per code) wordt
-bewaard in `.local-testdata/`, dat door Git wordt genegeerd.
+koppeling van btw-codes aan rubrieken, het aftrekbare aandeel per code, de
+beoordeling per bevinding en de dossiergegevens bij de drempeltoets excessief
+lenen) wordt bewaard in `.local-testdata/`, dat door Git wordt genegeerd.
 `tests/test_runtime_data_not_tracked.py` bewaakt die scheiding.
 
 Die invoer staat per dossier apart, in `.local-testdata/dossiers/<sleutel>`. De

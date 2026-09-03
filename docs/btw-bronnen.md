@@ -130,8 +130,10 @@ hierover geen uitspraak op in de tool zonder aanvullend onderzoek.
 
 ## Drempel excessief lenen
 
-Nog niet in de tool verwerkt; opgenomen voor de geplande RC-DGA-controle
-(ROADMAP categorie 5).
+Verwerkt in `auditfile/excessief_lenen.py`. De bedragen staan daar per peildatum
+in `MAXIMUMBEDRAGEN`, met deze sectie als vindplaats. Buiten de reeks geeft de
+tool geen bedrag: vóór 2023 bestond de regeling niet en na het laatst
+vastgestelde jaar is het bedrag niet vastgesteld.
 
 | Peildatum 31 december | Maximumbedrag |
 |---|---|

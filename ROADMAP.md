@@ -148,10 +148,20 @@ Automatisch gegenereerde aandachtspunten, bijvoorbeeld:
 
 ## Categorie 5: Specifiek fiscaal
 
-### Rekening-courant DGA detectie
-- Automatisch signaleren van mogelijke RC DGA op basis van rekeningnummer en omschrijving
-- Saldo bepalen
-- Signaal bij overschrijding drempel excessief lenen (€ 500.000 tot en met 2023, daarna lager)
+### Rekening-courant DGA detectie (gereed)
+- Signalering op de rekeningomschrijving, als fiscaal aandachtspunt (gereed)
+- Saldo bepalen (gereed)
+- Drempeltoets excessief lenen (gereed). `excessief_lenen.py` selecteert de
+  rekening-courant- en leningrekeningen met aandeelhouders en bestuurders op hun
+  RGS-code, zet het eindsaldo tegenover het maximumbedrag van art. 4.14a lid 2
+  Wet IB 2001 en geeft de opbouw regel voor regel, met per regel de bron:
+  auditfile, wet of gebruiker. Boven de drempel is een waarschuwing, binnen 10%
+  eronder een signaal. De toets is bewust geen vaststelling: de wet toetst de
+  belastingplichtige en zijn partner over alle vennootschappen per 31 december,
+  en de eigenwoningschuld met hypotheekrecht en het eerder belaste fictieve
+  reguliere voordeel staan niet in een grootboek. Die staan daarom als invoer in
+  de opbouw. Bij een gebroken boekjaar en bij een peildatum waarvoor geen bedrag
+  is vastgesteld zegt de tool dat de toets niet mogelijk is.
 
 ### Auto van de zaak
 - Autokosten aanwezig maar geen bijtelling geboekt
@@ -203,7 +213,7 @@ Bijgewerkt op 1 september 2026.
 | 2 | 12-maandscontrole | Gereed |
 | 3 | Debiteuren per relatie en concentratie | Gereed |
 | 4 | Crediteuren per relatie en concentratie | Gereed |
-| 5 | RC DGA detectie | Signalering gereed, drempeltoets nog niet |
+| 5 | RC DGA detectie | Gereed |
 | 6 | Suppletiedetectie | Gedeeltelijk: "overige mutaties" in de rondrekening |
 | 7 | Lease- en huurdetectie | Gereed als periodieke controle |
 | 8 | AI-reviewpunten | Bevindingenlijst en materialiteit gereed; formulering gepland |
@@ -255,8 +265,19 @@ Bijgewerkt op 2 september 2026, na de open-posten- en ageing-engine.
    (`XAF_4_0_Test_100425.XAF` uit het productoverzicht 4.0.3) op als
    conformance-bestand; dat is synthetisch en openbaar, maar vraagt een
    uitzondering in `.gitignore` omdat `*.XAF` wordt genegeerd.
-5. **Drempeltoets excessief lenen.** De bedragen per peildatum staan al
-   geverifieerd in `docs/btw-bronnen.md`; alleen de toets ontbreekt nog.
+5. **Drempeltoets excessief lenen.** Gereed. `excessief_lenen.py` bepaalt de
+   peildatum uit de einddatum van het boekjaar, haalt het maximumbedrag uit
+   `MAXIMUMBEDRAGEN` (met `docs/btw-bronnen.md` als vindplaats), selecteert de
+   rekeningen op de RGS-codes voor rekening-courant en leningen met
+   aandeelhouders en bestuurders, en geeft de opbouw met per regel de bron. De
+   uitkomst staat op de pagina Fiscale signalen, in de bevindingen en in de
+   Excel-export; de eigen invoer staat in `excessief_lenen.json` in de
+   dossiermap. **Wat rest**: de rekeningselectie gebruikt de codes voor
+   aandeelhouders en bestuurders en laat commissarissen en "overigen" buiten de
+   toets. Een rekening-courant met de dga die als "overigen" is gecodeerd valt
+   daarmee buiten het bedrag; `build_afwijkende_codering()` meldt dat wel, maar
+   corrigeert het niet. Te beslissen of de gebruiker een rekening handmatig aan
+   de toets moet kunnen toevoegen.
 6. **Ratio-analyse** (brutomarge, personeelskosten als percentage van de omzet,
    solvabiliteit, liquiditeit), jaar op jaar.
 7. **Reviewmemorandum als document.** De bouwstenen liggen er: bevindingen met

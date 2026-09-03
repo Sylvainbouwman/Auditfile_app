@@ -57,6 +57,8 @@ rekenlogica dus nooit in `app.py`.
 | `settings.py` | Lokale opslag van eigen invoer |
 | `capability.py` | Wat het bestand toelaat: aanwezige blokken, dekking, bewijsniveau |
 | `relatiesaldi.py` | Openstaande bedragen per relatie (XAF 4.0) en hun aansluiting |
+| `openstaand.py` | Openstaande posten en ouderdom uit de subadministratie (XAF 3.2) |
+| `excessief_lenen.py` | Drempeltoets Wet excessief lenen bij eigen vennootschap |
 | `findings.py` | Uniform bevindingenmodel, materialiteit en de verzamelaar |
 | `demo.py` | Synthetische auditfiles: demodata én testfixtures |
 
@@ -106,6 +108,16 @@ rekenlogica dus nooit in `app.py`.
   rekenvoorbeeld gemarkeerd. Vastleggen gebeurt alleen op een handeling van de
   gebruiker. Schrijf nooit invoer weg als bijwerking van het openen van een pagina;
   `st.tabs` voert de code van álle tabbladen uit.
+
+- **Een wettelijke drempel toetst de tool niet af** — bij excessief lenen meet de
+  tool één vennootschap op de balansdatum, terwijl de wet de belastingplichtige
+  en zijn partner toetst over alle vennootschappen op 31 december. Wat daartussen
+  zit (peildatum, andere vennootschappen, eigenwoningschuld met hypotheekrecht,
+  eerder belast fictief regulier voordeel) staat als eigen regel in de opbouw,
+  met de bron erbij: auditfile, wet, gebruiker of berekend. Bouw nooit een
+  fiscale toets die de gebruikersinvoer met het bestandsgegeven op één hoop
+  gooit, en laat de tool zeggen dat de toets niet kan wanneer de peildatum niet
+  klopt of het bedrag voor dat jaar niet is vastgesteld.
 
 - **Eerst vaststellen wat er is** — bijna alles in XAF is optioneel en 3.2 en 4.0
   verschillen inhoudelijk. `capability.py` stelt per bestand vast welke blokken

@@ -749,6 +749,89 @@ def vul_relatiesaldi(spec: AuditfileSpec) -> AuditfileSpec:
     return kopie
 
 
+# De rekening-courant met de aandeelhouder, voor de drempeltoets excessief
+# lenen. De RGS-code is die van rekening-courant aandeelhouders (kortlopend);
+# het bedrag geeft de test mee, want de drempel is een wettelijk bedrag en een
+# fixture hoort dat niet stil te kiezen.
+DEMO_REKENING_COURANT = Account(
+    "1400", "Rekening-courant aandeelhouder", "B", "BVorOvrRca", "BVorOvrRca"
+)
+
+# Een rekening-courant met dezelfde omschrijving maar een code die haar buiten
+# de toets houdt: rekening-courant overigen. Nodig om te kunnen testen dat de
+# tool die afwijkende codering meldt in plaats van haar mee te rekenen.
+DEMO_REKENING_COURANT_OVERIG = Account(
+    "1410", "Rekening-courant directie overig", "B", "BVorOvrRco", "BVorOvrRco"
+)
+
+
+# Het bedrag van de rekening-courant in de demo. Klein genoeg om het banksaldo
+# positief te houden, zodat de demo geen balanssignaal krijgt dat niets met de
+# rekening-courant te maken heeft.
+DEMO_REKENING_COURANT_BEDRAG = 5_000.0
+
+
+def vul_rekening_courant(
+    spec: AuditfileSpec,
+    bedrag: float,
+    afwijkend_gecodeerd: float = 0.0,
+) -> AuditfileSpec:
+    """Zet een rekening-courant met de aandeelhouder in de spec.
+
+    Het bedrag wordt debet op de rekening-courant en credit op de bank geboekt,
+    zodat het bestand in balans blijft en de eigen controletotalen blijven
+    kloppen. Met ``afwijkend_gecodeerd`` komt er een tweede rekening-courant bij
+    die op de omschrijving wel en op de RGS-code niet in de toets thuishoort.
+
+    Werkt op een kopie, om dezelfde reden als ``vul_relatiesaldi()``.
+    """
+    kopie = deepcopy(spec)
+    boekjaar = kopie.fiscal_year or "2025"
+    regels: list[Line] = []
+    for rekening, deelbedrag in (
+        (DEMO_REKENING_COURANT, float(bedrag)),
+        (DEMO_REKENING_COURANT_OVERIG, float(afwijkend_gecodeerd)),
+    ):
+        if abs(deelbedrag) < 0.005:
+            continue
+        if all(bestaand.accID != rekening.accID for bestaand in kopie.accounts):
+            kopie.accounts.append(rekening)
+        regels.append(
+            Line(
+                rekening.accID,
+                f"{abs(deelbedrag):.2f}",
+                "D" if deelbedrag > 0 else "C",
+                "Opname aandeelhouder",
+                effDate=f"{boekjaar}-11-30",
+                docRef="RC001",
+            )
+        )
+        regels.append(
+            Line(
+                "1100",
+                f"{abs(deelbedrag):.2f}",
+                "C" if deelbedrag > 0 else "D",
+                "Opname aandeelhouder",
+                effDate=f"{boekjaar}-11-30",
+                docRef="RC001",
+            )
+        )
+
+    if not regels:
+        return kopie
+
+    transactie = Transaction("M900", f"{boekjaar}-11-30", 11, regels, "Rekening-courant")
+    # Bij een bestaand memoriaal de transactie daaraan toevoegen: twee dagboeken
+    # met hetzelfde jrnID zou een dubbeling in de stamgegevens opleveren, en dat
+    # is precies wat de integriteitscontrole hoort te melden.
+    for journaal in kopie.journals:
+        if journaal.jrnID == "MEM":
+            journaal.transactions.append(transactie)
+            return kopie
+    kopie.journals.append(Journal("MEM", "Memoriaal", [transactie]))
+    return kopie
+
+
 # De betalingstermijn waarmee de demo haar vervaldatums berekent. Een verzonnen
 # termijn voor verzonnen facturen; de tool neemt hem nergens aan, want in een
 # echt bestand staat de vervaldatum er zelf in.
@@ -862,6 +945,11 @@ def demopaar(
     vorige_bytes = build_xaf(vorige_spec)
     huidige_spec = verschuif_boekjaar(eenvoudige_spec(versie_huidig), huidig_jaar)
     huidige_spec.opening_lines = beginbalans_uit(vorige_bytes)
+    # Een kleine rekening-courant met de aandeelhouder, zodat de drempeltoets
+    # excessief lenen in de demo iets te tonen heeft. Het bedrag blijft ruim
+    # onder de wettelijke drempel: de demo hoort de werking te laten zien en
+    # geen overschrijding te suggereren die er in deze cijfers niet is.
+    huidige_spec = vul_rekening_courant(huidige_spec, DEMO_REKENING_COURANT_BEDRAG)
     if versie_huidig == "4.0":
         huidige_spec = vul_relatiesaldi(huidige_spec)
     return vorige_bytes, build_xaf(huidige_spec)

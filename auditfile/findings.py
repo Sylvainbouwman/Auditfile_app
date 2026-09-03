@@ -779,6 +779,64 @@ def _uit_openstaande_posten(af: Auditfile, top: int = 10) -> list[Bevinding]:
     return bevindingen
 
 
+def _uit_excessief_lenen(af: Auditfile, invoer=None) -> list[Bevinding]:
+    """De drempeltoets bij de Wet excessief lenen bij eigen vennootschap.
+
+    De ernst is een waarschuwing en geen kritieke bevinding, ook boven de
+    drempel. De tool meet één vennootschap op de balansdatum; de wettelijke
+    toets gaat over alle vennootschappen van de belastingplichtige en zijn
+    partner op 31 december. Wat de tool ziet is dus een sterk signaal en geen
+    vaststelling. Zie ``excessief_lenen.py`` voor de vijf punten die daartussen
+    zitten.
+    """
+    from .excessief_lenen import (
+        STATUS_BOVEN,
+        STATUS_GEEN_REKENING,
+        beoordeel,
+        conclusie,
+    )
+
+    toets = beoordeel(af, invoer)
+    if toets.status == STATUS_GEEN_REKENING:
+        # Geen rekening-courant gevonden is geen bevinding: er is niets gezien.
+        # Dat de selectie een afwijkend gecodeerde rekening kan missen, staat op
+        # de eigen pagina en niet als bevinding, want anders zou elk dossier
+        # zonder rekening-courant er een bevinding bij krijgen.
+        return []
+
+    ernst = toets.ernst
+    if ernst is None:
+        return []
+
+    bedrag = toets.bovenmatig if toets.status == STATUS_BOVEN else toets.te_toetsen
+    rekeningen = ", ".join(
+        str(rekening) for rekening in build_rc_rekeningnummers(af)
+    )
+    return [
+        Bevinding(
+            categorie="Fiscaal",
+            onderwerp=f"Rekening-courant en leningen aandeelhouder: {toets.status}",
+            ernst=ernst,
+            toelichting=conclusie(toets),
+            bedrag=_getal(bedrag),
+            aantal_regels=toets.rekeningen or None,
+            rekening=rekeningen,
+            methode=toets.methode,
+            pagina="Fiscale signalen",
+        )
+    ]
+
+
+def build_rc_rekeningnummers(af: Auditfile) -> list[str]:
+    """De rekeningnummers achter de drempeltoets, voor de bevinding."""
+    from .excessief_lenen import build_rc_rekeningen
+
+    rekeningen = build_rc_rekeningen(af)
+    if rekeningen.empty:
+        return []
+    return [str(nummer) for nummer in rekeningen["rekening"]]
+
+
 def _uit_jaarvergelijking(vergelijking: pd.DataFrame, top: int = 10) -> list[Bevinding]:
     from .comparison import build_opvallende_verschillen
 
@@ -829,6 +887,7 @@ def verzamel_bevindingen(
     aangifte: dict[str, float] | None = None,
     grondslagen: dict[str, float] | None = None,
     materialiteit: Materialiteit | None = None,
+    excessief_lenen=None,
 ) -> pd.DataFrame:
     """Alle bevindingen van alle controles in één tabel.
 
@@ -856,5 +915,6 @@ def verzamel_bevindingen(
     bevindingen += _uit_controles(huidig)
     bevindingen += _uit_relatiesaldi(huidig)
     bevindingen += _uit_openstaande_posten(huidig)
+    bevindingen += _uit_excessief_lenen(huidig, excessief_lenen)
 
     return naar_frame(bevindingen, materialiteit)

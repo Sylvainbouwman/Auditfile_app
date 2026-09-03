@@ -44,6 +44,7 @@ AFTREK_BESTAND = "btw_aftrekbaarheid.json"
 GRONDSLAG_BESTAND = "btw_grondslagen.json"
 DOSSIER_BESTAND = "dossier.json"
 REVIEW_BESTAND = "bevindingen_review.json"
+EXCESSIEF_BESTAND = "excessief_lenen.json"
 
 # De paden van vóór de scheiding per dossier. Ze worden niet meer geschreven,
 # alleen nog gelezen om invoer uit een oudere versie te kunnen overnemen.
@@ -186,6 +187,18 @@ class DossierOpslag:
 
     def schrijf_review(self, review: dict) -> bool:
         return self._schrijf_bestand(review, REVIEW_BESTAND)
+
+    def lees_excessief_lenen(self) -> dict[str, float]:
+        """De dossiergegevens bij de drempeltoets excessief lenen.
+
+        Dit zijn bedragen die niet in een grootboek staan: de eigenwoningschuld
+        met hypotheekrecht, de schulden aan andere vennootschappen en het eerder
+        belaste fictieve reguliere voordeel.
+        """
+        return _als_getallen(self._lees_bestand(EXCESSIEF_BESTAND))
+
+    def schrijf_excessief_lenen(self, gegevens: dict) -> bool:
+        return self._schrijf_bestand(gegevens, EXCESSIEF_BESTAND)
 
     # --- Dossiergegevens ----------------------------------------------------
 
