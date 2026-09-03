@@ -60,6 +60,7 @@ from auditfile.memorandum import (
 )
 from auditfile.model import Auditfile
 from auditfile.parsing import parse_auditfile
+from auditfile.ratios import build_ratio_opbouw, build_ratios
 from auditfile.settings import (
     DOSSIER_DIR,
     DossierOpslag,
@@ -724,7 +725,66 @@ def pagina_bestandscontrole(vorig: Auditfile, huidig: Auditfile) -> None:
         toon_tabel(vorig.company_info_frame())
 
 
+# Een kerncijfer heeft weinig ruimte; een lang label wordt afgekapt en is dan
+# onleesbaar. De volledige naam blijft in de tabel eronder staan.
+KORTE_RATIONAMEN = {"Personeelskosten in % van de omzet": "Personeelsquote"}
+
+
+def toon_ratios(vorig: Auditfile, huidig: Auditfile) -> None:
+    """De ratio's van beide jaren, met de opbouw eronder."""
+    ratios = build_ratios(huidig, vorig)
+    kop(
+        "Ratio's",
+        "Vier verhoudingen naast elkaar. De tool geeft geen normwaarde: of een "
+        "uitkomst goed is, hangt af van de branche en de financieringsvorm.",
+    )
+    if ratios.empty:
+        st.info("Geen ratio's te bepalen uit deze bestanden.")
+        return
+
+    kolommen = st.columns(len(ratios))
+    for kolom, (_, rij) in zip(kolommen, ratios.iterrows()):
+        eenheid = str(rij["eenheid"])
+        if pd.isna(rij["waarde_huidig"]):
+            waarde = "—"
+        elif eenheid == "%":
+            waarde = procent(rij["waarde_huidig"])
+        else:
+            waarde = f"{float(rij['waarde_huidig']):.2f}".replace(".", ",")
+        verschil = None
+        # Een verschuiving van nul krijgt geen pijl: die zou een richting
+        # suggereren die er niet is.
+        if not pd.isna(rij["verschuiving"]) and abs(float(rij["verschuiving"])) >= 0.005:
+            teken = "+" if float(rij["verschuiving"]) > 0 else "-"
+            getal = f"{abs(float(rij['verschuiving'])):.2f}".replace(".", ",")
+            verschil = f"{teken}{getal}{' pp' if eenheid == '%' else ''}"
+        naam = str(rij["ratio"])
+        kolom.metric(
+            KORTE_RATIONAMEN.get(naam, naam),
+            waarde,
+            delta=verschil,
+            delta_color="off",
+            help=str(rij["definitie"]),
+        )
+
+    toon_tabel(ratios, kleur_op="ernst", verberg=("definitie",))
+
+    kop(
+        "Opbouw",
+        "Waar elk bedrag vandaan komt. Een ratio is pas bruikbaar als na te gaan "
+        "is welke rekeningen in de teller en de noemer zitten.",
+    )
+    tabbladen = st.tabs(
+        [f"Boekjaar {huidig.boekjaar or 'huidig'}", f"Boekjaar {vorig.boekjaar or 'vorig'}"]
+    )
+    for tabblad, bestand in zip(tabbladen, (huidig, vorig)):
+        with tabblad:
+            toon_tabel(build_ratio_opbouw(bestand))
+
+
 def pagina_jaarvergelijking(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataFrame) -> None:
+    toon_ratios(vorig, huidig)
+
     kop(
         "Per RGS-rubriek",
         "De hoofdlijn eerst: waar is het jaar veranderd?",

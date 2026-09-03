@@ -127,12 +127,20 @@ debiteuren- en de crediteurenrekening gezet.
 
 ## Categorie 4: Jaarrekening-review
 
-### Ratio-analyse
-- Brutomarge
-- Personeelskosten als % van omzet
-- Solvabiliteit
-- Liquiditeit
-- Vergelijking huidig jaar vs. vorig jaar
+### Ratio-analyse (gereed)
+`ratios.py` geeft de brutomarge, de personeelskosten als deel van de omzet, de
+solvabiliteit en de current en quick ratio, voor beide boekjaren naast elkaar.
+Elke uitkomst heeft een opbouw met per bouwsteen het bedrag, het aantal
+rekeningen en de gebruikte methode. Het resultaat van het boekjaar wordt bij het
+eigen vermogen geteld zodra uit de balanstelling blijkt dat het nog niet is
+bestemd; komt de balans noch op nul noch op het resultaat uit, dan volgt er geen
+solvabiliteit. Dekt de rubrieksindeling minder dan negentig procent van de
+balans, dan is een balansratio niet mogelijk.
+
+Geen normwaarden en geen branchevergelijking. Gesignaleerd worden een
+verschuiving van vijf procentpunt in de marge of de personeelsquote, een daling
+van tien procentpunt in de solvabiliteit, een negatief eigen vermogen en
+kortlopende schulden boven de vlottende activa.
 
 ### Trendanalyse
 - Jaar-op-jaar vergelijking per rekeningcategorie
@@ -233,12 +241,12 @@ Bijgewerkt op 3 september 2026.
 | 6 | Suppletiedetectie | Gedeeltelijk: "overige mutaties" in de rondrekening |
 | 7 | Lease- en huurdetectie | Gereed als periodieke controle |
 | 8 | AI-reviewpunten | Gereed: bevindingen met materialiteit, en de formulering in het memorandum |
-| 9 | Ratio-analyse | Gepland |
+| 9 | Ratio-analyse | Gereed |
 | 10 | Automatisch reviewmemorandum | Gereed als Markdown en Word (.docx), met downloadknoppen; PDF nog niet |
 
 ### Wat als eerste te doen staat
 
-Bijgewerkt op 3 september 2026, na het reviewmemorandum.
+Bijgewerkt op 3 september 2026, na de ratio-analyse en het reviewmemorandum.
 
 1. **XAF 4.0-relatiesaldi inlezen.** Gereed. `opBalDesc`/`opBalTp` en
    `clBalDesc`/`clBalTp` staan getekend in het model als `openstaand_begin` en
@@ -294,19 +302,28 @@ Bijgewerkt op 3 september 2026, na het reviewmemorandum.
    daarmee buiten het bedrag; `build_afwijkende_codering()` meldt dat wel, maar
    corrigeert het niet. Te beslissen of de gebruiker een rekening handmatig aan
    de toets moet kunnen toevoegen.
-6. **Ratio-analyse** (brutomarge, personeelskosten als percentage van de omzet,
-   solvabiliteit, liquiditeit), jaar op jaar.
+6. **Ratio-analyse.** Gereed. `ratios.py` deelt de rekeningen in bij de eerste
+   rubrieksgroep die ze herkent, meet de dekking van die indeling en geeft de
+   ratio's van beide jaren met hun opbouw. De uitkomsten staan op de pagina
+   Jaarvergelijking, in de bevindingen en in de Excel-export. `RGS_RUBRIEKEN` in
+   `controls.py` is bij deze stap aangevuld tot alle hoofdrubrieken van niveau 2;
+   daarvoor ontbraken onder meer `BFva`, `BEff`, `BVrz` en `BPro`, wat die
+   rekeningen stil buiten elke rubriekstelling liet vallen. **Wat rest**: een
+   ratio met een teller die op de omschrijving berust, blijft gevoelig voor het
+   rekeningschema. De omzetselectie sluit nu woorden als "inkoop" en "kosten"
+   vooraf uit, maar een schema zonder RGS-codes en met eigenzinnige
+   omschrijvingen kan nog steeds een rekening verkeerd indelen; de kolom
+   `methode` en de opbouw maken dat zichtbaar, ze voorkomen het niet.
 7. **Reviewmemorandum als document.** Gereed als Markdown en Word.
-   `memorandum.py`
-   bouwt de bevindingen om naar een document met kop, uitgangspunten,
-   samenvatting, de aandachtspunten per ernst, een eigen sectie voor wat niet
-   kon worden vastgesteld, de al beoordeelde bevindingen achteraan en een
-   verantwoording met het bewijsniveau en de RGS-dekking. De opbouw
+   `memorandum.py` bouwt de bevindingen om naar een document met kop,
+   uitgangspunten, samenvatting, de aandachtspunten per ernst, een eigen sectie
+   voor wat niet kon worden vastgesteld, de al beoordeelde bevindingen achteraan
+   en een verantwoording met het bewijsniveau en de RGS-dekking. De opbouw
    (`bouw_memorandum()`) staat los van de uitvoer (`naar_markdown()` en
    `naar_docx()`), zodat een vorm erbij een renderer is en niet een tweede
-   versie van dezelfde zinnen; de herkomst- en de beoordelingsregel staan
-   daarom als property bij `Punt`. Het document sorteert zelf op ernst, dan boven de drempel
-   vóór eronder, dan bedrag: `naar_frame()` sorteert op ernst en bedrag,
+   versie van dezelfde zinnen; de herkomst- en de beoordelingsregel staan daarom
+   als property bij `Punt`. Het document sorteert zelf op ernst, dan boven de
+   drempel vóór eronder, dan bedrag: `naar_frame()` sorteert op ernst en bedrag,
    waardoor een bevinding zonder bedrag onderaan haar ernstgroep zou zakken
    terwijl zij juist altijd meetelt. **Wat rest**: de uitvoer naar PDF, en de
    toelichtingen van de jaarvergelijking geven hun bedragen nog als `2520.00` in
@@ -318,7 +335,12 @@ Bijgewerkt op 3 september 2026, na het reviewmemorandum.
 - **Brede RGS-voorvoegsels.** `BVor` geldt buiten de relatieanalyse nog als
   debiteuren en `BSch` als crediteuren, terwijl daar meer soorten vorderingen en
   schulden onder vallen. Hetzelfde geldt voor alle personeelskosten als loon en
-  alle financiële baten en lasten als rente.
+  alle financiële baten en lasten als rente. Vastgesteld op 3 september 2026 bij
+  de ratio-analyse: dat is een probleem waar de rubriek één post moet afbakenen
+  en juist niet waar zij een hele zijde van de balans moet afbakenen. Voor de
+  current ratio zijn `BVor` en `BSch` de goede rubrieken, want RGS zet de
+  langlopende vorderingen onder `BFva`. Het openstaande punt blijft dus staan
+  voor de debiteuren- en crediteurenanalyse en niet voor de liquiditeit.
 - **Bedragen als float.** De toleranties maken dat werkbaar, maar voor exact
   reproduceerbare centencontroles zijn `Decimal` of hele centen robuuster.
 - **Geen XSD-validatie.** De parser leest wat er is en zet onleesbare bedragen

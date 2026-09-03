@@ -58,9 +58,19 @@ debet en credit, sluit elke transactie op nul, staan alle boekingen op een
 bekende rekening en binnen het boekjaar. Wijkt daar iets af, dan staat dat
 bovenaan.
 
-**Jaarvergelijking.** Per RGS-rubriek voor de hoofdlijn en per grootboekrekening
-voor het detail, met nieuwe en vervallen rekeningen en filters op status,
-rekeningsoort en verschilbedrag.
+**Jaarvergelijking.** Vier ratio's naast elkaar, dan per RGS-rubriek voor de
+hoofdlijn en per grootboekrekening voor het detail, met nieuwe en vervallen
+rekeningen en filters op status, rekeningsoort en verschilbedrag.
+
+**Ratio's.** Brutomarge, personeelskosten als deel van de omzet, solvabiliteit en
+liquiditeit, voor beide boekjaren. Onder elke uitkomst staat de opbouw: welke
+rubrieken zijn gebruikt, hoeveel rekeningen daarin vallen en of dat op de
+RGS-code of op de omschrijving berust. Het resultaat van het boekjaar wordt bij
+het eigen vermogen geteld zodra uit de balans blijkt dat het nog niet is bestemd.
+De tool geeft geen normwaarden: gesignaleerd wordt een verschuiving tussen beide
+jaren, een negatief eigen vermogen en kortlopende schulden die de vlottende
+activa overtreffen. Dekt de rubrieksindeling minder dan negentig procent van de
+balans, dan volgt er geen balansratio maar de melding dat die niet mogelijk is.
 
 **Btw.** Een auditfile bevat geen aangifte, maar wel btw-codes per boekingsregel.
 De tool stelt per code een aangifterubriek voor op grond van de omschrijving, het
@@ -199,6 +209,7 @@ opgebouwd; er wordt nooit klantdata gelezen.
 | `auditfile/vat_rubrics.py` | Rubrieken van de aangifte omzetbelasting |
 | `auditfile/controls.py` | Analytische en fiscale controles |
 | `auditfile/comparison.py` | Jaar-op-jaar vergelijking |
+| `auditfile/ratios.py` | Brutomarge, personeelsquote, solvabiliteit en liquiditeit |
 | `auditfile/relatiesaldi.py` | Openstaande bedragen per relatie (XAF 4.0) |
 | `auditfile/openstaand.py` | Openstaande posten en ouderdom (XAF 3.2) |
 | `auditfile/excessief_lenen.py` | Drempeltoets excessief lenen |
