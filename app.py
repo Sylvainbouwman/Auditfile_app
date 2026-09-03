@@ -52,7 +52,12 @@ from auditfile.integrity import (
     controleer_auditfile,
     samenvatting,
 )
-from auditfile.memorandum import memorandum_markdown, memorandumnaam
+from auditfile.memorandum import (
+    bouw_memorandum,
+    memorandumnaam,
+    naar_docx,
+    naar_markdown,
+)
 from auditfile.model import Auditfile
 from auditfile.parsing import parse_auditfile
 from auditfile.ratios import build_ratio_opbouw, build_ratios
@@ -565,7 +570,10 @@ def pagina_memorandum(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.Data
 
     materialiteit = huidige_materialiteit(huidig)
     bevindingen = bevindingen_met_review(vorig, huidig, vergelijking, materialiteit)
-    tekst = memorandum_markdown(
+    # Het memorandum wordt hier een keer opgebouwd en daarna twee keer
+    # weergegeven. Twee keer bouwen zou de bevindingen en het bewijsniveau
+    # opnieuw doorrekenen voor hetzelfde stuk.
+    memo = bouw_memorandum(
         huidig,
         bevindingen,
         materialiteit,
@@ -573,6 +581,7 @@ def pagina_memorandum(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.Data
         opsteller=opsteller,
         opgesteld_op=opgesteld_op,
     )
+    tekst = naar_markdown(memo)
 
     st.caption(
         f"De gebruikte drempel is {euro(materialiteit.drempel)}; die stelt u in op de pagina "
@@ -580,12 +589,24 @@ def pagina_memorandum(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.Data
         "bevindingen hebben nog geen vastgelegde beoordeling en staan als “Te beoordelen” "
         "in het stuk."
     )
-    st.download_button(
-        "Download het memorandum (Markdown)",
-        data=tekst.encode("utf-8"),
-        file_name=memorandumnaam(huidig),
-        mime="text/markdown",
+    # Word staat vooraan en is de primaire knop: dat is de vorm die in het
+    # dossier terechtkomt. De weergave eronder blijft de Markdown-tekst, want
+    # dezelfde secties en punten staan in beide vormen.
+    woord, markdown = st.columns(2)
+    woord.download_button(
+        "Download als Word (.docx)",
+        data=naar_docx(memo),
+        file_name=memorandumnaam(huidig, "docx"),
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         type="primary",
+        width="stretch",
+    )
+    markdown.download_button(
+        "Download als Markdown",
+        data=tekst.encode("utf-8"),
+        file_name=memorandumnaam(huidig, "md"),
+        mime="text/markdown",
+        width="stretch",
     )
     with st.container(border=True):
         st.markdown(tekst)

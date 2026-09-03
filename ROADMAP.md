@@ -192,7 +192,7 @@ Automatisch gegenereerde aandachtspunten, bijvoorbeeld:
 
 ## Categorie 6: AI-laag
 
-### Reviewmemorandum (gereed als Markdown)
+### Reviewmemorandum (gereed als Markdown en Word)
 Automatisch gegenereerd document met de bevindingen, in de vorm die hierboven
 als einddoel stond:
 
@@ -204,23 +204,26 @@ als einddoel stond:
 
 `memorandum.py` bouwt uit de bevindingen een document in twee lagen:
 `bouw_memorandum()` maakt de secties en de punten zonder opmaak,
-`naar_markdown()` zet die om naar tekst. De indeling is kop, uitgangspunten met
+`naar_markdown()` en `naar_docx()` zetten die om naar tekst en naar een
+Word-bestand. De indeling is kop, uitgangspunten met
 de materialiteitsdrempel en haar opbouw, samenvatting, de aandachtspunten per
 ernst op volgorde van gewicht, wat niet kon worden vastgesteld, de al beoordeelde
 bevindingen en de verantwoording. Elk punt heeft één doorlopend nummer. Op de
-pagina Memorandum staat het stuk met een downloadknop.
+pagina Memorandum staat het stuk met een downloadknop voor Word en een voor
+Markdown.
 
-Wat rest is een tweede uitvoervorm: Word of PDF wordt een tweede renderer op
-hetzelfde `Memorandum`, zodat de formulering niet dubbel komt te staan. Zie
+De Word-uitvoer is een tweede renderer op hetzelfde `Memorandum` en geen tweede
+versie van dezelfde zinnen: de koppen, de kenmerkenlijst, de genummerde
+samenvatting, de punten als kop en de cursieve herkomstregel zijn opmaak, en
+elke formulering blijft in `bouw_memorandum()` staan. Wat rest is PDF; zie
 "Toekomstige mogelijkheden".
 
 ### Toekomstige mogelijkheden
 - Koppeling met AFAS (GetConnector) voor automatische import jaarrekening
 - Vergelijking met branchegemiddelden (SBI-code)
-- Exporteren naar Word of PDF voor dossiervorming. Het memorandum staat als
-  `Memorandum`-structuur klaar; dit is een tweede renderer naast
-  `naar_markdown()` en vraagt een nieuwe afhankelijkheid (`python-docx` of
-  een PDF-bibliotheek)
+- Exporteren naar PDF voor dossiervorming. Word is gereed via `naar_docx()`
+  (`python-docx`); PDF is opnieuw een renderer op dezelfde `Memorandum` en
+  vraagt een eigen afhankelijkheid
 
 ---
 
@@ -239,7 +242,7 @@ Bijgewerkt op 3 september 2026.
 | 7 | Lease- en huurdetectie | Gereed als periodieke controle |
 | 8 | AI-reviewpunten | Gereed: bevindingen met materialiteit, en de formulering in het memorandum |
 | 9 | Ratio-analyse | Gereed |
-| 10 | Automatisch reviewmemorandum | Gereed als Markdown, met downloadknop; Word of PDF nog niet |
+| 10 | Automatisch reviewmemorandum | Gereed als Markdown en Word (.docx), met downloadknoppen; PDF nog niet |
 
 ### Wat als eerste te doen staat
 
@@ -311,19 +314,18 @@ Bijgewerkt op 3 september 2026, na de ratio-analyse en het reviewmemorandum.
    vooraf uit, maar een schema zonder RGS-codes en met eigenzinnige
    omschrijvingen kan nog steeds een rekening verkeerd indelen; de kolom
    `methode` en de opbouw maken dat zichtbaar, ze voorkomen het niet.
-7. **Reviewmemorandum als document.** Gereed als Markdown. `memorandum.py`
-   bouwt de bevindingen om naar een document met kop, uitgangspunten,
-   samenvatting, de aandachtspunten per ernst, een eigen sectie voor wat niet
-   kon worden vastgesteld, de al beoordeelde bevindingen achteraan en een
-   verantwoording met het bewijsniveau en de RGS-dekking. De opbouw
-   (`bouw_memorandum()`) staat los van de uitvoer (`naar_markdown()`), zodat
-   Word of PDF later een tweede renderer is en niet een tweede versie van
-   dezelfde zinnen. Het document sorteert zelf op ernst, dan boven de drempel
-   vóór eronder, dan bedrag: `naar_frame()` sorteert op ernst en bedrag,
+7. **Reviewmemorandum als document.** Gereed als Markdown en Word.
+   `memorandum.py` bouwt de bevindingen om naar een document met kop,
+   uitgangspunten, samenvatting, de aandachtspunten per ernst, een eigen sectie
+   voor wat niet kon worden vastgesteld, de al beoordeelde bevindingen achteraan
+   en een verantwoording met het bewijsniveau en de RGS-dekking. De opbouw
+   (`bouw_memorandum()`) staat los van de uitvoer (`naar_markdown()` en
+   `naar_docx()`), zodat een vorm erbij een renderer is en niet een tweede
+   versie van dezelfde zinnen; de herkomst- en de beoordelingsregel staan daarom
+   als property bij `Punt`. Het document sorteert zelf op ernst, dan boven de
+   drempel vóór eronder, dan bedrag: `naar_frame()` sorteert op ernst en bedrag,
    waardoor een bevinding zonder bedrag onderaan haar ernstgroep zou zakken
-   terwijl zij juist altijd meetelt. **Wat rest**: de uitvoer naar Word of PDF,
-   en `memorandum.py` heeft nog een eigen `_euro`; die mag een verwijzing naar
-   `notatie.euro` worden zodra de Word-branch binnen is.
+   terwijl zij juist altijd meetelt. **Wat rest**: de uitvoer naar PDF.
 
 ### Kleinere punten uit de review die nog openstaan
 
