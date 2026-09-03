@@ -15,23 +15,48 @@ import pandas as pd
 
 from .model import Auditfile
 
-# Hoofdrubrieken van het Referentiemodel Generieke Structuur.
+# Hoofdrubrieken (niveau 2) van het Referentie Grootboekschema. De lijst is
+# ontleend aan het overzicht van balans en winst- en verliesrekening op
+# boekhoudplaza.nl/cmm/rgs/referentiegrootboekschema_rgs_balans_winst_en_verlies.php.
+# Volledigheid telt hier: een rubriek die ontbreekt levert geen foutmelding maar
+# een lege rubriek, en daarmee een rekening die stil buiten elke telling valt.
 RGS_RUBRIEKEN = {
-    "BEiv": "Eigen vermogen",
+    # Balans: activa
     "BIva": "Immateriele vaste activa",
-    "BLas": "Langlopende schulden",
-    "BLim": "Liquide middelen",
     "BMva": "Materiele vaste activa",
-    "BSch": "Kortlopende schulden",
-    "BVor": "Vorderingen",
+    "BVas": "Vastgoedbeleggingen",
+    "BFva": "Financiele vaste activa",
     "BVrd": "Voorraden",
-    "WAfs": "Afschrijvingen",
-    "WBed": "Bedrijfskosten",
-    "WBel": "Belastingen resultaat",
-    "WFbe": "Financiele baten en lasten",
-    "WKpr": "Kostprijs van de omzet",
+    "BPro": "Onderhanden projecten",
+    "BVor": "Vorderingen",
+    "BEff": "Effecten",
+    "BLim": "Liquide middelen",
+    # Balans: passiva
+    "BEiv": "Eigen vermogen",
+    "BVrz": "Voorzieningen",
+    "BLas": "Langlopende schulden",
+    "BSch": "Kortlopende schulden",
+    # Winst- en verliesrekening
     "WOmz": "Netto-omzet",
+    "WWiv": "Wijziging voorraden",
+    "WOvb": "Overige bedrijfsopbrengsten",
+    "WKpr": "Kostprijs van de omzet",
+    "WVkf": "Verkoopkosten",
+    "WAkf": "Algemene beheerskosten",
     "WPer": "Personeelskosten",
+    "WAfs": "Afschrijvingen",
+    "WWvi": "Waardeveranderingen vaste activa",
+    "WBwv": "Overige waardeveranderingen",
+    "WBed": "Bedrijfskosten",
+    "WOvt": "Opbrengst vorderingen en effecten",
+    "WVhe": "Vrijval herwaarderingsreserve",
+    "WWfa": "Waardeveranderingen financiele vaste activa",
+    "WFbe": "Financiele baten en lasten",
+    "WRed": "Resultaat deelnemingen",
+    "WBel": "Belastingen resultaat",
+    "WLbe": "Ledenbetalingen",
+    "WAad": "Aandeel derden",
+    "WNer": "Netto resultaat",
 }
 
 

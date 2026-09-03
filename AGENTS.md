@@ -52,6 +52,7 @@ rekenlogica dus nooit in `app.py`.
 | `vat.py` | Btw-analyse, rubriekvoorstel, rondrekening, signalen |
 | `controls.py` | Periodieke, analytische en fiscale controles |
 | `comparison.py` | Jaar-op-jaar vergelijking |
+| `ratios.py` | Ratio-analyse: brutomarge, personeelsquote, solvabiliteit, liquiditeit |
 | `excel.py` | Excel-export |
 | `formatting.py` | Presentatie van tabellen in de app |
 | `settings.py` | Lokale opslag van eigen invoer |
@@ -132,6 +133,20 @@ rekenlogica dus nooit in `app.py`.
   fiscale toets die de gebruikersinvoer met het bestandsgegeven op één hoop
   gooit, en laat de tool zeggen dat de toets niet kan wanneer de peildatum niet
   klopt of het bedrag voor dat jaar niet is vastgesteld.
+
+- **Een rubriek gebruiken waarvoor zij bedoeld is** — dat `BVor` te ruim is
+  voor *debiteuren* betekent niet dat de rubriek onbruikbaar is. Voor de
+  liquiditeit is die breedte juist correct: RGS zet de vlottende vorderingen
+  onder `BVor` en de langlopende onder `BFva`, en `BSch` is per definitie de
+  kortlopende schuld. Beoordeel per controle wat de rubriek moet afbakenen, en
+  zet de reden in de module.
+
+  Waar een rubriek een noemer vult, hoort een dekkingsmaat erbij. `ratios.py`
+  deelt elke balansrekening in bij de eerste groep die haar herkent en meet wat
+  er niet is ingedeeld; onder `MINIMALE_DEKKING` geeft de tool geen balansratio
+  in plaats van een getal dat er goed uitziet. Of het resultaat van het boekjaar
+  bij het eigen vermogen moet worden geteld, wordt om dezelfde reden gemeten aan
+  de balanstelling en niet aangenomen.
 
 - **Eerst vaststellen wat er is** — bijna alles in XAF is optioneel en 3.2 en 4.0
   verschillen inhoudelijk. `capability.py` stelt per bestand vast welke blokken
