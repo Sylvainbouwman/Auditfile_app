@@ -423,6 +423,55 @@ def _uit_btw(af: Auditfile, gebruik: pd.DataFrame, samenvatting: pd.DataFrame) -
     return bevindingen
 
 
+def _uit_suppletie(af: Auditfile, samenvatting: pd.DataFrame) -> list[Bevinding]:
+    """De suppletieaansluiting als bevinding.
+
+    Het onderwerp is de status zelf. Die statussen zijn hele zinnen en lezen in
+    het memorandum als kop; bovendien is een andere status een inhoudelijk
+    andere bevinding, die opnieuw beoordeeld hoort te worden. Het bedrag zit
+    niet in de sleutel, zodat een gewijzigd bedrag binnen dezelfde status de
+    beoordeling niet weggooit.
+    """
+    from . import suppletie as sup
+
+    aansluiting = sup.bouw_aansluiting(af, samenvatting)
+    ernst_per_status = {
+        sup.GEEN_BTW_REKENINGEN: NIET_MOGELIJK,
+        sup.GEEN_VERGELIJKING: NIET_MOGELIJK,
+        sup.SUPPLETIE_ZONDER_VERGELIJKING: SIGNAAL,
+        sup.GEEN_SUPPLETIE: WAARSCHUWING,
+        sup.SLUIT_AAN: SIGNAAL,
+        sup.DEELS: WAARSCHUWING,
+        sup.ZONDER_VERSCHIL: SIGNAAL,
+    }
+    ernst = ernst_per_status.get(aansluiting.status)
+    if ernst is None:
+        # Geen suppletie en geen verschil: er valt niets te beoordelen.
+        return []
+
+    # Het bedrag dat de bevinding draagt is het bedrag waar de vraag over gaat:
+    # bij een onverklaard verschil het verschil zelf, bij een suppletie die maar
+    # een deel verklaart het restant, en verder het geboekte bedrag.
+    bedrag_per_status = {
+        sup.GEEN_SUPPLETIE: aansluiting.verschil_met_aangifte,
+        sup.DEELS: aansluiting.restant,
+    }
+    bedrag = bedrag_per_status.get(aansluiting.status, aansluiting.geboekt)
+
+    return [
+        Bevinding(
+            categorie="Btw",
+            onderwerp=f"Suppletie: {aansluiting.status.lower()}",
+            ernst=ernst,
+            toelichting=aansluiting.toelichting,
+            bedrag=_getal(bedrag) if ernst != NIET_MOGELIJK else None,
+            aantal_regels=aansluiting.aantal or None,
+            methode=aansluiting.methode,
+            pagina="Btw",
+        )
+    ]
+
+
 def _uit_controles(af: Auditfile) -> list[Bevinding]:
     from . import controls
 
@@ -989,6 +1038,7 @@ def verzamel_bevindingen(
     bevindingen += _uit_integriteit(huidig, f"{huidig.boekjaar or 'huidig jaar'}")
     bevindingen += _uit_capability(huidig)
     bevindingen += _uit_btw(huidig, gebruik, samenvatting)
+    bevindingen += _uit_suppletie(huidig, samenvatting)
     bevindingen += _uit_controles(huidig)
     bevindingen += _uit_relatiesaldi(huidig)
     bevindingen += _uit_openstaande_posten(huidig)
