@@ -273,7 +273,8 @@ def test_de_dekking_staat_in_de_opbouw():
     opbouw = build_ratio_opbouw(_ratiofixture())
     regel = _bouwsteen(opbouw, "Niet ingedeeld")
     assert round(regel["bedrag"], 2) == 0.0
-    assert "100,0%".replace(",", ".") in regel["toelichting"]
+    # De dekking staat in een Nederlandse zin, dus met een komma.
+    assert "100,0%" in regel["toelichting"]
 
 
 # --- Signalen ---------------------------------------------------------------

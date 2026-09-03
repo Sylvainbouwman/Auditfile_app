@@ -16,7 +16,7 @@ import pytest
 from auditfile.comparison import compare_saldi
 from auditfile.demo import demopaar
 from auditfile.findings import _uit_jaarvergelijking
-from auditfile.notatie import GEEN_WAARDE, datum_nl, euro, euro_kort, procent
+from auditfile.notatie import GEEN_WAARDE, datum_nl, euro, euro_kort, getal, procent
 from auditfile.parsing import parse_auditfile
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -52,6 +52,19 @@ def test_kerncijfers_en_percentages():
     assert euro_kort(1234.56) == "€ 1.235"
     assert procent(12.34) == "12,3%"
     assert datum_nl("2025-12-31") == "31-12-2025"
+
+
+def test_een_percentage_boven_duizend_houdt_zijn_duizendtalscheiding():
+    """Een stijging van 2500% kwam er als "2,500,0%" uit: twee komma's."""
+    assert procent(2500.0) == "2.500,0%"
+
+
+def test_een_verhouding_is_geen_bedrag_en_geen_percentage():
+    """De current ratio staat in een Nederlandse zin, dus met een komma."""
+    assert getal(1.5) == "1,50"
+    assert getal(12.34, 1) == "12,3"
+    assert getal(1234.5) == "1.234,50"
+    assert getal(None) == GEEN_WAARDE
 
 
 # --- Waar de notatie mag staan ----------------------------------------------

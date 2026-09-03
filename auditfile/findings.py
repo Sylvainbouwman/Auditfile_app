@@ -37,7 +37,7 @@ import pandas as pd
 
 from .integrity import IN_ORDE, KRITIEK, NIET_MOGELIJK, WAARSCHUWING
 from .model import Auditfile
-from .notatie import euro
+from .notatie import euro, getal, procent
 
 # Vierde niveau naast die van integrity.py: iets om naar te kijken.
 SIGNAAL = "signaal"
@@ -906,7 +906,7 @@ def _uit_ratios(huidig: Auditfile, vorig: Auditfile | None) -> list[Bevinding]:
             waarde = _getal(rij.get("waarde_huidig"))
             stand = ""
             if waarde is not None:
-                stand = f"{waarde:.1f}%" if eenheid == "%" else f"{waarde:.2f}"
+                stand = procent(waarde) if eenheid == "%" else getal(waarde)
             toelichting = f"{naam}: {stand}. {signaal}".strip() if stand else signaal
             verschuiving = _getal(rij.get("verschuiving"))
             teller = _getal(rij.get("teller_bedrag"))
@@ -916,7 +916,7 @@ def _uit_ratios(huidig: Auditfile, vorig: Auditfile | None) -> list[Bevinding]:
             elif eenheid == "%" and verschuiving is not None and noemer is not None:
                 bedrag = abs(verschuiving) / 100.0 * abs(noemer)
                 toelichting += (
-                    f" Het bedrag is de verschuiving van {abs(verschuiving):.1f} procentpunt "
+                    f" Het bedrag is de verschuiving van {getal(abs(verschuiving), 1)} procentpunt "
                     "toegepast op de noemer van dit jaar."
                 )
             elif eenheid == "x" and teller is not None and noemer is not None:
