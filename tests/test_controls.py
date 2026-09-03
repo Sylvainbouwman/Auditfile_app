@@ -229,6 +229,48 @@ def test_normale_balans_geeft_geen_signalen(af_40):
     assert "Crediteuren" not in set(signalen["categorie"])
 
 
+def test_andere_vordering_of_schuld_is_geen_debiteur_of_crediteur():
+    """Onder `BVor` en `BSch` valt veel meer dan handelsdebiteuren.
+
+    Een creditstand op de rekening-courant met de dga en een debetstand op de
+    omzetbelasting zijn beide doodnormaal. Met de brede rubriek werden ze
+    gemeld als een debiteur en een crediteur die aan de verkeerde kant staan.
+    """
+    spec = AuditfileSpec(
+        accounts=[
+            Account("1400", "Rekening-courant aandeelhouder", "B", "BVorOvrRca", "BVorOvrRca"),
+            Account("1800", "Omzetbelasting", "B", "BSchObr", "BSchObr"),
+            Account("1100", "Bank", "B", "BLimBan", "BLimBan"),
+        ],
+        opening_lines=[],
+        journals=[
+            Journal(
+                "MEM",
+                "Memoriaal",
+                [
+                    Transaction(
+                        "M1",
+                        "2025-01-31",
+                        1,
+                        [
+                            # De vennootschap heeft een schuld aan de dga.
+                            Line("1400", "7500.00", "C"),
+                            # En een teruggaaf omzetbelasting te vorderen.
+                            Line("1800", "2500.00", "D"),
+                            Line("1100", "5000.00", "D"),
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    af = parse_auditfile("anderevorderingen.xaf", build_xaf(spec))
+
+    signalen = build_balanspost_signalen(af)
+
+    assert signalen.empty, signalen[["categorie", "rekening", "signaal"]].to_string()
+
+
 # --- Fiscale signalen -------------------------------------------------------
 
 

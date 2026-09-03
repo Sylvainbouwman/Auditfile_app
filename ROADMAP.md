@@ -329,15 +329,27 @@ Bijgewerkt op 3 september 2026, na de ratio-analyse en het reviewmemorandum.
 
 ### Kleinere punten uit de review die nog openstaan
 
-- **Brede RGS-voorvoegsels.** `BVor` geldt buiten de relatieanalyse nog als
-  debiteuren en `BSch` als crediteuren, terwijl daar meer soorten vorderingen en
-  schulden onder vallen. Hetzelfde geldt voor alle personeelskosten als loon en
-  alle financiële baten en lasten als rente. Vastgesteld op 3 september 2026 bij
-  de ratio-analyse: dat is een probleem waar de rubriek één post moet afbakenen
-  en juist niet waar zij een hele zijde van de balans moet afbakenen. Voor de
-  current ratio zijn `BVor` en `BSch` de goede rubrieken, want RGS zet de
-  langlopende vorderingen onder `BFva`. Het openstaande punt blijft dus staan
-  voor de debiteuren- en crediteurenanalyse en niet voor de liquiditeit.
+- **Brede RGS-voorvoegsels.** Opgelost op 3 september 2026 waar de rubriek één
+  post moest afbakenen. `build_balanspost_signalen()` wees de debiteuren met
+  `BVor` en de crediteuren met `BSch` aan, en daaronder vallen ook de
+  omzetbelasting, de rekening-courant met de dga en de vooruitbetaalde kosten.
+  Een creditstand op die rekening-courant en een debetstand op de
+  omzetbelasting zijn beide doodnormaal, en werden gemeld als een post die aan
+  de verkeerde kant staat met "Debiteuren" of "Crediteuren" als categorie
+  erboven. De controle gebruikt nu `RELATIEREKENINGEN`, dezelfde selectie als de
+  relatieanalyse en de saldoaansluiting, dus één plaats beslist wat een
+  debiteur is. Een bestand dat alleen op niveau 2 codeert (`BVor` zonder
+  subcode) levert daardoor geen signaal meer: dat bestand zegt zelf niet welke
+  vordering een handelsdebiteur is, en de dekking daarvan staat in
+  `capability.py`. Voor de liquiditeit blijven `BVor` en `BSch` juist de goede
+  rubrieken, want RGS zet de langlopende vorderingen onder `BFva`.
+
+  **Wat rest**: in de periodieke controles gelden alle personeelskosten
+  (`WPer`) als loon en alle financiële baten en lasten (`WFbe`) als rente. Daar
+  is de vraag of een last in elke periode voorkomt, en voor die vraag is de
+  brede rubriek verdedigbaar; bij een controle die één post moet afbakenen zou
+  zij dat niet zijn. Te beslissen of de kop boven die controles dat moet
+  zeggen.
 - **Bedragen als float.** De toleranties maken dat werkbaar, maar voor exact
   reproduceerbare centencontroles zijn `Decimal` of hele centen robuuster.
 - **Geen XSD-validatie.** De parser leest wat er is en zet onleesbare bedragen

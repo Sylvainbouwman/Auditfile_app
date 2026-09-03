@@ -614,10 +614,21 @@ def build_balanspost_signalen(af: Auditfile) -> pd.DataFrame:
         return pd.DataFrame(columns=kolommen)
 
     # Per categorie: RGS-prefix, zoekterm, en het verwachte teken van het
-    # eindsaldo (1 = debet, -1 = credit).
+    # eindsaldo (1 = debet, -1 = credit). De debiteuren- en de
+    # crediteurenrekeningen komen uit `RELATIEREKENINGEN`, zodat één plaats
+    # beslist wat een debiteur is. Hier stonden `BVor` en `BSch`, en daaronder
+    # vallen ook de omzetbelasting, de rekening-courant met de dga en de
+    # vooruitbetaalde kosten: een creditsaldo op zo'n rekening-courant is
+    # doodnormaal en werd gemeld als een debiteur die aan de verkeerde kant
+    # staat, met "Debiteuren" als categorie erboven. Een bestand dat alleen op
+    # niveau 2 codeert (`BVor` zonder subcode) levert daardoor geen signaal
+    # meer: dat bestand zegt zelf niet welke vordering een handelsdebiteur is,
+    # en de dekking daarvan staat in `capability.py`.
+    debiteur_prefix, debiteur_patroon = RELATIEREKENINGEN["debiteur"]
+    crediteur_prefix, crediteur_patroon = RELATIEREKENINGEN["crediteur"]
     categorieen: tuple[tuple[str, str | None, str | None, int], ...] = (
-        ("Debiteuren", "BVor", r"debiteur|vordering.*handel|accounts receivable", 1),
-        ("Crediteuren", "BSch", r"crediteur|leverancier|accounts payable", -1),
+        ("Debiteuren", debiteur_prefix, debiteur_patroon, 1),
+        ("Crediteuren", crediteur_prefix, crediteur_patroon, -1),
         ("Liquide middelen", "BLim", r"\bbank\b|\bkas\b|giro", 1),
         ("Voorraden", "BVrd", r"voorraad|inventory", 1),
     )
