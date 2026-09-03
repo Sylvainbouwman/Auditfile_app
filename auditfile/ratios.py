@@ -43,6 +43,7 @@ import pandas as pd
 from .controls import _selecteer
 from .findings import IN_ORDE, NIET_MOGELIJK, SIGNAAL, WAARSCHUWING
 from .model import Auditfile
+from .notatie import getal, procent
 
 TOLERANTIE = 0.01
 
@@ -411,7 +412,7 @@ def build_ratio_opbouw(af: Auditfile) -> pd.DataFrame:
             "bedrag": grootheden.niet_ingedeeld,
             "toelichting": (
                 f"Balansrekeningen die in geen enkele rubriek vallen. De indeling dekt "
-                f"{grootheden.dekking * 100:.1f}% van de balans; onder "
+                f"{procent(grootheden.dekking * 100)} van de balans; onder "
                 f"{MINIMALE_DEKKING * 100:.0f}% geeft de tool geen balansratio."
             ),
         },
@@ -438,7 +439,7 @@ def _balans_bruikbaar(grootheden: Grootheden) -> str:
         return "Er zijn geen balansrekeningen met een debetsaldo; het balanstotaal is nul."
     if grootheden.dekking < MINIMALE_DEKKING:
         return (
-            f"De rubrieksindeling dekt {grootheden.dekking * 100:.1f}% van de balans, minder "
+            f"De rubrieksindeling dekt {procent(grootheden.dekking * 100)} van de balans, minder "
             f"dan de vereiste {MINIMALE_DEKKING * 100:.0f}%. In het niet-ingedeelde deel kan "
             "eigen vermogen of een kortlopende schuld zitten."
         )
@@ -520,9 +521,9 @@ def _beoordeel_brutomarge(uit: Uitkomst, verschuiving: float | None) -> tuple[st
         return IN_ORDE, ""
     richting = "gestegen" if verschuiving > 0 else "gedaald"
     return SIGNAAL, (
-        f"De brutomarge is met {abs(verschuiving):.1f} procentpunt {richting}. Beoordeel de "
-        "prijsstelling, de inkoopwaarde en de voorraadwaardering, en of de afgrenzing van "
-        "kostprijs en overige kosten tussen beide jaren gelijk is."
+        f"De brutomarge is met {getal(abs(verschuiving), 1)} procentpunt {richting}. Beoordeel "
+        "de prijsstelling, de inkoopwaarde en de voorraadwaardering, en of de afgrenzing "
+        "van kostprijs en overige kosten tussen beide jaren gelijk is."
     )
 
 
@@ -531,7 +532,7 @@ def _beoordeel_quote(uit: Uitkomst, verschuiving: float | None) -> tuple[str, st
         return IN_ORDE, ""
     richting = "gestegen" if verschuiving > 0 else "gedaald"
     return SIGNAAL, (
-        f"De personeelskosten als deel van de omzet zijn met {abs(verschuiving):.1f} "
+        f"De personeelskosten als deel van de omzet zijn met {getal(abs(verschuiving), 1)} "
         f"procentpunt {richting}. Beoordeel de aansluiting op de salarisadministratie en de "
         "verhouding tussen eigen personeel en inleen."
     )
@@ -545,7 +546,7 @@ def _beoordeel_solvabiliteit(uit: Uitkomst, verschuiving: float | None) -> tuple
         )
     if verschuiving is not None and verschuiving <= -DALING_SOLVABILITEIT_PP:
         return SIGNAAL, (
-            f"De solvabiliteit is met {abs(verschuiving):.1f} procentpunt gedaald. Beoordeel "
+            f"De solvabiliteit is met {getal(abs(verschuiving), 1)} procentpunt gedaald. Beoordeel "
             "waar dat vandaan komt: het resultaat, een uitkering of een toename van de "
             "schulden."
         )
