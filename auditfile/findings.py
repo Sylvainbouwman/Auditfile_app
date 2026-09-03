@@ -37,6 +37,7 @@ import pandas as pd
 
 from .integrity import IN_ORDE, KRITIEK, NIET_MOGELIJK, WAARSCHUWING
 from .model import Auditfile
+from .notatie import euro
 
 # Vierde niveau naast die van integrity.py: iets om naar te kijken.
 SIGNAAL = "signaal"
@@ -322,8 +323,8 @@ def _uit_jaarovergang(vorig: Auditfile, huidig: Auditfile) -> list[Bevinding]:
                     ernst=SIGNAAL,
                     toelichting=(
                         f"Rekening {rij['rekening']} {rij['accDesc']}: eindsaldo vorig jaar "
-                        f"{rij['eindsaldo_vorig']:.2f} tegenover beginsaldo "
-                        f"{rij['beginsaldo_huidig']:.2f}."
+                        f"{euro(rij['eindsaldo_vorig'])} tegenover beginsaldo "
+                        f"{euro(rij['beginsaldo_huidig'])}."
                     ),
                     bedrag=_getal(rij["verschil"]),
                     rekening=str(rij["rekening"]),
@@ -399,14 +400,14 @@ def _uit_btw(af: Auditfile, gebruik: pd.DataFrame, samenvatting: pd.DataFrame) -
             bedrag = _getal(rij.get("verschil_grondslag"))
             toelichting = (
                 f"De btw sluit aan, maar de grondslag wijkt af: volgens het auditfile "
-                f"{rij['grondslag_volgens_xaf']:.2f} tegenover "
-                f"{rij['grondslag_volgens_aangifte']:.2f} volgens de aangifte."
+                f"{euro(rij['grondslag_volgens_xaf'])} tegenover "
+                f"{euro(rij['grondslag_volgens_aangifte'])} volgens de aangifte."
             )
         else:
             bedrag = _getal(rij.get("verschil"))
             toelichting = (
-                f"Volgens het auditfile {rij['btw_volgens_xaf']:.2f} tegenover "
-                f"{rij['btw_volgens_aangifte']:.2f} volgens de aangifte."
+                f"Volgens het auditfile {euro(rij['btw_volgens_xaf'])} tegenover "
+                f"{euro(rij['btw_volgens_aangifte'])} volgens de aangifte."
             )
         bevindingen.append(
             Bevinding(
@@ -863,8 +864,8 @@ def _uit_jaarvergelijking(vergelijking: pd.DataFrame, top: int = 10) -> list[Bev
                 onderwerp=f"{rij['status'].capitalize()}: {rij['accDesc'] or rij['rekening']}",
                 ernst=SIGNAAL,
                 toelichting=(
-                    f"Rekening {rij['rekening']}: {rij['saldo_vorig']:.2f} vorig jaar tegenover "
-                    f"{rij['saldo_huidig']:.2f} dit jaar."
+                    f"Rekening {rij['rekening']}: {euro(rij['saldo_vorig'])} vorig jaar "
+                    f"tegenover {euro(rij['saldo_huidig'])} dit jaar."
                 ),
                 bedrag=_getal(rij.get("verschil_bedrag")),
                 rekening=str(rij["rekening"]),
