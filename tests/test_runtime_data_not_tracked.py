@@ -97,6 +97,42 @@ def test_oud_bestand_niet_meer_getrackt() -> None:
     )
 
 
+def test_testmap_is_volledig_genegeerd() -> None:
+    """De hele map testfiles/ blijft buiten Git, niet alleen de XAF-bestanden.
+
+    Daar staan echte auditfiles en eigen invoer. Werd alleen op bestandstype
+    genegeerd, dan zou een los .csv-, .xlsx- of .pdf-bestand dat daar belandt
+    wel worden gevolgd.
+    """
+    for naam in ("pytest-synthetisch.csv", "pytest-synthetisch.xlsx", "pytest-synthetisch.pdf"):
+        genegeerd = _git("check-ignore", f"testfiles/{naam}")
+        assert genegeerd.returncode == 0, (
+            f"testfiles/{naam} is NIET git-ignored (returncode={genegeerd.returncode}); "
+            "negeer de map testfiles/ als geheel."
+        )
+
+    gevolgd = _git("ls-files", "testfiles")
+    assert gevolgd.returncode == 0, f"'git ls-files' faalde (returncode={gevolgd.returncode})."
+    assert gevolgd.stdout.strip() == "", (
+        f"Er worden bestanden in testfiles/ door Git gevolgd:\n{gevolgd.stdout}"
+    )
+
+
+def test_lokale_datamap_ligt_in_de_repo() -> None:
+    """De datamap is verankerd aan de repo en niet aan de werkmap van het proces.
+
+    Een relatief pad zou de invoer bij een start vanuit een andere map naar een
+    .local-testdata/ daar schrijven, buiten het bereik van deze .gitignore en
+    mogelijk in een andere repository.
+    """
+    assert settings.LOCAL_DATA_DIR.is_absolute(), (
+        f"'{settings.LOCAL_DATA_DIR}' is een relatief pad en volgt dus de werkmap."
+    )
+    assert settings.LOCAL_DATA_DIR.parent == REPO_ROOT, (
+        f"'{settings.LOCAL_DATA_DIR}' ligt niet direct in de repo-wortel '{REPO_ROOT}'."
+    )
+
+
 def test_synthetische_write_read_zonder_git_wijziging() -> None:
     """Schrijf en lees synthetische invoer via de opslag van een testdossier.
 

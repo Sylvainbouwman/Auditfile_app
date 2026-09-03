@@ -73,6 +73,12 @@ from auditfile.vat_rubrics import (
 
 APP_VERSIE = "3.0"
 
+# Paden zijn verankerd aan de map van dit bestand en niet aan de werkmap, want
+# Streamlit kan vanuit elke map worden gestart.
+APP_DIR = Path(__file__).resolve().parent
+TESTMAP_VORIG = APP_DIR / "testfiles" / "vorig_jaar.xaf"
+TESTMAP_HUIDIG = APP_DIR / "testfiles" / "huidig_jaar.xaf"
+
 PAGINAS = [
     "Overzicht",
     "Bevindingen",
@@ -136,9 +142,17 @@ def kerncijfer(kolom, label: str, waarde: str, hulp: str = "") -> None:
 
 def haal_bestanden_op() -> tuple[tuple[str, bytes], tuple[str, bytes]] | None:
     """Laat de gebruiker twee auditfiles kiezen, of gebruik demo- of testdata."""
+    bronnen = ["Eigen bestanden", "Demo (synthetisch)"]
+    # De testmap is een lokale ontwikkelsnelkoppeling. De bestanden zijn door Git
+    # genegeerd en horen nooit in een deployment, dus draait de app elders dan op
+    # de eigen machine, dan bestaat de optie niet en wordt zij ook niet aangeboden.
+    testmap_beschikbaar = TESTMAP_VORIG.exists() and TESTMAP_HUIDIG.exists()
+    if testmap_beschikbaar:
+        bronnen.append("Testmap")
+
     bron = st.sidebar.radio(
         "Gegevensbron",
-        ["Eigen bestanden", "Demo (synthetisch)", "Testmap"],
+        bronnen,
         help=(
             "Demo gebruikt volledig verzonnen gegevens en is bedoeld om de tool te "
             "bekijken of te tonen zonder klantbestand."
@@ -157,15 +171,10 @@ def haal_bestanden_op() -> tuple[tuple[str, bytes], tuple[str, bytes]] | None:
         )
 
     if bron == "Testmap":
-        vorig_pad = Path("testfiles/vorig_jaar.xaf")
-        huidig_pad = Path("testfiles/huidig_jaar.xaf")
-        if not vorig_pad.exists() or not huidig_pad.exists():
-            st.warning(
-                "De testmap is gekozen, maar de bestanden ontbreken. Zet `vorig_jaar.xaf` "
-                "en `huidig_jaar.xaf` in de map `testfiles/`, of kies de demomodus."
-            )
-            return None
-        return (vorig_pad.name, vorig_pad.read_bytes()), (huidig_pad.name, huidig_pad.read_bytes())
+        return (
+            (TESTMAP_VORIG.name, TESTMAP_VORIG.read_bytes()),
+            (TESTMAP_HUIDIG.name, TESTMAP_HUIDIG.read_bytes()),
+        )
 
     links, rechts = st.columns(2)
     with links:
@@ -1834,7 +1843,7 @@ def toon_lokale_opslag(opslag: DossierOpslag) -> None:
 def main() -> None:
     st.set_page_config(page_title=f"Auditfile Analyzer {APP_VERSIE}", layout="wide")
 
-    logo = Path("logo.png")
+    logo = APP_DIR / "logo.png"
     if logo.exists():
         st.sidebar.image(str(logo), width="stretch")
     st.sidebar.markdown("---")
