@@ -9,10 +9,11 @@ niet kon worden vastgesteld.
 Twee lagen
 ----------
 ``bouw_memorandum()`` maakt uit de bevindingen een ``Memorandum``: secties met
-punten en regels, en geen opmaak. ``naar_markdown()`` zet dat om naar tekst.
-Alle formulering en ordening zit daarmee in de eerste laag en is als tekst te
-testen; een tweede uitvoervorm (Word, PDF) is later een tweede renderer en
-raakt de formulering niet.
+punten en regels, en geen opmaak. ``naar_markdown()`` en ``naar_docx()`` zetten
+dat om naar tekst en naar een Word-bestand. Alle formulering en ordening zit
+daarmee in de eerste laag en is als tekst te testen; een renderer erbij geeft
+hetzelfde stuk een andere vorm en nooit een tweede versie van dezelfde zinnen.
+Staat een zin in een renderer, dan staat zij op de verkeerde plek.
 
 Ordening
 --------
@@ -38,6 +39,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from io import BytesIO
 
 import pandas as pd
 
@@ -51,6 +53,7 @@ from .findings import (
 )
 from .integrity import KRITIEK, NIET_MOGELIJK, WAARSCHUWING
 from .model import Auditfile
+from .notatie import datum_nl, euro
 
 # Hoeveel punten de samenvatting vooraan noemt. Meer dan dit is geen
 # samenvatting meer; de volledige lijst staat er direct onder.
@@ -65,28 +68,6 @@ ERNST_KOP: dict[str, str] = {
 }
 
 ONDER_DREMPEL = "onder de drempel"
-
-
-def _euro(waarde, decimalen: int = 2) -> str:
-    """Een bedrag in Nederlandse notatie.
-
-    Met een eigen opmaak en niet die van ``formatting.py``: die module hoort bij
-    de app en haalt Streamlit binnen, en dit document moet zonder Streamlit te
-    maken en te testen zijn.
-    """
-    getal = pd.to_numeric(waarde, errors="coerce")
-    if pd.isna(getal):
-        return "geen bedrag"
-    opgemaakt = f"{float(getal):,.{decimalen}f}"
-    opgemaakt = opgemaakt.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
-    return f"€ {opgemaakt}"
-
-
-def _datum(waarde) -> str:
-    tijdstip = pd.to_datetime(waarde, errors="coerce")
-    if pd.isna(tijdstip):
-        return ""
-    return tijdstip.strftime("%d-%m-%Y")
 
 
 def _tekst(waarde) -> str:
@@ -132,7 +113,7 @@ class Punt:
         """Het punt in één regel: onderwerp, bedrag, rekening, weging."""
         tussen = []
         if self.bedrag is not None and not pd.isna(self.bedrag):
-            tussen.append(_euro(self.bedrag))
+            tussen.append(euro(self.bedrag))
         if self.rekening:
             tussen.append(f"rekening {self.rekening}")
         if self.aantal_regels is not None and not pd.isna(self.aantal_regels):
@@ -142,6 +123,34 @@ class Punt:
         if not tussen:
             return self.onderwerp
         return f"{self.onderwerp} ({', '.join(tussen)})"
+
+    @property
+    def herkomst(self) -> str:
+        """Waar het punt vandaan komt, in een regel; leeg als dat niets zegt.
+
+        Deze zin staat hier en niet in een renderer, want elke renderer zet
+        haar neer en twee plaatsen worden twee formuleringen.
+        """
+        delen = []
+        if self.categorie:
+            delen.append(f"Onderdeel {self.categorie}")
+        if self.methode:
+            delen.append(f"gebaseerd op {self.methode}")
+        if self.pagina:
+            delen.append(f"onderbouwing op de pagina {self.pagina}")
+        if not delen:
+            return ""
+        return f"{'; '.join(delen)}."
+
+    @property
+    def beoordeling(self) -> str:
+        """De vastgelegde beoordeling, of leeg als er niets is vastgelegd."""
+        if self.status == TE_BEOORDELEN and not self.notitie:
+            return ""
+        tekst = f"Beoordeling: {self.status}."
+        if self.notitie:
+            tekst = f"{tekst} Notitie: {self.notitie}"
+        return tekst
 
 
 @dataclass(frozen=True)
@@ -230,8 +239,8 @@ def _sectie_dossier(
         ("Onderneming", huidig.bedrijfsnaam or "niet in het bestand vermeld"),
         ("Boekjaar", huidig.boekjaar or "niet in het bestand vermeld"),
     ]
-    start = _datum(huidig.header.get("startDate", ""))
-    eind = _datum(huidig.header.get("endDate", ""))
+    start = datum_nl(huidig.header.get("startDate", ""))
+    eind = datum_nl(huidig.header.get("endDate", ""))
     if start and eind:
         kenmerken.append(("Periode", f"{start} tot en met {eind}"))
     kenmerken.append(
@@ -255,7 +264,7 @@ def _sectie_dossier(
         )
     if huidig.valuta:
         kenmerken.append(("Valuta", huidig.valuta))
-    kenmerken.append(("Opgesteld op", _datum(opgesteld_op) or opgesteld_op.strftime("%d-%m-%Y")))
+    kenmerken.append(("Opgesteld op", datum_nl(opgesteld_op) or opgesteld_op.strftime("%d-%m-%Y")))
     if opsteller:
         kenmerken.append(("Opgesteld door", opsteller))
     return Sectie(kop="Dossier en bestanden", kenmerken=tuple(kenmerken))
@@ -264,9 +273,9 @@ def _sectie_dossier(
 def _sectie_uitgangspunten(materialiteit: Materialiteit) -> Sectie:
     relatief = abs(float(materialiteit.grondslag)) * float(materialiteit.relatief_pct) / 100.0
     regels = [
-        f"De gebruikte materialiteitsdrempel is {_euro(materialiteit.drempel)}: de hoogste van "
-        f"{_euro(materialiteit.absoluut)} en {materialiteit.relatief_pct:g}% van de grondslag "
-        f"{_euro(materialiteit.grondslag)}, dus {_euro(relatief)}. Dit is een werkafspraak van "
+        f"De gebruikte materialiteitsdrempel is {euro(materialiteit.drempel)}: de hoogste van "
+        f"{euro(materialiteit.absoluut)} en {materialiteit.relatief_pct:g}% van de grondslag "
+        f"{euro(materialiteit.grondslag)}, dus {euro(relatief)}. Dit is een werkafspraak van "
         "de opsteller en geen norm uit wet of standaard.",
         f"Een bevinding onder die drempel is met “{ONDER_DREMPEL}” gemarkeerd en niet "
         "weggelaten. Een bevinding zonder bedrag is niet te wegen en telt daarom altijd mee.",
@@ -397,7 +406,7 @@ def _sectie_verantwoording(
         onder = int((~bevindingen["boven_drempel"].astype(bool)).sum())
         regels.append(
             f"{onder} van de {len(bevindingen)} bevindingen liggen onder de "
-            f"materialiteitsdrempel van {_euro(materialiteit.drempel)}. Ze zijn als zodanig "
+            f"materialiteitsdrempel van {euro(materialiteit.drempel)}. Ze zijn als zodanig "
             "gemarkeerd en niet weggelaten."
         )
         if "status" in bevindingen.columns:
@@ -505,20 +514,10 @@ def _punt_regels(punt: Punt) -> list[str]:
     regels = [f"**{punt.nummer}. {punt.aanduiding}**", ""]
     if punt.toelichting:
         regels += [punt.toelichting, ""]
-    herkomst = []
-    if punt.categorie:
-        herkomst.append(f"Onderdeel {punt.categorie}")
-    if punt.methode:
-        herkomst.append(f"gebaseerd op {punt.methode}")
-    if punt.pagina:
-        herkomst.append(f"onderbouwing op de pagina {punt.pagina}")
-    if herkomst:
-        regels += [f"*{'; '.join(herkomst)}.*", ""]
-    if punt.status != TE_BEOORDELEN or punt.notitie:
-        beoordeling = f"Beoordeling: {punt.status}."
-        if punt.notitie:
-            beoordeling = f"{beoordeling} Notitie: {punt.notitie}"
-        regels += [beoordeling, ""]
+    if punt.herkomst:
+        regels += [f"*{punt.herkomst}*", ""]
+    if punt.beoordeling:
+        regels += [punt.beoordeling, ""]
     return regels
 
 
@@ -566,11 +565,99 @@ def memorandum_markdown(
     )
 
 
-def memorandumnaam(huidig: Auditfile) -> str:
+# De stijlen uit de standaardsjabloon van python-docx, bij elkaar zodat de
+# opmaak op een plek te wijzigen is en niet verspreid door de renderer.
+DOCX_LIJST = "List Bullet"
+DOCX_GENUMMERD = "List Paragraph"
+DOCX_ONDERTITEL = "Subtitle"
+
+
+def _docx_document():
+    """Een leeg Word-document, met de afhankelijkheid pas hier geladen.
+
+    python-docx staat in ``requirements.txt``, maar de import staat niet
+    bovenaan deze module: een omgeving zonder die afhankelijkheid verliest dan
+    alleen de Word-uitvoer en niet de hele app.
+    """
+    try:
+        from docx import Document
+    except ModuleNotFoundError as fout:  # pragma: no cover - hangt aan de omgeving
+        raise ModuleNotFoundError(
+            "De Word-uitvoer vraagt python-docx. Die staat in requirements.txt; "
+            "installeer de afhankelijkheden met pip install -r requirements.txt."
+        ) from fout
+    return Document()
+
+
+def _docx_cursief(document, tekst: str) -> None:
+    document.add_paragraph().add_run(tekst).italic = True
+
+
+def _docx_punt(document, punt: Punt) -> None:
+    """Een punt in het Word-document.
+
+    Een punt is hier een kop en niet een vetgedrukte regel zoals in Markdown.
+    Dat is opmaak en geen formulering, en het levert een document op dat in het
+    navigatievenster van Word te doorlopen is.
+    """
+    document.add_heading(f"{punt.nummer}. {punt.aanduiding}", level=3)
+    if punt.toelichting:
+        document.add_paragraph(punt.toelichting)
+    if punt.herkomst:
+        _docx_cursief(document, punt.herkomst)
+    if punt.beoordeling:
+        document.add_paragraph(punt.beoordeling)
+
+
+def naar_docx(memo: Memorandum) -> bytes:
+    """Het memorandum als Word-bestand.
+
+    De tweede renderer op dezelfde ``Memorandum``: hier staat geen enkele zin,
+    alleen de omzetting naar Word-opmaak. Wijzigt de formulering, dan wijzigt
+    zij in ``bouw_memorandum()`` en komt zij hier vanzelf mee.
+    """
+    document = _docx_document()
+    document.core_properties.title = memo.titel
+    # De opsteller staat als kenmerk in het stuk zelf. In de
+    # documenteigenschappen komt geen naam: die reist mee met het bestand en
+    # zegt niets over wie het heeft beoordeeld.
+    document.core_properties.author = "Auditfile Analyzer"
+
+    document.add_heading(memo.titel, level=0)
+    if memo.ondertitel:
+        document.add_paragraph(memo.ondertitel, style=DOCX_ONDERTITEL)
+    for sectie in memo.secties:
+        document.add_heading(sectie.kop, level=1)
+        if sectie.inleiding:
+            document.add_paragraph(sectie.inleiding)
+        for label, waarde in sectie.kenmerken:
+            alinea = document.add_paragraph(style=DOCX_LIJST)
+            alinea.add_run(f"{label}: ").bold = True
+            alinea.add_run(waarde)
+        for index, regel in enumerate(sectie.regels, start=1):
+            if sectie.genummerd:
+                # Het nummer staat in de tekst en niet in de automatische
+                # nummering van Word: het verwijst naar het nummer van het punt
+                # verderop, en dat verband mag niet verschuiven zodra iemand in
+                # het document een regel toevoegt of weghaalt.
+                document.add_paragraph(f"{index}. {regel}", style=DOCX_GENUMMERD)
+            else:
+                document.add_paragraph(regel, style=DOCX_LIJST)
+        if sectie.slot:
+            document.add_paragraph(sectie.slot)
+        for punt in sectie.punten:
+            _docx_punt(document, punt)
+
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def memorandumnaam(huidig: Auditfile, extensie: str = "md") -> str:
     """Bestandsnaam voor de download, zonder klantnaam.
 
     Zoals bij de Excel-export: de naam van de onderneming hoort niet in een
     bestandsnaam die in een downloadmap terechtkomt.
     """
     jaar = "".join(teken for teken in str(huidig.boekjaar) if teken.isalnum()) or "boekjaar"
-    return f"reviewmemorandum_{jaar}.md"
+    return f"reviewmemorandum_{jaar}.{extensie.lstrip('.')}"

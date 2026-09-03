@@ -8,6 +8,7 @@ Alle bestanden zijn synthetisch.
 from __future__ import annotations
 
 from datetime import date
+from io import BytesIO
 
 import pandas as pd
 
@@ -27,11 +28,15 @@ from auditfile.findings import (
 )
 from auditfile.integrity import KRITIEK, NIET_MOGELIJK, WAARSCHUWING
 from auditfile.memorandum import (
+    DOCX_GENUMMERD,
+    DOCX_LIJST,
+    DOCX_ONDERTITEL,
     ONDER_DREMPEL,
     SAMENVATTING_MAX,
     bouw_memorandum,
     memorandum_markdown,
     memorandumnaam,
+    naar_docx,
     naar_markdown,
     op_gewicht,
 )
@@ -326,3 +331,158 @@ def test_de_bestandsnaam_bevat_geen_klantnaam(af_40):
     assert naam.endswith(".md")
     assert af_40.bedrijfsnaam
     assert af_40.bedrijfsnaam.split()[0].lower() not in naam.lower()
+
+
+# --- Word-uitvoer -----------------------------------------------------------
+#
+# De tweede renderer op dezelfde ``Memorandum``. Het bestand wordt hier weer
+# ingelezen zoals Word het zou openen: een test op de bytes zou een geldig
+# document niet van een leeg document onderscheiden.
+
+
+def _word(inhoud: bytes):
+    from docx import Document
+
+    return Document(BytesIO(inhoud))
+
+
+def _alineas(inhoud: bytes) -> list[tuple[str, str]]:
+    """Elke alinea uit het Word-bestand als stijl met tekst."""
+    return [(alinea.style.name, alinea.text) for alinea in _word(inhoud).paragraphs]
+
+
+def _woordtekst(inhoud: bytes) -> str:
+    return "\n".join(tekst for _, tekst in _alineas(inhoud))
+
+
+def test_elk_onderwerp_komt_ook_in_het_word_document(af_40):
+    """Wat in de tekst staat, mag in Word niet stil wegvallen."""
+    beoordeeld = Bevinding("Btw", "Rondrekening sluit niet aan", KRITIEK, bedrag=90_000.0)
+    bevindingen = [
+        beoordeeld,
+        Bevinding("Fiscaal", "Rekening-courant met de dga", WAARSCHUWING, bedrag=400_000.0),
+        Bevinding("Boekingen", "Rond bedrag", SIGNAAL, bedrag=25_000.0, aantal_regels=16),
+        Bevinding("Boekingen", "Kleine post", SIGNAAL, bedrag=40.0),
+        Bevinding("Bestandsgegevens", "Openstaande posten niet te bepalen", NIET_MOGELIJK),
+    ]
+    frame = _frame(
+        *bevindingen,
+        review={beoordeeld.sleutel: {"status": "Opgelost", "notitie": "Suppletie ingediend."}},
+    )
+    memo = bouw_memorandum(af_40, frame, MATERIALITEIT)
+
+    tekst = _woordtekst(naar_docx(memo))
+
+    for bevinding in bevindingen:
+        assert bevinding.onderwerp in tekst
+    # De beoordeling en de markering onder de drempel horen er ook in te staan.
+    assert "Suppletie ingediend." in tekst
+    assert ONDER_DREMPEL in tekst
+
+
+def test_de_volledige_analyse_levert_een_word_document_op():
+    """Op de echte bevindingenlijst en niet op een handvol zelfgemaakte punten."""
+    vorig, huidig = _demopaar()
+    materialiteit = Materialiteit(grondslag=grondslag_omzet(huidig))
+    frame = pas_review_toe(verzamel_bevindingen(huidig, vorig, materialiteit=materialiteit))
+
+    memo = bouw_memorandum(huidig, frame, materialiteit, vorig=vorig)
+    tekst = _woordtekst(naar_docx(memo))
+
+    assert not frame.empty
+    for onderwerp in frame["onderwerp"]:
+        assert onderwerp in tekst
+    assert vorig.bestandsnaam in tekst
+
+
+def test_het_word_document_volgt_de_koppen_van_het_memorandum(af_40):
+    frame = _frame(
+        Bevinding("Btw", "Grote post", KRITIEK, bedrag=50_000.0),
+        Bevinding("Bestandsgegevens", "Niet te bepalen", NIET_MOGELIJK),
+    )
+    memo = bouw_memorandum(af_40, frame, MATERIALITEIT)
+
+    alineas = _alineas(naar_docx(memo))
+
+    assert ("Title", memo.titel) in alineas
+    assert (DOCX_ONDERTITEL, memo.ondertitel) in alineas
+    assert [tekst for stijl, tekst in alineas if stijl == "Heading 1"] == [
+        sectie.kop for sectie in memo.secties
+    ]
+    # Elk punt staat als kop, met hetzelfde doorlopende nummer als in de tekst.
+    assert [tekst for stijl, tekst in alineas if stijl == "Heading 3"] == [
+        f"{punt.nummer}. {punt.aanduiding}" for punt in memo.punten
+    ]
+
+
+def test_de_kenmerken_staan_met_een_vet_label(af_40):
+    frame = _frame(Bevinding("Btw", "Grote post", KRITIEK, bedrag=50_000.0))
+    memo = bouw_memorandum(af_40, frame, MATERIALITEIT, opsteller="A. Beoordelaar")
+
+    kenmerken = {
+        alinea.runs[0].text.rstrip(": "): (bool(alinea.runs[0].bold), alinea.runs[1].text)
+        for alinea in _word(naar_docx(memo)).paragraphs
+        if alinea.style.name == DOCX_LIJST and len(alinea.runs) == 2
+    }
+
+    assert kenmerken["Opgesteld door"] == (True, "A. Beoordelaar")
+    assert kenmerken["Boekjaar"] == (True, af_40.boekjaar)
+
+
+def test_de_herkomstregel_is_cursief(af_40):
+    frame = _frame(
+        Bevinding(
+            "Btw",
+            "Grote post",
+            KRITIEK,
+            bedrag=50_000.0,
+            methode="de RGS-code",
+            pagina="Btw-analyse",
+        )
+    )
+    memo = bouw_memorandum(af_40, frame, MATERIALITEIT)
+    punt = memo.punten[0]
+    assert punt.herkomst
+
+    cursief = [
+        alinea.text
+        for alinea in _word(naar_docx(memo)).paragraphs
+        if alinea.runs and all(run.italic for run in alinea.runs)
+    ]
+
+    assert cursief == [punt.herkomst]
+
+
+def test_de_samenvatting_houdt_in_word_de_nummers_van_de_punten(af_40):
+    """De nummers staan in de tekst, niet in de nummering van Word.
+
+    Zij verwijzen naar de punten verderop; automatische nummering zou dat
+    verband verschuiven zodra iemand in het document een regel weghaalt.
+    """
+    frame = _frame(
+        Bevinding("Btw", "Kritiek punt", KRITIEK, bedrag=50_000.0),
+        Bevinding("Boekingen", "Signaal", SIGNAAL, bedrag=25_000.0),
+    )
+    memo = bouw_memorandum(af_40, frame, MATERIALITEIT)
+
+    genummerd = [tekst for stijl, tekst in _alineas(naar_docx(memo)) if stijl == DOCX_GENUMMERD]
+
+    assert genummerd == [f"{punt.nummer}. {punt.aanduiding}" for punt in memo.punten]
+
+
+def test_zonder_bevindingen_blijft_het_word_document_geldig(af_40):
+    leeg = pas_review_toe(pd.DataFrame(columns=BEVINDING_COLUMNS))
+    memo = bouw_memorandum(af_40, leeg, MATERIALITEIT)
+
+    alineas = _alineas(naar_docx(memo))
+
+    assert ("Title", memo.titel) in alineas
+    assert "geen aandachtspunten" in _woordtekst(naar_docx(memo))
+    assert ("Heading 1", "Verantwoording") in alineas
+
+
+def test_de_bestandsnaam_kan_ook_een_docx_zijn(af_40):
+    assert memorandumnaam(af_40, "docx").endswith(".docx")
+    # Met of zonder punt ervoor, en nog steeds zonder klantnaam.
+    assert memorandumnaam(af_40, ".docx") == memorandumnaam(af_40, "docx")
+    assert af_40.bedrijfsnaam.split()[0].lower() not in memorandumnaam(af_40, "docx").lower()
