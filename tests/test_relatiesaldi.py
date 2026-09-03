@@ -165,7 +165,8 @@ def test_een_verschil_met_het_grootboek_wordt_benoemd():
     assert rij["openstaand_eind"] == 1000.00
     assert round(rij["verschil_eind"], 2) == 210.00
     assert rij["signaal"] == "verschil"
-    assert "210.00 uiteen" in rij["conclusie"]
+    # In de conclusie staat het bedrag als tekst, dus in Nederlandse notatie.
+    assert "€ 210,00 uiteen" in rij["conclusie"]
 
 
 def test_zonder_relatierekening_wordt_er_niets_vergeleken():

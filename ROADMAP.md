@@ -325,10 +325,7 @@ Bijgewerkt op 3 september 2026, na de ratio-analyse en het reviewmemorandum.
    als property bij `Punt`. Het document sorteert zelf op ernst, dan boven de
    drempel vóór eronder, dan bedrag: `naar_frame()` sorteert op ernst en bedrag,
    waardoor een bevinding zonder bedrag onderaan haar ernstgroep zou zakken
-   terwijl zij juist altijd meetelt. **Wat rest**: de uitvoer naar PDF, en de
-   toelichtingen van de jaarvergelijking geven hun bedragen nog als `2520.00` in
-   plaats van in Nederlandse notatie; dat valt in een tabel niet op en in een
-   doorlopend document wel.
+   terwijl zij juist altijd meetelt. **Wat rest**: de uitvoer naar PDF.
 
 ### Kleinere punten uit de review die nog openstaan
 

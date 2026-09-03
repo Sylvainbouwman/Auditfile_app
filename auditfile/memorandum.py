@@ -53,6 +53,7 @@ from .findings import (
 )
 from .integrity import KRITIEK, NIET_MOGELIJK, WAARSCHUWING
 from .model import Auditfile
+from .notatie import datum_nl, euro
 
 # Hoeveel punten de samenvatting vooraan noemt. Meer dan dit is geen
 # samenvatting meer; de volledige lijst staat er direct onder.
@@ -67,28 +68,6 @@ ERNST_KOP: dict[str, str] = {
 }
 
 ONDER_DREMPEL = "onder de drempel"
-
-
-def _euro(waarde, decimalen: int = 2) -> str:
-    """Een bedrag in Nederlandse notatie.
-
-    Met een eigen opmaak en niet die van ``formatting.py``: die module hoort bij
-    de app en haalt Streamlit binnen, en dit document moet zonder Streamlit te
-    maken en te testen zijn.
-    """
-    getal = pd.to_numeric(waarde, errors="coerce")
-    if pd.isna(getal):
-        return "geen bedrag"
-    opgemaakt = f"{float(getal):,.{decimalen}f}"
-    opgemaakt = opgemaakt.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
-    return f"€ {opgemaakt}"
-
-
-def _datum(waarde) -> str:
-    tijdstip = pd.to_datetime(waarde, errors="coerce")
-    if pd.isna(tijdstip):
-        return ""
-    return tijdstip.strftime("%d-%m-%Y")
 
 
 def _tekst(waarde) -> str:
@@ -134,7 +113,7 @@ class Punt:
         """Het punt in één regel: onderwerp, bedrag, rekening, weging."""
         tussen = []
         if self.bedrag is not None and not pd.isna(self.bedrag):
-            tussen.append(_euro(self.bedrag))
+            tussen.append(euro(self.bedrag))
         if self.rekening:
             tussen.append(f"rekening {self.rekening}")
         if self.aantal_regels is not None and not pd.isna(self.aantal_regels):
@@ -260,8 +239,8 @@ def _sectie_dossier(
         ("Onderneming", huidig.bedrijfsnaam or "niet in het bestand vermeld"),
         ("Boekjaar", huidig.boekjaar or "niet in het bestand vermeld"),
     ]
-    start = _datum(huidig.header.get("startDate", ""))
-    eind = _datum(huidig.header.get("endDate", ""))
+    start = datum_nl(huidig.header.get("startDate", ""))
+    eind = datum_nl(huidig.header.get("endDate", ""))
     if start and eind:
         kenmerken.append(("Periode", f"{start} tot en met {eind}"))
     kenmerken.append(
@@ -285,7 +264,7 @@ def _sectie_dossier(
         )
     if huidig.valuta:
         kenmerken.append(("Valuta", huidig.valuta))
-    kenmerken.append(("Opgesteld op", _datum(opgesteld_op) or opgesteld_op.strftime("%d-%m-%Y")))
+    kenmerken.append(("Opgesteld op", datum_nl(opgesteld_op) or opgesteld_op.strftime("%d-%m-%Y")))
     if opsteller:
         kenmerken.append(("Opgesteld door", opsteller))
     return Sectie(kop="Dossier en bestanden", kenmerken=tuple(kenmerken))
@@ -294,9 +273,9 @@ def _sectie_dossier(
 def _sectie_uitgangspunten(materialiteit: Materialiteit) -> Sectie:
     relatief = abs(float(materialiteit.grondslag)) * float(materialiteit.relatief_pct) / 100.0
     regels = [
-        f"De gebruikte materialiteitsdrempel is {_euro(materialiteit.drempel)}: de hoogste van "
-        f"{_euro(materialiteit.absoluut)} en {materialiteit.relatief_pct:g}% van de grondslag "
-        f"{_euro(materialiteit.grondslag)}, dus {_euro(relatief)}. Dit is een werkafspraak van "
+        f"De gebruikte materialiteitsdrempel is {euro(materialiteit.drempel)}: de hoogste van "
+        f"{euro(materialiteit.absoluut)} en {materialiteit.relatief_pct:g}% van de grondslag "
+        f"{euro(materialiteit.grondslag)}, dus {euro(relatief)}. Dit is een werkafspraak van "
         "de opsteller en geen norm uit wet of standaard.",
         f"Een bevinding onder die drempel is met “{ONDER_DREMPEL}” gemarkeerd en niet "
         "weggelaten. Een bevinding zonder bedrag is niet te wegen en telt daarom altijd mee.",
@@ -427,7 +406,7 @@ def _sectie_verantwoording(
         onder = int((~bevindingen["boven_drempel"].astype(bool)).sum())
         regels.append(
             f"{onder} van de {len(bevindingen)} bevindingen liggen onder de "
-            f"materialiteitsdrempel van {_euro(materialiteit.drempel)}. Ze zijn als zodanig "
+            f"materialiteitsdrempel van {euro(materialiteit.drempel)}. Ze zijn als zodanig "
             "gemarkeerd en niet weggelaten."
         )
         if "status" in bevindingen.columns:

@@ -28,6 +28,7 @@ import pandas as pd
 
 from .controls import RELATIEREKENINGEN, _selecteer, soort_uit_code
 from .model import Auditfile
+from .notatie import euro
 
 # Kleiner dan een halve cent is afrondingsruis en geen verschil.
 TOLERANTIE = 0.005
@@ -268,6 +269,6 @@ def _aansluitconclusie(soort: str, rekeningen: int, relaties: int, verschil_eind
         )
     return (
         f"Het saldo van de {soort}enrekening en de som van de openstaande bedragen lopen "
-        f"{abs(float(verschil_eind)):.2f} uiteen. Beoordeel wat er op de rekening staat dat niet "
+        f"{euro(abs(float(verschil_eind)))} uiteen. Beoordeel wat er op de rekening staat dat niet "
         "aan een relatie hangt, of welke relatie in het bestand ontbreekt."
     )

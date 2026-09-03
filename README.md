@@ -218,6 +218,7 @@ opgebouwd; er wordt nooit klantdata gelezen.
 | `auditfile/capability.py` | Wat het bestand toelaat en met welk bewijsniveau |
 | `auditfile/excel.py` | Excel-export |
 | `auditfile/formatting.py` | Presentatie van tabellen |
+| `auditfile/notatie.py` | Nederlandse notatie van losse waarden, zonder Streamlit |
 | `auditfile/settings.py` | Lokale opslag van eigen invoer |
 | `auditfile/demo.py` | Synthetische auditfiles |
 | `inspect_xaf.py` | Losse CLI om een onbekende XAF-structuur te verkennen |
