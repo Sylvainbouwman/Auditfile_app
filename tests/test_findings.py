@@ -10,6 +10,8 @@ import pandas as pd
 
 from auditfile import vat
 from auditfile.demo import (
+    DEMO_RATIO_BTW,
+    DEMO_RATIO_OMZET,
     Account,
     AuditfileSpec,
     Journal,
@@ -130,8 +132,9 @@ def test_een_bevinding_zonder_bedrag_valt_nooit_onder_de_drempel():
 
 def test_grondslag_is_de_omzet_van_het_boekjaar():
     _, huidig = _demopaar()
-    # De demo boekt 1.000 hoog, 100 laag en een creditnota van 200.
-    assert round(grondslag_omzet(huidig), 2) == 900.00
+    # De demo boekt 1.000 hoog, 100 laag en een creditnota van 200, plus de
+    # verkoop van handelsgoederen die de ratio-analyse nodig heeft.
+    assert round(grondslag_omzet(huidig), 2) == round(900.00 + DEMO_RATIO_OMZET, 2)
 
 
 def test_zonder_omzetrekening_is_er_geen_grondslag():
@@ -223,8 +226,12 @@ def test_ontbrekende_aangifte_is_niet_mogelijk_in_plaats_van_in_orde():
 def test_een_verschil_met_de_aangifte_wordt_een_waarschuwing():
     vorig, huidig = _demopaar()
     gebruik = vat.pas_mapping_toe(vat.build_vat_usage(huidig))
+    # De btw in rubriek 1a is 210 min 42 plus de btw over de verkoop van
+    # handelsgoederen. De aangifte ligt daar 68 onder, zodat het verschil is wat
+    # deze test wil zien en niet de omvang van de demodata.
+    aangegeven_1a = 168.0 + DEMO_RATIO_BTW - 68.0
     bevindingen = verzamel_bevindingen(
-        huidig, vorig, gebruik=gebruik, aangifte={"1a": 100.0, "1b": 9.0, "5b": 2520.0}
+        huidig, vorig, gebruik=gebruik, aangifte={"1a": aangegeven_1a, "1b": 9.0, "5b": 2520.0}
     )
     rubriek_1a = bevindingen[bevindingen["onderwerp"].str.startswith("Rubriek 1a")]
     assert len(rubriek_1a) == 1
