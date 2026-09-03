@@ -161,6 +161,16 @@ rekenlogica dus nooit in `app.py`.
   schrijfpad van een dossier op genegeerd en niet-gevolgd, dat het eerder gevolgde
   `testfiles/btw_aangifte.json` niet meer wordt gevolgd, en dat een echte schrijf-/
   leesronde via `DossierOpslag` in `.local-testdata/` landt zonder Git-wijziging.
+- **Genegeerd op map, niet op bestandstype.** `.local-testdata/` en `testfiles/` staan
+  als geheel in `.gitignore`. Beide mappen bevatten klantbestanden of daarvan afgeleide
+  invoer, en een regel per extensie laat altijd een soort door. De privacytest
+  controleert dat een `.csv`, `.xlsx` of `.pdf` in `testfiles/` genegeerd is en dat er
+  niets in die map wordt gevolgd.
+- **Datapaden zijn verankerd aan de repo**, niet aan de werkmap: `settings.LOCAL_DATA_DIR`
+  en de testmappaden in `app.py` gaan uit van de eigen bestandslocatie. Streamlit kan
+  vanuit elke map worden gestart, en een relatief pad schreef klant-afgeleide invoer dan
+  naar een map buiten het bereik van deze `.gitignore`. Zet nooit een nieuw datapad op
+  een relatief `Path()`.
 - **Eén dossier, één map.** Eigen invoer hoort bij één onderneming en één boekjaar en
   staat in `.local-testdata/dossiers/<sleutel>`, met `sleutel` een korte hash van
   onderneming plus boekjaar (`Auditfile.dossier_sleutel`). Zet nooit een klantnaam of

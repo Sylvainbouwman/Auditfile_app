@@ -33,8 +33,12 @@ import json
 import shutil
 from pathlib import Path
 
-# Deze map staat in .gitignore en mag nooit door Git worden gevolgd.
-LOCAL_DATA_DIR = Path(".local-testdata")
+# Deze map staat in .gitignore en mag nooit door Git worden gevolgd. Het pad is
+# verankerd aan de wortel van deze repository en niet aan de werkmap van het
+# proces: startte de app vanuit een andere map, dan schreef zij klant-afgeleide
+# invoer naar een .local-testdata/ daar, buiten het bereik van deze .gitignore.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+LOCAL_DATA_DIR = REPO_ROOT / ".local-testdata"
 DOSSIER_DIR = LOCAL_DATA_DIR / "dossiers"
 
 # Bestandsnamen binnen een dossiermap.

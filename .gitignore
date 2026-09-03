@@ -56,6 +56,9 @@ supabase/.temp/
 *.db
 *.sqlite
 
-# Lokale runtime-/testdata (kan klant-afgeleide gegevens bevatten, nooit tracken)
+# Lokale runtime-/testdata (kan klant-afgeleide gegevens bevatten, nooit tracken).
+# testfiles/ is als geheel genegeerd en niet per bestandstype: de map bevat echte
+# auditfiles en eigen invoer, en een los .csv- of .xlsx-bestand dat daar belandt
+# zou anders wel worden gevolgd.
 .local-testdata/
-testfiles/btw_aangifte.json
+testfiles/
