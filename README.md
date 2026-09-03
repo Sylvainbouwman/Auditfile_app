@@ -148,7 +148,10 @@ Kies in de zijbalk een gegevensbron:
 - **Eigen bestanden** — twee XAF-bestanden uploaden.
 - **Demo (synthetisch)** — volledig verzonnen gegevens uit `auditfile/demo.py`,
   om de tool te bekijken of te tonen zonder klantbestand.
-- **Testmap** — leest `vorig_jaar.xaf` en `huidig_jaar.xaf` uit `testfiles/`.
+- **Testmap** — leest `vorig_jaar.xaf` en `huidig_jaar.xaf` uit `testfiles/`. Deze
+  optie is een lokale ontwikkelsnelkoppeling en verschijnt alleen wanneer beide
+  bestanden er staan. De bestanden zijn door Git genegeerd, dus op een server
+  bestaat de keuze niet.
 
 Afhankelijkheden installeren:
 
