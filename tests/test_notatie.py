@@ -59,7 +59,13 @@ def test_kerncijfers_en_percentages():
 
 @pytest.mark.parametrize(
     "module",
-    ["auditfile.notatie", "auditfile.findings", "auditfile.openstaand", "auditfile.relatiesaldi"],
+    [
+        "auditfile.notatie",
+        "auditfile.findings",
+        "auditfile.openstaand",
+        "auditfile.relatiesaldi",
+        "auditfile.ratios",
+    ],
 )
 def test_de_analyselaag_haalt_geen_streamlit_binnen(module):
     """Anders is de notatie weer alleen in de app te gebruiken.
