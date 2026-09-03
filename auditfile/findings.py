@@ -55,6 +55,18 @@ REVIEWSTATUSSEN: tuple[str, ...] = (
     "Niet van toepassing",
 )
 
+# Welke van die statussen betekenen dat de bevinding is afgehandeld. Het
+# memorandum zet die achteraan in plaats van tussen de punten die nog aandacht
+# vragen; "Actie nodig" hoort daar niet bij, want dat is juist een openstaand
+# punt. Deze indeling staat hier omdat de statussen hier worden vastgesteld:
+# wordt er een status bij gezet of hernoemd, dan valt het hier op en niet pas
+# in het document.
+AFGEHANDELDE_STATUSSEN: tuple[str, ...] = (
+    "Beoordeeld, geen actie",
+    "Opgelost",
+    "Niet van toepassing",
+)
+
 BEVINDING_COLUMNS = [
     "ernst",
     "categorie",

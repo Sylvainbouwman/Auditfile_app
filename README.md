@@ -17,8 +17,25 @@ Bevindingen onder de drempel worden gemarkeerd en niet weggelaten, en een
 bevinding zonder bedrag valt nooit onder de drempel. Per bevinding is een
 beoordeling en een notitie vast te leggen; die hangen aan de bevinding en niet
 aan haar plaats in de lijst, dus ze staan er bij een volgende analyse van
-hetzelfde dossier weer bij. Dit is de lijst waaruit het reviewmemorandum kan
-worden opgebouwd.
+hetzelfde dossier weer bij. Dit is de lijst waaruit het reviewmemorandum wordt
+opgebouwd.
+
+**Memorandum.** Dezelfde bevindingen als een stuk om te lezen. De kop noemt de
+onderneming, het boekjaar en beide bestanden met hun XAF-versie; daarna staan de
+uitgangspunten met de gebruikte materialiteitsdrempel en haar opbouw, een
+samenvatting met de zwaarste punten, en de aandachtspunten op volgorde van
+gewicht: eerst ernst, dan boven de drempel vóór eronder, dan bedrag. Elk punt
+heeft één nummer waarmee het aan te wijzen is, met het bedrag, de rekening,
+waarop de selectie berust en de pagina met de onderbouwing.
+
+Wat de tool niet kon vaststellen staat in een eigen sectie en verdwijnt nooit
+uit het stuk: een memorandum dat zwijgt over een controle die niet kon worden
+uitgevoerd, wekt de indruk dat er niets aan de hand is. Bevindingen die u zelf
+hebt beoordeeld verhuizen met hun status en notitie naar een sectie achteraan,
+zodat de hoofdlijst overhoudt wat nog aandacht vraagt. Onderaan staat de
+verantwoording: het bewijsniveau voor de openstaande posten, de RGS-dekking van
+het rekeningschema, hoeveel bevindingen onder de drempel liggen en hoeveel er
+nog geen beoordeling hebben. Het stuk is te downloaden als Markdown-bestand.
 
 **Overzicht.** Een telling van de signalen per categorie, met de pagina waar ze
 staan. Een leeg blok op het overzicht betekende eerder niet dat er niets was: de
@@ -195,6 +212,7 @@ opgebouwd; er wordt nooit klantdata gelezen.
 | `auditfile/openstaand.py` | Openstaande posten en ouderdom (XAF 3.2) |
 | `auditfile/excessief_lenen.py` | Drempeltoets excessief lenen |
 | `auditfile/findings.py` | Bevindingen, materialiteit en beoordeling |
+| `auditfile/memorandum.py` | Het reviewmemorandum als document |
 | `auditfile/capability.py` | Wat het bestand toelaat en met welk bewijsniveau |
 | `auditfile/excel.py` | Excel-export |
 | `auditfile/formatting.py` | Presentatie van tabellen |
