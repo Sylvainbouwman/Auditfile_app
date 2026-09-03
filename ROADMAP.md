@@ -184,28 +184,41 @@ Automatisch gegenereerde aandachtspunten, bijvoorbeeld:
 
 ## Categorie 6: AI-laag
 
-### Reviewmemorandum (einddoel)
-Automatisch gegenereerd document met bevindingen, bijvoorbeeld:
+### Reviewmemorandum (gereed als Markdown)
+Automatisch gegenereerd document met de bevindingen, in de vorm die hierboven
+als einddoel stond:
 
-> Op basis van de auditfile zijn 7 aandachtspunten geïdentificeerd:
-> 1. Afschrijvingen ontbreken in 4 maanden
-> 2. Debiteuren >90 dagen bedragen € 125.000
-> 3. BTW-rondrekening sluit niet aan
-> 4. Juridische kosten stijgen 300%
-> 5. RC DGA overschrijdt € 500.000
-> 6. Leaseverplichtingen gedetecteerd
-> 7. Geen loonkosten in december
+> Op basis van deze twee auditfiles zijn 22 aandachtspunten benoemd die
+> beoordeling vragen: 1 waarschuwing en 21 signalen.
+> 1. Afschrijvingen: ontbrekende perioden (€ 2.400,00, rekening 4300)
+> 2. Rond bedrag (€ 28.000,00, 16 regels)
+> 3. …
+
+`memorandum.py` bouwt uit de bevindingen een document in twee lagen:
+`bouw_memorandum()` maakt de secties en de punten zonder opmaak,
+`naar_markdown()` zet die om naar tekst. De indeling is kop, uitgangspunten met
+de materialiteitsdrempel en haar opbouw, samenvatting, de aandachtspunten per
+ernst op volgorde van gewicht, wat niet kon worden vastgesteld, de al beoordeelde
+bevindingen en de verantwoording. Elk punt heeft één doorlopend nummer. Op de
+pagina Memorandum staat het stuk met een downloadknop.
+
+Wat rest is een tweede uitvoervorm: Word of PDF wordt een tweede renderer op
+hetzelfde `Memorandum`, zodat de formulering niet dubbel komt te staan. Zie
+"Toekomstige mogelijkheden".
 
 ### Toekomstige mogelijkheden
 - Koppeling met AFAS (GetConnector) voor automatische import jaarrekening
 - Vergelijking met branchegemiddelden (SBI-code)
-- Exporteren naar Word of PDF voor dossiervorming
+- Exporteren naar Word of PDF voor dossiervorming. Het memorandum staat als
+  `Memorandum`-structuur klaar; dit is een tweede renderer naast
+  `naar_markdown()` en vraagt een nieuwe afhankelijkheid (`python-docx` of
+  een PDF-bibliotheek)
 
 ---
 
 ## Prioritering (top 10)
 
-Bijgewerkt op 1 september 2026.
+Bijgewerkt op 3 september 2026.
 
 | # | Functionaliteit | Status |
 |---|----------------|--------|
@@ -216,13 +229,13 @@ Bijgewerkt op 1 september 2026.
 | 5 | RC DGA detectie | Gereed |
 | 6 | Suppletiedetectie | Gedeeltelijk: "overige mutaties" in de rondrekening |
 | 7 | Lease- en huurdetectie | Gereed als periodieke controle |
-| 8 | AI-reviewpunten | Bevindingenlijst en materialiteit gereed; formulering gepland |
+| 8 | AI-reviewpunten | Gereed: bevindingen met materialiteit, en de formulering in het memorandum |
 | 9 | Ratio-analyse | Gepland |
-| 10 | Automatisch reviewmemorandum | Bevindingen, materialiteit en beoordeling per bevinding gereed; het document zelf nog niet |
+| 10 | Automatisch reviewmemorandum | Gereed als Markdown, met downloadknop; Word of PDF nog niet |
 
 ### Wat als eerste te doen staat
 
-Bijgewerkt op 2 september 2026, na de open-posten- en ageing-engine.
+Bijgewerkt op 3 september 2026, na het reviewmemorandum.
 
 1. **XAF 4.0-relatiesaldi inlezen.** Gereed. `opBalDesc`/`opBalTp` en
    `clBalDesc`/`clBalTp` staan getekend in het model als `openstaand_begin` en
@@ -280,9 +293,20 @@ Bijgewerkt op 2 september 2026, na de open-posten- en ageing-engine.
    de toets moet kunnen toevoegen.
 6. **Ratio-analyse** (brutomarge, personeelskosten als percentage van de omzet,
    solvabiliteit, liquiditeit), jaar op jaar.
-7. **Reviewmemorandum als document.** De bouwstenen liggen er: bevindingen met
-   ernst, bedrag, materialiteit en een beoordeling per bevinding. Wat rest is de
-   samenvoeging en de formulering.
+7. **Reviewmemorandum als document.** Gereed als Markdown. `memorandum.py`
+   bouwt de bevindingen om naar een document met kop, uitgangspunten,
+   samenvatting, de aandachtspunten per ernst, een eigen sectie voor wat niet
+   kon worden vastgesteld, de al beoordeelde bevindingen achteraan en een
+   verantwoording met het bewijsniveau en de RGS-dekking. De opbouw
+   (`bouw_memorandum()`) staat los van de uitvoer (`naar_markdown()`), zodat
+   Word of PDF later een tweede renderer is en niet een tweede versie van
+   dezelfde zinnen. Het document sorteert zelf op ernst, dan boven de drempel
+   vóór eronder, dan bedrag: `naar_frame()` sorteert op ernst en bedrag,
+   waardoor een bevinding zonder bedrag onderaan haar ernstgroep zou zakken
+   terwijl zij juist altijd meetelt. **Wat rest**: de uitvoer naar Word of PDF,
+   en de toelichtingen van de jaarvergelijking geven hun bedragen nog als
+   `2520.00` in plaats van in Nederlandse notatie; dat valt in een tabel niet op
+   en in een doorlopend document wel.
 
 ### Kleinere punten uit de review die nog openstaan
 

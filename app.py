@@ -5,6 +5,7 @@ in het pakket ``auditfile``, zodat die zonder Streamlit te testen is.
 """
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -51,6 +52,7 @@ from auditfile.integrity import (
     controleer_auditfile,
     samenvatting,
 )
+from auditfile.memorandum import memorandum_markdown, memorandumnaam
 from auditfile.model import Auditfile
 from auditfile.parsing import parse_auditfile
 from auditfile.settings import (
@@ -81,6 +83,7 @@ TESTMAP_HUIDIG = APP_DIR / "testfiles" / "huidig_jaar.xaf"
 PAGINAS = [
     "Overzicht",
     "Bevindingen",
+    "Memorandum",
     "Bestandscontrole",
     "Jaarvergelijking",
     "Btw",
@@ -351,6 +354,33 @@ def huidige_materialiteit(huidig: Auditfile) -> Materialiteit:
     )
 
 
+def bevindingen_met_review(
+    vorig: Auditfile,
+    huidig: Auditfile,
+    vergelijking: pd.DataFrame,
+    materialiteit: Materialiteit,
+) -> pd.DataFrame:
+    """Alle bevindingen met de eigen invoer en de vastgelegde beoordeling erin.
+
+    Zowel de bevindingenpagina als het memorandum werkt hierop, en beide moeten
+    dezelfde lijst zien: een tweede aanroep met andere argumenten zou een
+    memorandum opleveren dat niet bij de tabel past.
+    """
+    bevindingen = verzamel_bevindingen(
+        huidig,
+        vorig,
+        gebruik=vat.pas_mapping_toe(
+            vat.build_vat_usage(huidig), huidige_mapping(), huidige_aftrekbaarheid()
+        ),
+        vergelijking=vergelijking,
+        aangifte=huidige_aangifte(),
+        grondslagen=huidige_grondslagen(),
+        materialiteit=materialiteit,
+        excessief_lenen=huidige_excessief_lenen(),
+    )
+    return pas_review_toe(bevindingen, huidige_opslag().lees_review())
+
+
 def pagina_bevindingen(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataFrame) -> None:
     kop(
         "Alle bevindingen op één plek",
@@ -388,19 +418,7 @@ def pagina_bevindingen(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.Dat
         )
 
     opslag = huidige_opslag()
-    bevindingen = verzamel_bevindingen(
-        huidig,
-        vorig,
-        gebruik=vat.pas_mapping_toe(
-            vat.build_vat_usage(huidig), huidige_mapping(), huidige_aftrekbaarheid()
-        ),
-        vergelijking=vergelijking,
-        aangifte=huidige_aangifte(),
-        grondslagen=huidige_grondslagen(),
-        materialiteit=materialiteit,
-        excessief_lenen=huidige_excessief_lenen(),
-    )
-    bevindingen = pas_review_toe(bevindingen, opslag.lees_review())
+    bevindingen = bevindingen_met_review(vorig, huidig, vergelijking, materialiteit)
     telling = samenvatting_per_ernst(bevindingen)
 
     a, b, c, d = st.columns(4)
@@ -522,6 +540,54 @@ def pagina_bevindingen(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.Dat
                 f"{len(zichtbaar)} van de {len(bevindingen)} bevindingen in beeld. "
                 "De kolom Te vinden op wijst de pagina aan met de onderbouwing."
             )
+
+
+def pagina_memorandum(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataFrame) -> None:
+    kop(
+        "Het reviewmemorandum",
+        "Dezelfde bevindingen als op de vorige pagina, maar als stuk om te lezen: de "
+        "aandachtspunten op volgorde van gewicht met de bedragen erbij, wat niet kon worden "
+        "vastgesteld, en de verantwoording eronder.",
+    )
+    st.caption(
+        "Het memorandum bevat klantgegevens. Bewaar het in het dossier en niet in een map "
+        "die door Git wordt gevolgd."
+    )
+
+    links, rechts = st.columns([2, 1])
+    opsteller = links.text_input(
+        "Opgesteld door",
+        key="memo_opsteller",
+        help="Komt in de kop van het stuk. Deze naam wordt niet bij het dossier bewaard.",
+    )
+    opgesteld_op = rechts.date_input("Opgesteld op", value=date.today(), format="DD-MM-YYYY")
+
+    materialiteit = huidige_materialiteit(huidig)
+    bevindingen = bevindingen_met_review(vorig, huidig, vergelijking, materialiteit)
+    tekst = memorandum_markdown(
+        huidig,
+        bevindingen,
+        materialiteit,
+        vorig=vorig,
+        opsteller=opsteller,
+        opgesteld_op=opgesteld_op,
+    )
+
+    st.caption(
+        f"De gebruikte drempel is {euro(materialiteit.drempel)}; die stelt u in op de pagina "
+        f"Bevindingen. {openstaande_bevindingen(bevindingen)} van de {len(bevindingen)} "
+        "bevindingen hebben nog geen vastgelegde beoordeling en staan als “Te beoordelen” "
+        "in het stuk."
+    )
+    st.download_button(
+        "Download het memorandum (Markdown)",
+        data=tekst.encode("utf-8"),
+        file_name=memorandumnaam(huidig),
+        mime="text/markdown",
+        type="primary",
+    )
+    with st.container(border=True):
+        st.markdown(tekst)
 
 
 def pagina_bestandscontrole(vorig: Auditfile, huidig: Auditfile) -> None:
@@ -1842,6 +1908,8 @@ def main() -> None:
         pagina_overzicht(vorig, huidig, vergelijking)
     elif pagina == "Bevindingen":
         pagina_bevindingen(vorig, huidig, vergelijking)
+    elif pagina == "Memorandum":
+        pagina_memorandum(vorig, huidig, vergelijking)
     elif pagina == "Bestandscontrole":
         pagina_bestandscontrole(vorig, huidig)
     elif pagina == "Jaarvergelijking":

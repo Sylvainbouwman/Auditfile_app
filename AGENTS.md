@@ -60,6 +60,7 @@ rekenlogica dus nooit in `app.py`.
 | `openstaand.py` | Openstaande posten en ouderdom uit de subadministratie (XAF 3.2) |
 | `excessief_lenen.py` | Drempeltoets Wet excessief lenen bij eigen vennootschap |
 | `findings.py` | Uniform bevindingenmodel, materialiteit en de verzamelaar |
+| `memorandum.py` | Het reviewmemorandum: opbouw in secties en de Markdown-uitvoer |
 | `demo.py` | Synthetische auditfiles: demodata én testfixtures |
 
 `inspect_xaf.py` is een losse CLI om een onbekende XAF-structuur te verkennen.
@@ -103,6 +104,19 @@ rekenlogica dus nooit in `app.py`.
   De beoordeling en de notitie van de gebruiker hangen aan `Bevinding.sleutel`, een
   hash van categorie, onderwerp en rekening. Neem daar nooit het bedrag of de ernst
   in op: dan zou een gewijzigd bedrag de vastgelegde beoordeling weggooien.
+- **Het memorandum bouwt op en geeft daarna uit** — `bouw_memorandum()` maakt van
+  de bevindingen een `Memorandum` met secties en punten, zonder opmaak;
+  `naar_markdown()` zet dat om naar tekst. Alle formulering, ordening en
+  nummering hoort in de eerste laag, zodat zij als tekst te testen is en een
+  tweede uitvoervorm (Word, PDF) een tweede renderer wordt in plaats van een
+  tweede versie van dezelfde zinnen. Het document sorteert zelf op ernst, dan
+  boven de drempel vóór eronder, dan bedrag: op bedrag alleen zou een bevinding
+  zonder bedrag achter een kleine post eindigen, terwijl zij juist altijd
+  meetelt. Een bevinding met ernst `niet mogelijk` staat altijd in de sectie
+  over wat niet kon worden vastgesteld, ook met een beoordeling erop; een
+  bevinding die de gebruiker heeft afgehandeld verhuist naar de sectie
+  achteraan. Laat nooit iets weg.
+
 - **Voorstel is geen vastlegging** — een voorstel van de tool telt mee in de berekening
   omdat er anders niets te zien is, maar heet dan `voorstel` en de uitkomst wordt als
   rekenvoorbeeld gemarkeerd. Vastleggen gebeurt alleen op een handeling van de
