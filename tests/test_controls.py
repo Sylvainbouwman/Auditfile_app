@@ -63,6 +63,31 @@ def test_rgs_rubriek():
 # --- Periodieke controles ---------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    ("code", "omschrijving", "verwachte_scope"),
+    [
+        ("WPer", "Synthetische personeelskosten", "alle personeelskosten"),
+        ("WFbe", "Synthetische financiële kosten", "alle financiële baten en lasten"),
+        ("", "Synthetisch salaris", None),
+    ],
+)
+def test_periodieke_toelichting_benoemt_selectie_per_rekening(af_40, code, omschrijving, verwachte_scope):
+    from copy import deepcopy
+
+    af = deepcopy(af_40)
+    masker = af.lines["line_accID"] == "4000"
+    af.lines.loc[masker, "RGScode"] = code
+    af.lines.loc[masker, "accDesc"] = omschrijving
+    rij = build_periodieke_controles(af).set_index("rekening").loc["4000"]
+    if verwachte_scope:
+        assert verwachte_scope in rij["toelichting"]
+    else:
+        # Andere rekeningen hebben wel RGS: hun methode mag deze rij niet kleuren.
+        assert "RGS" not in rij["toelichting"]
+    assert rij["totaalbedrag"] == pytest.approx(af.lines.loc[masker, "bedrag"].sum())
+    assert rij["controle"] == ("Rente" if code == "WFbe" else "Lonen en salarissen")
+
+
 def test_huur_in_alle_perioden_geeft_geen_signaal(af_40):
     """In de fixture staat twaalf maanden huur van hetzelfde bedrag."""
     controles = build_periodieke_controles(af_40)

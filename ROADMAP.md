@@ -370,12 +370,13 @@ verfijning open staat.
   `capability.py`. Voor de liquiditeit blijven `BVor` en `BSch` juist de goede
   rubrieken, want RGS zet de langlopende vorderingen onder `BFva`.
 
-  **Wat rest**: in de periodieke controles gelden alle personeelskosten
-  (`WPer`) als loon en alle financiële baten en lasten (`WFbe`) als rente. Daar
-  is de vraag of een last in elke periode voorkomt, en voor die vraag is de
-  brede rubriek verdedigbaar; bij een controle die één post moet afbakenen zou
-  zij dat niet zijn. Te beslissen of de kop boven die controles dat moet
-  zeggen.
+  **Verduidelijkt op 8 september 2026**: de toelichting bij een via RGS
+  geselecteerde rekening zegt nu dat `WPer` alle personeelskosten selecteert
+  en `WFbe` alle financiële baten en lasten. De controle bewijst dus niet dat
+  uitsluitend loon of rente is onderzocht. Dit staat per rekening in de
+  uitvoer, ook bij een gemengd gecodeerd schema; een selectie uitsluitend op
+  omschrijving krijgt geen RGS-toelichting. Namen, bevindingensleutels en
+  berekeningen blijven behouden, zodat bestaande beoordelingen geldig blijven.
 - **Bedragen als float.** De toleranties maken dat werkbaar, maar voor exact
   reproduceerbare centencontroles zijn `Decimal` of hele centen robuuster.
 - **Geen XSD-validatie.** De parser leest wat er is en zet onleesbare bedragen

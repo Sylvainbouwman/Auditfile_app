@@ -316,6 +316,17 @@ def build_periodieke_controles(af: Auditfile) -> pd.DataFrame:
                 conclusie = "Geen bijzonderheden"
                 toelichting = ""
 
+            # Benoem de brede selectie zonder de bevindingensleutel (naam)
+            # of de bestaande rekeningselectie en berekening te veranderen.
+            if rgs_prefix in ("WPer", "WFbe") and "RGScode" in regels:
+                if regels["RGScode"].astype(str).str.strip().str.startswith(rgs_prefix).any():
+                    scope = (
+                        "RGS WPer selecteert alle personeelskosten, niet uitsluitend lonen en salarissen."
+                        if rgs_prefix == "WPer" else
+                        "RGS WFbe selecteert alle financiële baten en lasten, niet uitsluitend rente."
+                    )
+                    toelichting = f"{toelichting} {scope}".strip()
+
             rijen.append(
                 {
                     "controle": naam,
