@@ -1,5 +1,32 @@
 # Auditfile Analyzer — Roadmap
 
+## Besluiten en hercontrole — 9 september 2026
+
+Sylvain heeft de volgende uitbreidingen goedgekeurd; ze zijn nog niet gebouwd:
+
+- **Handmatige rekeningselectie bij excessief lenen:** de gebruiker mag een
+  ontbrekende DGA-rekening aan de selectie toevoegen. Toon welke rekening automatisch
+  en welke handmatig is geselecteerd, met de toelichting erbij. Dit besluit geldt
+  uitsluitend voor deze toets en verandert de fiscale reikwijdte niet.
+- **PDF-export van het reviewmemorandum:** toevoegen naast Word en Markdown, op
+  hetzelfde opgebouwde `Memorandum`. Generatie lokaal, zonder externe dienst.
+  Controleer volledigheid, leesbaarheid en paginaovergangen met synthetische data.
+
+Deze besluiten beantwoorden de keuze over handmatige rekeningselectie bij punt 5
+en de gewenste uitvoervorm bij punt 8 hieronder. De implementatie blijft open.
+
+Bij hercontrole van punt 4 blijkt een deel van de genoemde ontbrekende tests al
+aanwezig: `tests/test_openstaand.py` controleert een ontbrekende vervaldatum,
+ontbrekende datums en een ambigue rekeningkoppeling. Dit is geen bewijs dat alle
+gedeeltelijke exports of beide XAF-versies tegen de XSD zijn gevalideerd.
+
+Drie technische reviewpunten hieronder zijn nog in de bron teruggevonden:
+`signed_amount()` en `signed_amount_series()` in `auditfile/parsing.py` zetten
+onleesbare bedragen op nul; `auditfile/integrity.py` groepeert transacties op
+dagboek en nummer; subadministratietotalen hebben daar nog geen eigen toets.
+Ze vragen afzonderlijk herstel en regressieproeven, geen afvinking op basis van
+de reeds afgeronde top 10.
+
 ## Visie
 Een fiscaal-inhoudelijke auditfile-analysetool die verder gaat dan bestaande software zoals Caseware, door fiscale logica toe te voegen bovenop de XAF-data. Gebouwd voor de samenstelpraktijk en belastingadvies.
 
