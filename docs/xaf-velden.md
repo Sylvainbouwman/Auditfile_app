@@ -82,9 +82,11 @@ en `obLineNr` ook niet. De verwijzing is dus een afspraak en geen garantie.
 `_parse_subledgers()` lost haar op en legt in de kolom `koppeling` vast hoe dat
 is gegaan: `obLineNr`, `jrnID/trNr/trLineNr`, `niet gevonden` of
 `sleutel niet eenduidig`. Dat laatste hoort erbij omdat een pakket hetzelfde
-transactienummer opnieuw kan gebruiken; wijzen twee boekingen met dezelfde
-sleutel naar verschillende rekeningen, dan blijft de rekening leeg in plaats van
-dat de eerste wordt gepakt.
+transactienummer opnieuw kan gebruiken, ook al eist de functionele specificatie
+bij `transaction/nr` een nummer dat uniek is binnen het dagboek (zie ROADMAP.md
+voor de vindplaats); wijzen twee boekingen met dezelfde sleutel naar
+verschillende rekeningen, dan blijft de rekening leeg in plaats van dat de
+eerste wordt gepakt.
 
 ### Velden, in de volgorde van de XSD
 

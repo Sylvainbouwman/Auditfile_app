@@ -41,7 +41,11 @@ dagboek en nummer; subadministratietotalen hebben daar nog geen eigen toets.
   transacties zijn in evenwicht", ernst in orde, met ook de controletotalen en
   de debet-credit-toets in orde, dus geen enkel ander signaal. Na herstel meldt
   de controle "2 van de 2 transacties zijn niet in evenwicht", ernst kritiek,
-  verschil 200,00, plus een waarschuwing over het hergebruikte nummer.
+  verschil 200,00, plus een waarschuwing over het hergebruikte nummer. Die
+  waarschuwing noemt sinds 11-09-2026 ook het gebrek zelf: de functionele
+  specificatie eist bij `transaction/nr` een nummer dat uniek is binnen het
+  dagboek, in XAF 4.0 en in XAF 3.2 gelijkluidend. De vindplaats staat onder de
+  technische aandachtspunten.
 
 Open blijft de eigen toets op de subadministratietotalen (zie hieronder onder
 de technische aandachtspunten).
@@ -437,25 +441,51 @@ verfijning open staat.
   Het hergebruik zelf wordt apart gemeld. Bij het koppelen van de
   subadministratie was dit al afgevangen: een sleutel die naar verschillende
   rekeningen wijst, levert geen rekening op.
-- **Mag een transactienummer binnen één dagboek terugkomen? Open vraag.** De
-  XSD van XAF 3.2 legt zes sleutels vast, op `ledgerAccount/accID`,
-  `customerSupplier/custSupID`, `vatCode/vatID`, `period/periodNumber`,
-  `journal/jrnID` en een `basicID`, en geen daarvan raakt `transaction/nr`;
-  er staat op dat element ook geen `unique`. Nagemeten op 11-09-2026 in
-  `XmlAuditfileFinancieel3.2.xsd`; de namespace
+- **Mag een transactienummer binnen één dagboek terugkomen? Nee.**
+  ~~Open vraag.~~ **Beantwoord op 11-09-2026.** De functionele specificatie
+  schrijft bij `transaction/nr` voor: "Transactienummer. Moet uniek zijn binnen
+  het dagboek." Vindplaats: `XMLAuditfileFinancieel_4.0_FunHie.pdf`, versie 4.0
+  van 06-02-2025, element TRANSACTION, veld Transaction Number, pagina 9. Voor
+  XAF 3.2 geldt dezelfde eis: het revisiedocument
+  `XMLAuditfileXAF_4.0_met_revisie_naar_XAF_3.2.pdf` (versie 4.0 van 06-02-2025,
+  pagina 23) legt 3.2 en 4.0 over elkaar en kleurt rood wat in 4.0 is gewijzigd
+  of geschrapt; deze zin staat er zwart en is dus ongewijzigd, terwijl het in
+  4.0 geschrapte `transaction/amnt` op diezelfde pagina wel rood staat
+  (nagemeten met `pdfplumber`: rood is RGB 0,71/0,03/0,18, de zin zelf is
+  zwart). Beide documenten komen uit `XMLAuditfile-Financieel-XAF-v-4.0.3.zip`,
+  op 11-09-2026 gedownload van de openbare pagina van Belastingdienst/ODB
+  `odb.belastingdienst.nl/documentatie/xml-auditfile-financieel-xaf-4-0-3/`
+  (1.127.379 bytes, sha256
+  `49ba39862d10277130b170002933bfdfe804b33c145a5b4f975341c7578c9f1c`). Het
+  pakket en de uitgepakte inhoud staan buiten de repository en zijn niet
+  gecommit.
+  Het schema dwingt de eis niet af. De XSD van XAF 3.2 legt zes sleutels vast,
+  op `ledgerAccount/accID`, `customerSupplier/custSupID`, `vatCode/vatID`,
+  `period/periodNumber`, `journal/jrnID` en een `basicID`, en geen daarvan raakt
+  `transaction/nr`; er staat op dat element ook geen `unique`. Nagemeten op
+  11-09-2026 in `XmlAuditfileFinancieel3.2.xsd`; de namespace
   `http://www.auditfiles.nl/XAF/3.2` gaf toen geen antwoord, dus is de
   schematekst gelezen uit een woordelijke kopie in de publieke repository
-  `BananaAccounting/Netherlands`. Het schema laat hergebruik dus toe. Of de functionele specificatie het nummer
-  *verplicht* uniek stelt binnen het dagboek is niet vastgesteld: die
-  documentatie zit in het zipbestand XMLAuditfile Financieel XAF 4.0.3 van de
-  Belastingdienst/ODB en is niet ingezien. Zolang dat open staat, meldt de tool
-  wat zij meet en niet dat het bestand de standaard overtreedt. Is het antwoord
-  ja, dan kan de bevinding scherper worden geformuleerd, met de vindplaats
-  erbij.
-- **Betekenis van `sbType` en `mutTp`.** De XSD geeft alleen de toegestane
-  waarden (CS, CU, SU, ZZ en I, P, Z) en geen omschrijving. De tool geeft ze
-  onveranderd door en leidt er niets uit af. Vaststellen wat ze betekenen vraagt
-  de functionele documentatie van XAF 3.2.
+  `BananaAccounting/Netherlands`. De XSD van 4.0 uit het pakket hierboven kent
+  in het geheel geen `xsd:key`, `xsd:unique` of `xsd:keyref`. Hergebruik
+  valideert dus tegen het schema en is toch in strijd met de specificatie.
+  De bevinding "Transactienummer eenduidig binnen het dagboek" zegt sinds
+  11-09-2026 dat het bestand op dit punt niet aan de specificatie voldoet, met
+  de vindplaats erbij. De ernst blijft een waarschuwing en wordt geen kritiek:
+  de controles groeperen op het eigen volgnummer, dus de cijfers kloppen; wat
+  ontbreekt is de herleidbaarheid van een verwijzing naar dagboek plus
+  transactienummer.
+- **Betekenis van `sbType` en `mutTp`.** ~~Vaststellen wat ze betekenen vraagt
+  de functionele documentatie van XAF 3.2.~~ **Gevonden op 11-09-2026** in
+  `XMLAuditfileXAF_4.0_met_revisie_naar_XAF_3.2.pdf` (versie 4.0 van
+  06-02-2025), dat de XAF 3.2-velden voluit weergeeft. `sbType` is Subledger
+  Type met de codelijst CS = Customers / Suppliers, CU = Customers,
+  SU = Suppliers en ZZ = Other (pagina's 19 en 20 voor de beginbalans, 26 en 27
+  voor de transacties). `mutTp` is Mutatiesoort: "Geeft aan of het gaat om een
+  factuur of ontvangst/betaling. Verplicht bij opboeken van een factuur", met
+  I = Invoice, P = Payment en Z = Other (pagina's 21 en 29). De tool geeft de
+  waarden nog steeds onveranderd door en leidt er niets uit af; wie er wel iets
+  mee wil doen, heeft nu de omschrijving.
 - **Controletotalen van de subadministratie.** Ze worden ingelezen en naast de
   eigen telling gezet, maar `integrity.py` toetst ze nog niet en er komt geen
   bevinding uit.
