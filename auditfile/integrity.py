@@ -164,30 +164,44 @@ def controleer_auditfile(af: Auditfile) -> pd.DataFrame:
 def _controleer_transactienummers(af: Auditfile) -> list[dict]:
     """Komt hetzelfde transactienummer twee keer voor binnen één dagboek?
 
-    Het schema laat het toe. De XSD van XAF 3.2 legt zes sleutels vast, op
+    De functionele specificatie verbiedt dat. Bij ``transaction/nr`` staat:
+    "Transactienummer. Moet uniek zijn binnen het dagboek."
+    (``XMLAuditfileFinancieel_4.0_FunHie.pdf``, versie 4.0 van 06-02-2025,
+    element TRANSACTION, veld Transaction Number, pagina 9.) Voor XAF 3.2 geldt
+    hetzelfde. Het revisiedocument
+    ``XMLAuditfileXAF_4.0_met_revisie_naar_XAF_3.2.pdf`` (versie 4.0 van
+    06-02-2025, pagina 23) zet beide versies over elkaar heen en kleurt wat in
+    4.0 is gewijzigd of geschrapt rood; deze zin staat er zwart, dus
+    ongewijzigd. Ter vergelijking: het in 4.0 geschrapte ``transaction/amnt``
+    staat op diezelfde pagina wel rood. Beide documenten komen uit
+    ``XMLAuditfile-Financieel-XAF-v-4.0.3.zip``, op 11-09-2026 gedownload van de
+    openbare pagina van Belastingdienst/ODB
+    ``odb.belastingdienst.nl/documentatie/xml-auditfile-financieel-xaf-4-0-3/``
+    (1.127.379 bytes, sha256 49ba39862d10277130b170002933bfdfe804b33c145a5b4f97
+    5341c7578c9f1c).
+
+    Het schema dwingt het niet af. De XSD van XAF 3.2 legt zes sleutels vast, op
     ``ledgerAccount/accID``, ``customerSupplier/custSupID``, ``vatCode/vatID``,
     ``period/periodNumber``, ``journal/jrnID`` en een ``basicID``, en geen
     daarvan raakt ``transaction/nr``; er staat op dat element ook geen
     ``unique``. Nagemeten op 11-09-2026 in ``XmlAuditfileFinancieel3.2.xsd``;
     de namespace ``http://www.auditfiles.nl/XAF/3.2`` was toen niet bereikbaar,
     dus is de schematekst gelezen uit een woordelijke kopie in de publieke
-    repository ``BananaAccounting/Netherlands``. Een bestand kan het nummer dus
-    hergebruiken en toch tegen het schema valideren, en pakketten doen dat ook;
+    repository ``BananaAccounting/Netherlands``. De XSD van 4.0 uit het pakket
+    hierboven kent in het geheel geen ``xsd:key``, ``xsd:unique`` of
+    ``xsd:keyref``. Een bestand kan het nummer dus hergebruiken en toch tegen
+    het schema valideren, en pakketten doen dat ook;
     ``_rekeningkaart_boekingen()`` in ``parsing.py`` ving dat al af bij het
-    koppelen van de subadministratie.
-
-    Of de functionele specificatie het nummer *verplicht* uniek stelt binnen het
-    dagboek is hier niet vastgesteld: die documentatie zit in het zipbestand van
-    de Belastingdienst/ODB en is niet ingezien. De bevinding hieronder zegt
-    daarom niet dat het bestand de standaard overtreedt, maar wat er gemeten is.
-    De open vraag staat in ``ROADMAP.md``.
+    koppelen van de subadministratie. Het blijft daarmee een gebrek in het
+    bestand en geen vrijheid van het bronpakket.
 
     Voor de berekening is het hergebruik opgevangen: de controles groeperen op
-    het volgnummer dat de parser zelf toekent. Voor de gebruiker blijft het een
-    gebrek in de herleidbaarheid, en daarom een eigen bevinding. Een verwijzing
-    naar "transactie 5 in het memoriaal" wijst dan namelijk naar twee boekingen,
-    en de subadministratie van XAF 3.2 verwijst juist met dagboek, transactie-
-    en regelnummer naar de grootboekregel.
+    het volgnummer dat de parser zelf toekent. De bevinding blijft een
+    waarschuwing en wordt geen kritiek, want de cijfers kloppen nog; wat
+    ontbreekt is de herleidbaarheid. Een verwijzing naar "transactie 5 in het
+    memoriaal" wijst dan namelijk naar twee boekingen, en de subadministratie
+    van XAF 3.2 verwijst juist met dagboek, transactie- en regelnummer naar de
+    grootboekregel.
     """
     lines = af.lines
     if "tx_volgnr" not in lines.columns or lines["tx_volgnr"].astype(str).str.strip().eq("").any():
@@ -207,7 +221,8 @@ def _controleer_transactienummers(af: Auditfile) -> list[dict]:
             _bevinding(
                 IN_ORDE,
                 "Transactienummer eenduidig binnen het dagboek",
-                f"Alle {len(transacties)} transacties hebben een eigen nummer binnen hun dagboek.",
+                f"Alle {len(transacties)} transacties hebben een eigen nummer binnen hun dagboek, "
+                "zoals de specificatie eist.",
                 aantal=0,
             )
         ]
@@ -223,10 +238,14 @@ def _controleer_transactienummers(af: Auditfile) -> list[dict]:
             WAARSCHUWING,
             "Transactienummer eenduidig binnen het dagboek",
             f"{len(paren)} transactienummer(s) komen meer dan eens voor binnen hetzelfde "
-            f"dagboek: {', '.join(genoemd)}{staart}. De controles tellen deze boekingen "
-            "apart, maar een verwijzing naar dagboek en transactienummer wijst in dit "
-            "bestand naar meer dan één boeking. Beoordeel of het bronpakket het nummer "
-            "opnieuw gebruikt of dat dezelfde boeking twee keer in het bestand staat.",
+            f"dagboek: {', '.join(genoemd)}{staart}. Het bestand voldoet hier niet aan de "
+            "specificatie: die eist bij transaction/nr dat het transactienummer uniek is "
+            "binnen het dagboek (XMLAuditfileFinancieel_4.0_FunHie, versie 4.0 van "
+            "06-02-2025, element TRANSACTION, veld Transaction Number; in XAF 3.2 "
+            "gelijkluidend). De controles tellen deze boekingen apart, maar een verwijzing "
+            "naar dagboek en transactienummer wijst in dit bestand naar meer dan één "
+            "boeking. Beoordeel of het bronpakket het nummer opnieuw gebruikt of dat "
+            "dezelfde boeking twee keer in het bestand staat.",
             aantal=len(paren),
         )
     ]

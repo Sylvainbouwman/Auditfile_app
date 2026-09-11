@@ -157,12 +157,23 @@ def test_twee_afzonderlijke_nummers_blijven_afzonderlijk():
 
 
 def test_hergebruikt_nummer_wordt_apart_gemeld():
+    """De melding noemt het gebrek en de vindplaats, niet alleen de meting.
+
+    De functionele specificatie eist uniciteit binnen het dagboek
+    (``XMLAuditfileFinancieel_4.0_FunHie.pdf``, versie 4.0 van 06-02-2025,
+    element TRANSACTION, veld Transaction Number; in XAF 3.2 gelijkluidend,
+    zie de docstring van ``_controleer_transactienummers()``). De bevinding mag
+    daarom zeggen dat het bestand niet aan de specificatie voldoet. Blijft de
+    ernst een waarschuwing: de cijfers kloppen nog, de herleidbaarheid niet.
+    """
     af = _lees(_dubbel_transactienummer())
 
     regel = _bevinding(af, EENDUIDIG)
     assert regel["ernst"] == "waarschuwing"
     assert regel["aantal"] == 1
     assert "MEM 5" in regel["bevinding"]
+    assert "niet aan de specificatie" in regel["bevinding"]
+    assert "XMLAuditfileFinancieel_4.0_FunHie" in regel["bevinding"]
 
 
 def test_uniek_nummer_geeft_in_orde(af_40):
