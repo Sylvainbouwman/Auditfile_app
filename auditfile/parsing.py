@@ -33,6 +33,9 @@ import pandas as pd
 
 from .model import (
     ACCOUNT_COLUMNS,
+    GEVOLG_LEEG,
+    GEVOLG_NUL,
+    LEESFOUT_COLUMNS,
     LINE_COLUMNS,
     RELATION_COLUMNS,
     SALDO_COLUMNS,
@@ -43,6 +46,7 @@ from .model import (
     VAT_LINE_COLUMNS,
     Auditfile,
     ControlTotals,
+    empty_leesfouten,
     empty_subadministratie,
     empty_subadministratie_totalen,
 )
@@ -105,6 +109,12 @@ def signed_amount(amount, amount_type) -> float:
 
     Debet is positief, credit negatief; zie de moduletoelichting voor de
     onderbouwing van deze conventie.
+
+    Een bedrag dat niet als getal te lezen is, wordt hier 0,00, omdat de
+    berekening moet doorlopen: één rommelige regel mag een auditfile niet
+    onbruikbaar maken. Die nul mag echter nooit stil blijven. De aanroeper
+    meldt haar daarom via :class:`Leesfoutenlijst`, zodat ``integrity.py`` de
+    telling en de vindplaats laat zien.
     """
     value = pd.to_numeric(amount, errors="coerce")
     if pd.isna(value):
@@ -114,10 +124,124 @@ def signed_amount(amount, amount_type) -> float:
 
 
 def signed_amount_series(amounts: pd.Series, amount_types: pd.Series) -> pd.Series:
-    """Gevectoriseerde variant van :func:`signed_amount`."""
+    """Gevectoriseerde variant van :func:`signed_amount`.
+
+    Ook hier wordt een onleesbaar bedrag 0,00 en meldt de aanroeper dat aan een
+    :class:`Leesfoutenlijst`.
+    """
     values = pd.to_numeric(amounts, errors="coerce").fillna(0.0)
     is_credit = amount_types.astype(str).str.strip().str.upper().eq("C")
     return pd.Series(np.where(is_credit, -values, values), index=amounts.index, dtype="float64")
+
+
+# Hoeveel vindplaatsen een melding hooguit noemt. Een bevindingregel moet
+# leesbaar blijven; het aantal staat er los bij, dus er gaat niets verloren.
+MAXIMAAL_GENOEMDE_VINDPLAATSEN = 5
+
+
+def onleesbare_waarden(waarden: pd.Series) -> pd.Series:
+    """Masker van velden die gevuld zijn maar geen getal bevatten.
+
+    Het onderscheid tussen leeg en onleesbaar is de kern. Een ontbrekend of
+    leeg veld zegt niets: nul is dan de juiste uitkomst en er gaat niets
+    verloren. Staat er wel iets, maar is dat geen getal, dan stond er een
+    bedrag dat de tool niet kan rekenen. ``signed_amount()`` maakt daar 0,00
+    van omdat de berekening moet doorlopen, en juist die stille nul werkt door
+    in de btw-rondrekening, de ratio-analyse en de saldering. Elke aanroep van
+    ``signed_amount()`` of ``signed_amount_series()`` hoort daarom haar
+    onleesbare waarden hiermee te melden aan een :class:`Leesfoutenlijst`.
+    """
+    if len(waarden) == 0:
+        return pd.Series(dtype="bool", index=waarden.index)
+    getal = pd.to_numeric(waarden, errors="coerce")
+    tekst = waarden.where(waarden.notna(), "").astype(str).str.strip()
+    return getal.isna() & tekst.ne("")
+
+
+class Leesfoutenlijst:
+    """Verzamelt de onleesbare bedragen die tijdens het inlezen langskomen.
+
+    De parser weigert het bestand niet: een auditfile van een klant kan één
+    rommelige regel bevatten en de rest is dan nog gewoon bruikbaar. Maar de
+    telling en de vindplaats gaan mee naar :class:`~auditfile.model.Auditfile`,
+    zodat ``integrity.py`` er een zichtbare bevinding van maakt.
+    """
+
+    def __init__(self) -> None:
+        self._rijen: list[dict] = []
+
+    def meld(
+        self,
+        blok: str,
+        veld: str,
+        gevolg: str,
+        waarden: pd.Series,
+        vindplaatsen: pd.Series,
+    ) -> pd.Series:
+        """Leg de onleesbare waarden in ``waarden`` vast en geef het masker terug.
+
+        ``vindplaatsen`` draagt per rij de aanduiding waarmee de gebruiker de
+        regel in zijn bronbestand terugvindt, in dezelfde index als ``waarden``.
+        """
+        masker = onleesbare_waarden(waarden)
+        aantal = int(masker.sum())
+        if aantal == 0:
+            return masker
+        gevonden = [str(plaats) for plaats in vindplaatsen[masker].tolist()]
+        ruw = [str(value).strip() for value in waarden[masker].tolist()]
+        genoemd = [
+            f'{plaats} ("{value}")'
+            for plaats, value in zip(
+                gevonden[:MAXIMAAL_GENOEMDE_VINDPLAATSEN],
+                ruw[:MAXIMAAL_GENOEMDE_VINDPLAATSEN],
+            )
+        ]
+        if aantal > len(genoemd):
+            genoemd.append(f"en nog {aantal - len(genoemd)}")
+        self._rijen.append(
+            {
+                "blok": blok,
+                "veld": veld,
+                "gevolg": gevolg,
+                "aantal": aantal,
+                "vindplaatsen": "; ".join(genoemd),
+            }
+        )
+        return masker
+
+    def frame(self) -> pd.DataFrame:
+        if not self._rijen:
+            return empty_leesfouten()
+        df = pd.DataFrame(self._rijen, columns=LEESFOUT_COLUMNS)
+        df["aantal"] = df["aantal"].astype("int64")
+        return df
+
+
+def transactie_sleutel(lines: pd.DataFrame) -> pd.Series:
+    """Sleutel die één boeking aanwijst, per boekingsregel.
+
+    Dagboek plus ``tx_nr`` is in de praktijk géén sleutel. De XSD van XAF 3.2
+    zet geen ``key`` of ``unique`` op ``transaction/nr`` (nagemeten op
+    11-09-2026; de sleutels die er wél staan, staan opgesomd bij
+    ``_controleer_transactienummers()`` in ``integrity.py``), en pakketten
+    hergebruiken het nummer. Twee boekingen met hetzelfde nummer worden dan als
+    één transactie geteld, waardoor een onbalans in de ene kan wegvallen tegen
+    de andere. ``tx_volgnr`` telt de transacties in de volgorde van het bestand
+    en is daarmee wel eenduidig. Ontbreekt die kolom of is zij niet overal
+    gevuld, bijvoorbeeld in een met de hand opgebouwd ``Auditfile``, dan valt de
+    sleutel terug op het nummer uit het bestand; een half gevulde kolom zou alle
+    regels zonder volgnummer op één hoop gooien en dat is erger dan de terugval.
+
+    Deze sleutel dekt het hergebruik af voor de berekening; ``integrity.py``
+    meldt het apart aan de gebruiker, omdat een verwijzing naar dagboek plus
+    transactienummer er niet meer eenduidig van wordt.
+    """
+    dagboek = lines["tx_jrnID"].astype(str)
+    if "tx_volgnr" in lines.columns:
+        volg = lines["tx_volgnr"].astype(str)
+        if volg.str.strip().ne("").all():
+            return dagboek + "" + volg
+    return dagboek + "" + lines["tx_nr"].astype(str)
 
 
 def _dubbele_waarden(df: pd.DataFrame, kolom: str) -> list[str]:
@@ -209,7 +333,7 @@ RELATIESALDO_VELDEN: tuple[tuple[str, str, str], ...] = (
 
 
 def _parse_relations(
-    company: ET.Element | None, versie: str = ""
+    company: ET.Element | None, leesfouten: Leesfoutenlijst, versie: str = ""
 ) -> tuple[pd.DataFrame, list[str]]:
     """Debiteuren en crediteuren uit customersSuppliers.
 
@@ -250,6 +374,16 @@ def _parse_relations(
         if versie == "4.0" and bedragtag in ruw.columns:
             bedragen = pd.to_numeric(ruw[bedragtag].astype(str).str.strip(), errors="coerce")
             soorten = ruw[typetag] if typetag in ruw.columns else pd.Series("", index=ruw.index)
+            # Gevolg is hier "leeg gelaten" en niet "als 0,00 meegeteld": een
+            # onleesbare stand telt als niet aanwezig, zodat de tool zegt dat
+            # zij de aansluiting niet kan maken in plaats van nul te rekenen.
+            leesfouten.meld(
+                "relaties",
+                bedragtag,
+                GEVOLG_LEEG,
+                ruw[bedragtag],
+                "relatie " + df["custSupID"],
+            )
             getekend = signed_amount_series(bedragen.fillna(0.0), soorten)
             df[naam] = getekend.where(bedragen.notna())
         else:
@@ -356,7 +490,9 @@ def _tel_blokken(company: ET.Element | None) -> dict[str, int]:
     return tellingen
 
 
-def _parse_opening_balance(company: ET.Element | None) -> tuple[pd.DataFrame, ControlTotals]:
+def _parse_opening_balance(
+    company: ET.Element | None, leesfouten: Leesfoutenlijst
+) -> tuple[pd.DataFrame, ControlTotals]:
     opening = find_descendant(company, "openingBalance")
     columns = ["ob_nr", "ob_accID", "ob_amnt", "ob_amntTp"]
     if opening is None:
@@ -375,16 +511,33 @@ def _parse_opening_balance(company: ET.Element | None) -> tuple[pd.DataFrame, Co
     if df.empty:
         df["beginsaldo"] = pd.Series(dtype="float64")
     else:
+        leesfouten.meld(
+            "beginbalans",
+            "amnt",
+            GEVOLG_NUL,
+            df["ob_amnt"],
+            "beginbalansregel " + df["ob_nr"] + " (rekening " + df["ob_accID"] + ")",
+        )
         df["beginsaldo"] = signed_amount_series(df["ob_amnt"], df["ob_amntTp"])
     return df, _control_totals(opening)
 
 
 def _parse_lines(company: ET.Element | None) -> tuple[pd.DataFrame, ControlTotals]:
+    """Lees de boekingsregels, met een eigen volgnummer per transactie.
+
+    ``tx_volgnr`` komt niet uit het bestand maar telt de transacties in de
+    volgorde waarin ze erin staan. Het transactienummer uit het bestand is
+    daarvoor niet bruikbaar: het schema legt het niet als sleutel vast en
+    pakketten hergebruiken het. Zonder eigen volgnummer zou een hergebruikt
+    nummer twee boekingen tot één transactie samenvoegen. Zie
+    ``transactie_sleutel()``.
+    """
     transactions = find_descendant(company, "transactions")
     if transactions is None:
         return pd.DataFrame(), ControlTotals()
 
     rows = []
+    volgnummer = 0
     for journal in transactions:
         if local_name(journal.tag) != "journal":
             continue
@@ -398,8 +551,12 @@ def _parse_lines(company: ET.Element | None) -> tuple[pd.DataFrame, ControlTotal
         for transaction in journal:
             if local_name(transaction.tag) != "transaction":
                 continue
+            volgnummer += 1
             transaction_info = {f"tx_{key}": value for key, value in child_texts(transaction).items()}
             transaction_info.update(journal_info)
+            # Na de update, zodat een gelijknamig element uit het bestand het
+            # eigen volgnummer nooit kan overschrijven.
+            transaction_info["tx_volgnr"] = str(volgnummer)
 
             for tr_line in transaction:
                 if local_name(tr_line.tag) != "trLine":
@@ -497,6 +654,7 @@ def _parse_subledgers(
     company: ET.Element | None,
     opening_balance: pd.DataFrame,
     lines: pd.DataFrame,
+    leesfouten: Leesfoutenlijst,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Lees de subadministratie van XAF 3.2: ``obSbLine`` en ``sbLine``.
 
@@ -576,6 +734,10 @@ def _parse_subledgers(
                     "koppeling": koppeling,
                     "amntTp": soort,
                     "bedrag": bedrag,
+                    # Het bedrag zoals het in het bestand staat. Alleen nodig om
+                    # na afloop te kunnen melden welke bedragen onleesbaar waren;
+                    # de kolom valt af bij de selectie op SUBADMINISTRATIE_COLUMNS.
+                    "_ruw_amnt": str(waarden.get("amnt", "")).strip(),
                 }
                 for veld in ("obLineNr", "jrnID", "trNr", "trLineNr"):
                     rij[veld] = str(waarden.get(veld, "")).strip()
@@ -605,6 +767,13 @@ def _parse_subledgers(
         for kolom in SUBADMINISTRATIE_DATUMVELDEN:
             sub[kolom] = pd.to_datetime(sub[kolom], errors="coerce", format="ISO8601")
         sub["sb_index"] = pd.to_numeric(sub["sb_index"], errors="coerce").astype("Int64")
+        leesfouten.meld(
+            "subadministratie",
+            "amnt",
+            GEVOLG_NUL,
+            sub["_ruw_amnt"],
+            "subadministratie (" + sub["bron"] + ") regel " + sub["sb_nr"],
+        )
         sub = sub[SUBADMINISTRATIE_COLUMNS].reset_index(drop=True)
     else:
         sub = empty_subadministratie()
@@ -679,9 +848,12 @@ def parse_auditfile(file_name: str, file_bytes: bytes) -> Auditfile:
     company = find_descendant(root, "company")
 
     versie = _xaf_version(root)
+    # Elk blok meldt hier zijn onleesbare bedragen; de verzamelde lijst gaat mee
+    # naar de Auditfile, zodat integrity.py haar aan de gebruiker kan tonen.
+    leesfouten = Leesfoutenlijst()
     accounts, dubbele_rekeningen = _parse_accounts(company)
     vat_codes, dubbele_btw_codes = _parse_vat_codes(company)
-    relations, dubbele_relaties = _parse_relations(company, versie)
+    relations, dubbele_relaties = _parse_relations(company, leesfouten, versie)
     periods, dubbele_perioden = _parse_periods(company)
     duplicaten = {
         soort: waarden
@@ -693,7 +865,7 @@ def parse_auditfile(file_name: str, file_bytes: bytes) -> Auditfile:
         )
         if waarden
     }
-    opening_balance, opening_totals = _parse_opening_balance(company)
+    opening_balance, opening_totals = _parse_opening_balance(company, leesfouten)
     lines, transaction_totals = _parse_lines(company)
     blokken = _tel_blokken(company)
 
@@ -710,6 +882,24 @@ def parse_auditfile(file_name: str, file_bytes: bytes) -> Auditfile:
             lines[column] = pd.Series(dtype="object")
     else:
         lines["line_accID"] = lines["line_accID"].astype(str).str.strip()
+        # Melden vóór het omzetten naar getal: daarna is niet meer te zien wat
+        # er stond. De vindplaats is de aanduiding waarmee de gebruiker de regel
+        # in zijn eigen bestand terugvindt.
+        vindplaats = (
+            "dagboek "
+            + lines["tx_jrnID"]
+            + ", transactie "
+            + lines["tx_nr"]
+            + ", regel "
+            + lines["line_nr"]
+        )
+        leesfouten.meld("boekingsregels", "amnt", GEVOLG_NUL, lines["line_amnt"], vindplaats)
+        # Een onleesbaar btw-bedrag wordt niet nul maar leeg, en daarmee leest de
+        # regel als "geen btw" in plaats van "btw van nul". Dat is het minst
+        # schadelijk, maar het blijft een verloren gegeven en hoort gemeld.
+        leesfouten.meld(
+            "btw op boekingsregels", "vatAmnt", GEVOLG_LEEG, lines["vat_vatAmnt"], vindplaats
+        )
         lines["line_amnt"] = pd.to_numeric(lines["line_amnt"], errors="coerce").fillna(0.0)
         lines["vat_vatAmnt"] = pd.to_numeric(lines["vat_vatAmnt"], errors="coerce")
         lines["vat_vatPerc"] = pd.to_numeric(lines["vat_vatPerc"], errors="coerce")
@@ -733,7 +923,7 @@ def parse_auditfile(file_name: str, file_bytes: bytes) -> Auditfile:
     # Na het normaliseren van de boekingsregels, want de subadministratie
     # verwijst ernaar om haar rekening te vinden.
     subadministratie, subadministratie_totalen = _parse_subledgers(
-        company, opening_balance, lines
+        company, opening_balance, lines, leesfouten
     )
     saldo = _build_saldo(accounts, opening_balance, lines)
 
@@ -756,4 +946,5 @@ def parse_auditfile(file_name: str, file_bytes: bytes) -> Auditfile:
         subadministratie_totalen=subadministratie_totalen,
         duplicaten=duplicaten,
         blokken=blokken,
+        leesfouten=leesfouten.frame(),
     )

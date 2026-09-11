@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .model import Auditfile
+from .model import GEVOLG_NUL, Auditfile
+from .parsing import transactie_sleutel
 
 KRITIEK = "kritiek"
 WAARSCHUWING = "waarschuwing"
@@ -116,7 +117,13 @@ def controleer_auditfile(af: Auditfile) -> pd.DataFrame:
             )
 
         # --- Sluit elke transactie afzonderlijk? ---
-        per_transactie = lines.groupby(["tx_jrnID", "tx_nr"], dropna=False)["bedrag"].sum()
+        # Groeperen op dagboek plus transactienummer mag hier niet: hergebruikt
+        # een bestand hetzelfde nummer binnen één dagboek, dan worden twee
+        # boekingen als één geteld en kan een onbalans in de ene wegvallen
+        # tegen de andere. ``transactie_sleutel()`` gebruikt daarom het
+        # volgnummer dat de parser zelf toekent. Het hergebruik zelf is een
+        # aparte bevinding, zie ``_controleer_transactienummers()``.
+        per_transactie = lines.groupby(transactie_sleutel(lines), dropna=False)["bedrag"].sum()
         scheef = per_transactie[per_transactie.abs() >= TOLERANTIE]
         if scheef.empty:
             bevindingen.append(
@@ -129,10 +136,17 @@ def controleer_auditfile(af: Auditfile) -> pd.DataFrame:
                     "Iedere transactie sluit op nul",
                     f"{len(scheef)} van de {len(per_transactie)} transacties zijn niet in evenwicht.",
                     aantal=len(scheef),
-                    verschil=float(scheef.sum()),
+                    # De som van de absolute afwijkingen, niet de gewone som. Twee
+                    # transacties die elk 100,00 scheef staan naar de andere kant
+                    # geven samen nul, en dan gaat een kritieke bevinding met een
+                    # bedrag van 0,00 het memorandum in en valt zij onder elke
+                    # materialiteitsdrempel. Wat hier hoort te staan is hoeveel er
+                    # in totaal niet aansluit.
+                    verschil=float(scheef.abs().sum()),
                 )
             )
 
+        bevindingen.extend(_controleer_transactienummers(af))
         bevindingen.extend(_controleer_regels(af))
 
     # --- Beginbalans ---
@@ -141,7 +155,122 @@ def controleer_auditfile(af: Auditfile) -> pd.DataFrame:
     # --- Stamgegevens ---
     bevindingen.extend(_controleer_stamgegevens(af))
 
+    # --- Bedragen die het bestand wel invult maar niet als getal opgeeft ---
+    bevindingen.extend(_controleer_leesbare_bedragen(af))
+
     return pd.DataFrame(bevindingen, columns=BEVINDING_COLUMNS)
+
+
+def _controleer_transactienummers(af: Auditfile) -> list[dict]:
+    """Komt hetzelfde transactienummer twee keer voor binnen één dagboek?
+
+    Het schema laat het toe. De XSD van XAF 3.2 legt zes sleutels vast, op
+    ``ledgerAccount/accID``, ``customerSupplier/custSupID``, ``vatCode/vatID``,
+    ``period/periodNumber``, ``journal/jrnID`` en een ``basicID``, en geen
+    daarvan raakt ``transaction/nr``; er staat op dat element ook geen
+    ``unique``. Nagemeten op 11-09-2026 in ``XmlAuditfileFinancieel3.2.xsd``;
+    de namespace ``http://www.auditfiles.nl/XAF/3.2`` was toen niet bereikbaar,
+    dus is de schematekst gelezen uit een woordelijke kopie in de publieke
+    repository ``BananaAccounting/Netherlands``. Een bestand kan het nummer dus
+    hergebruiken en toch tegen het schema valideren, en pakketten doen dat ook;
+    ``_rekeningkaart_boekingen()`` in ``parsing.py`` ving dat al af bij het
+    koppelen van de subadministratie.
+
+    Of de functionele specificatie het nummer *verplicht* uniek stelt binnen het
+    dagboek is hier niet vastgesteld: die documentatie zit in het zipbestand van
+    de Belastingdienst/ODB en is niet ingezien. De bevinding hieronder zegt
+    daarom niet dat het bestand de standaard overtreedt, maar wat er gemeten is.
+    De open vraag staat in ``ROADMAP.md``.
+
+    Voor de berekening is het hergebruik opgevangen: de controles groeperen op
+    het volgnummer dat de parser zelf toekent. Voor de gebruiker blijft het een
+    gebrek in de herleidbaarheid, en daarom een eigen bevinding. Een verwijzing
+    naar "transactie 5 in het memoriaal" wijst dan namelijk naar twee boekingen,
+    en de subadministratie van XAF 3.2 verwijst juist met dagboek, transactie-
+    en regelnummer naar de grootboekregel.
+    """
+    lines = af.lines
+    if "tx_volgnr" not in lines.columns or lines["tx_volgnr"].astype(str).str.strip().eq("").any():
+        return [
+            _bevinding(
+                NIET_MOGELIJK,
+                "Transactienummer eenduidig binnen het dagboek",
+                "De transacties zijn niet genummerd in de volgorde van het bestand, "
+                "waardoor hergebruik van een transactienummer niet vast te stellen is.",
+            )
+        ]
+
+    transacties = lines[["tx_jrnID", "tx_nr", "tx_volgnr"]].astype(str).drop_duplicates()
+    dubbel = transacties[transacties.duplicated(subset=["tx_jrnID", "tx_nr"], keep=False)]
+    if dubbel.empty:
+        return [
+            _bevinding(
+                IN_ORDE,
+                "Transactienummer eenduidig binnen het dagboek",
+                f"Alle {len(transacties)} transacties hebben een eigen nummer binnen hun dagboek.",
+                aantal=0,
+            )
+        ]
+
+    paren = dubbel[["tx_jrnID", "tx_nr"]].drop_duplicates()
+    genoemd = [f"{dagboek} {nummer}" for dagboek, nummer in paren.itertuples(index=False)]
+    staart = ""
+    if len(genoemd) > MAXIMAAL_GENOEMD:
+        staart = f" en {len(genoemd) - MAXIMAAL_GENOEMD} andere"
+        genoemd = genoemd[:MAXIMAAL_GENOEMD]
+    return [
+        _bevinding(
+            WAARSCHUWING,
+            "Transactienummer eenduidig binnen het dagboek",
+            f"{len(paren)} transactienummer(s) komen meer dan eens voor binnen hetzelfde "
+            f"dagboek: {', '.join(genoemd)}{staart}. De controles tellen deze boekingen "
+            "apart, maar een verwijzing naar dagboek en transactienummer wijst in dit "
+            "bestand naar meer dan één boeking. Beoordeel of het bronpakket het nummer "
+            "opnieuw gebruikt of dat dezelfde boeking twee keer in het bestand staat.",
+            aantal=len(paren),
+        )
+    ]
+
+
+def _controleer_leesbare_bedragen(af: Auditfile) -> list[dict]:
+    """Bedragen die het bestand wel invult maar niet als getal opgeeft.
+
+    Het bestand wordt hierom niet geweigerd. Een auditfile van een klant kan één
+    rommelige regel bevatten en de rest is dan gewoon bruikbaar; een harde
+    afwijzing zou de assistent zonder analyse achterlaten voor een fout die hij
+    misschien in één regel kan herstellen. Wat niet mag, is stil doorrekenen:
+    een onleesbaar bedrag wordt 0,00 of leeg, en dat werkt door in de
+    btw-rondrekening, de ratio-analyse en de saldering.
+
+    De ernst volgt uit wat er met de waarde is gebeurd. Telt zij als 0,00 mee,
+    dan vervuilt zij de uitkomst zonder dat daar iets van te zien is: kritiek.
+    Blijft zij leeg, dan leest de tool het gegeven als afwezig en zegt zij
+    verderop zelf dat iets niet kan; dat is zichtbaar en dus een waarschuwing.
+    """
+    leesfouten = af.leesfouten
+    if leesfouten.empty:
+        return [
+            _bevinding(
+                IN_ORDE,
+                "Bedragen leesbaar",
+                "Alle ingevulde bedragen in het bestand zijn als getal te lezen.",
+                aantal=0,
+            )
+        ]
+
+    bevindingen = []
+    for _, rij in leesfouten.iterrows():
+        aantal = int(rij["aantal"])
+        bevindingen.append(
+            _bevinding(
+                KRITIEK if rij["gevolg"] == GEVOLG_NUL else WAARSCHUWING,
+                "Bedragen leesbaar",
+                f"{aantal} bedrag(en) in {rij['blok']} ({rij['veld']}) zijn niet als getal "
+                f"te lezen en worden {rij['gevolg']}: {rij['vindplaatsen']}.",
+                aantal=aantal,
+            )
+        )
+    return bevindingen
 
 
 def _controleer_beginbalans(af: Auditfile) -> list[dict]:

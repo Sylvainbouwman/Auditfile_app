@@ -20,12 +20,31 @@ aanwezig: `tests/test_openstaand.py` controleert een ontbrekende vervaldatum,
 ontbrekende datums en een ambigue rekeningkoppeling. Dit is geen bewijs dat alle
 gedeeltelijke exports of beide XAF-versies tegen de XSD zijn gevalideerd.
 
-Drie technische reviewpunten hieronder zijn nog in de bron teruggevonden:
+Drie technische reviewpunten hieronder waren nog in de bron teruggevonden:
 `signed_amount()` en `signed_amount_series()` in `auditfile/parsing.py` zetten
 onleesbare bedragen op nul; `auditfile/integrity.py` groepeert transacties op
 dagboek en nummer; subadministratietotalen hebben daar nog geen eigen toets.
-Ze vragen afzonderlijk herstel en regressieproeven, geen afvinking op basis van
-de reeds afgeronde top 10.
+
+**Twee daarvan zijn hersteld op 11-09-2026**, met regressieproeven in
+`tests/test_leesbare_bedragen.py` en `tests/test_transactiesleutel.py`.
+
+- *Onleesbare bedragen.* De parser rekent nog steeds door, maar telt de
+  onleesbare waarden per blok en veld en geeft de vindplaats mee; `integrity.py`
+  maakt daar de bevinding "Bedragen leesbaar" van. Een leeg veld blijft
+  gewoon nul en is geen fout. Een waarde die als 0,00 meetelt is kritiek, een
+  waarde die leeg blijft een waarschuwing, omdat de tool dan verderop zelf zegt
+  dat iets niet kan.
+- *Transactiesleutel.* De controles groeperen op een volgnummer dat de parser
+  zelf toekent. Gemeten op 11-09-2026 met een synthetisch bestand waarin één
+  dagboek tweemaal transactienummer 5 bevat, de ene boeking 100,00 debet te veel
+  en de andere 100,00 credit te veel: de standaardbranch meldde "Alle 1
+  transacties zijn in evenwicht", ernst in orde, met ook de controletotalen en
+  de debet-credit-toets in orde, dus geen enkel ander signaal. Na herstel meldt
+  de controle "2 van de 2 transacties zijn niet in evenwicht", ernst kritiek,
+  verschil 200,00, plus een waarschuwing over het hergebruikte nummer.
+
+Open blijft de eigen toets op de subadministratietotalen (zie hieronder onder
+de technische aandachtspunten).
 
 ## Visie
 Een fiscaal-inhoudelijke auditfile-analysetool die verder gaat dan bestaande software zoals Caseware, door fiscale logica toe te voegen bovenop de XAF-data. Gebouwd voor de samenstelpraktijk en belastingadvies.
@@ -406,14 +425,33 @@ verfijning open staat.
   berekeningen blijven behouden, zodat bestaande beoordelingen geldig blijven.
 - **Bedragen als float.** De toleranties maken dat werkbaar, maar voor exact
   reproduceerbare centencontroles zijn `Decimal` of hele centen robuuster.
-- **Geen XSD-validatie.** De parser leest wat er is en zet onleesbare bedragen
-  stil op nul. Een validatie tegen het schema zou een kapot bestand hard
-  afwijzen in plaats van half in te lezen.
-- **Transactiesleutel.** De transactiebalans groepeert op dagboek en
-  transactienummer. Hergebruik van hetzelfde nummer kan twee ongebalanceerde
-  transacties samen laten sluiten. Bij het koppelen van de subadministratie is
-  dit al afgevangen: een sleutel die naar verschillende rekeningen wijst, levert
-  geen rekening op.
+- **Geen XSD-validatie.** De parser leest wat er is en wijst een bestand niet
+  af. Een validatie tegen het schema zou een kapot bestand hard afwijzen in
+  plaats van half in te lezen. **Niet meer stil sinds 11-09-2026**: een bedrag dat
+  wel is ingevuld maar geen getal is, wordt geteld en met vindplaats gemeld in
+  de bevinding "Bedragen leesbaar".
+- **Transactiesleutel.** ~~De transactiebalans groepeert op dagboek en
+  transactienummer.~~ **Hersteld op 11-09-2026**: `transactie_sleutel()` in
+  `parsing.py` groepeert op het volgnummer dat de parser zelf toekent, en
+  `integrity.py`, `vat.py` en `suppletie.py` gebruiken alle die ene sleutel.
+  Het hergebruik zelf wordt apart gemeld. Bij het koppelen van de
+  subadministratie was dit al afgevangen: een sleutel die naar verschillende
+  rekeningen wijst, levert geen rekening op.
+- **Mag een transactienummer binnen één dagboek terugkomen? Open vraag.** De
+  XSD van XAF 3.2 legt zes sleutels vast, op `ledgerAccount/accID`,
+  `customerSupplier/custSupID`, `vatCode/vatID`, `period/periodNumber`,
+  `journal/jrnID` en een `basicID`, en geen daarvan raakt `transaction/nr`;
+  er staat op dat element ook geen `unique`. Nagemeten op 11-09-2026 in
+  `XmlAuditfileFinancieel3.2.xsd`; de namespace
+  `http://www.auditfiles.nl/XAF/3.2` gaf toen geen antwoord, dus is de
+  schematekst gelezen uit een woordelijke kopie in de publieke repository
+  `BananaAccounting/Netherlands`. Het schema laat hergebruik dus toe. Of de functionele specificatie het nummer
+  *verplicht* uniek stelt binnen het dagboek is niet vastgesteld: die
+  documentatie zit in het zipbestand XMLAuditfile Financieel XAF 4.0.3 van de
+  Belastingdienst/ODB en is niet ingezien. Zolang dat open staat, meldt de tool
+  wat zij meet en niet dat het bestand de standaard overtreedt. Is het antwoord
+  ja, dan kan de bevinding scherper worden geformuleerd, met de vindplaats
+  erbij.
 - **Betekenis van `sbType` en `mutTp`.** De XSD geeft alleen de toegestane
   waarden (CS, CU, SU, ZZ en I, P, Z) en geen omschrijving. De tool geeft ze
   onveranderd door en leidt er niets uit af. Vaststellen wat ze betekenen vraagt

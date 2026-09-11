@@ -15,8 +15,20 @@ import pandas as pd
 ACCOUNT_COLUMNS = ["accID", "accDesc", "accTp", "RGScode", "RGSbron"]
 
 # Kolommen die per boekingsregel uit de transactie worden overgenomen.
+#
+# ``tx_volgnr`` staat niet in het bestand: de parser nummert de transacties in
+# de volgorde waarin ze voorkomen. Dat is nodig omdat het bestand zelf geen
+# sleutel garandeert. De XSD van XAF 3.2 zet geen ``key`` of ``unique`` op
+# ``transaction/nr``, dus een bestand kan het nummer binnen één dagboek opnieuw
+# gebruiken en toch tegen het schema valideren, en pakketten doen dat ook. Wie
+# op dagboek plus nummer groepeert, telt die twee transacties bij elkaar op en
+# ziet een onbalans in de ene wegvallen tegen de andere. Groepeer daarom altijd
+# op ``tx_volgnr``; ``transactie_sleutel()`` in ``parsing.py`` doet dat op één
+# plek, en ``integrity.py`` meldt het hergebruik apart, omdat een verwijzing
+# naar dagboek plus transactienummer er niet eenduidig van wordt.
 TRANSACTION_COLUMNS = [
     "tx_nr",
+    "tx_volgnr",
     "tx_desc",
     "tx_periodNumber",
     "tx_trDt",
@@ -118,6 +130,19 @@ SUBADMINISTRATIE_TOTALEN_COLUMNS = [
     "totaal_credit_gelezen",
 ]
 
+# Bedragen die het bestand wel invult maar niet als getal opgeeft. Een leeg
+# veld is iets anders: dat zegt niets en mag nul worden. Staat er wel iets, maar
+# is dat geen getal, dan gaat er een bedrag verloren en moet de gebruiker dat
+# zien in plaats van een stille 0,00 mee te rekenen.
+LEESFOUT_COLUMNS = ["blok", "veld", "gevolg", "aantal", "vindplaatsen"]
+
+# Wat er met de onleesbare waarde is gebeurd. Dit bepaalt hoe zwaar de
+# bevinding weegt: een bedrag dat als nul meetelt vervuilt de uitkomst, een
+# bedrag dat leeg blijft laat de tool zeggen dat iets niet kan.
+GEVOLG_NUL = "als 0,00 meegeteld"
+GEVOLG_LEEG = "leeg gelaten"
+
+
 SALDO_COLUMNS = [
     "rekening",
     "accDesc",
@@ -155,6 +180,18 @@ def empty_subadministratie() -> pd.DataFrame:
 
 def empty_subadministratie_totalen() -> pd.DataFrame:
     return pd.DataFrame(columns=SUBADMINISTRATIE_TOTALEN_COLUMNS)
+
+
+def empty_leesfouten() -> pd.DataFrame:
+    """Een lege leesfoutentabel met de juiste typen.
+
+    ``aantal`` krijgt ook leeg een geheeltallig type, zodat een optelling of
+    vergelijking op een bestand zonder leesfouten hetzelfde werkt als op een
+    bestand met.
+    """
+    leeg = pd.DataFrame(columns=LEESFOUT_COLUMNS)
+    leeg["aantal"] = pd.Series(dtype="int64")
+    return leeg
 
 
 @dataclass
@@ -204,6 +241,12 @@ class Auditfile:
     # bepalen wat er aan analyse mogelijk is: de openstaande bedragen per relatie
     # van XAF 4.0 en de leverdatum. Zie capability.py.
     blokken: dict[str, int] = field(default_factory=dict)
+    # Bedragen die het bestand invult maar niet als getal opgeeft, per blok en
+    # veld geteld, met de vindplaats erbij. De parser kan zo'n waarde niet
+    # rekenen en zet haar op nul of laat haar leeg; zonder deze vastlegging
+    # rekent de tool daar stil mee door. ``integrity.py`` maakt er een
+    # bevinding van. Leeg is dus goed nieuws en niet "onbekend".
+    leesfouten: pd.DataFrame = field(default_factory=empty_leesfouten)
 
     @property
     def boekjaar(self) -> str:

@@ -43,6 +43,7 @@ import numpy as np
 import pandas as pd
 
 from .model import Auditfile
+from .parsing import transactie_sleutel
 from .vat_rubrics import (
     AFDRACHT,
     AFDRACHT_CODES,
@@ -590,12 +591,16 @@ def build_vat_ledger_flow(af: Auditfile, samenvatting: pd.DataFrame) -> pd.DataF
 
     # Transacties waarin ergens een btw-code voorkomt: dat is de facturatiestroom.
     heeft_code = (lines["vat_vatID"] != "") | (lines["line_vatID"] != "")
-    transactie_sleutel = lines["tx_jrnID"].astype(str) + "\x1f" + lines["tx_nr"].astype(str)
-    transacties_met_code = set(transactie_sleutel[heeft_code])
-    transacties_met_liquide = set(transactie_sleutel[_is_liquide(lines)])
+    # Eén plaats beslist wat één boeking is. Dagboek plus transactienummer is
+    # dat niet: hergebruikt een bestand hetzelfde nummer, dan zouden twee
+    # boekingen hier als één gelden en zou een btw-code uit de ene de andere
+    # als facturatie laten meetellen.
+    sleutel_per_regel = transactie_sleutel(lines)
+    transacties_met_code = set(sleutel_per_regel[heeft_code])
+    transacties_met_liquide = set(sleutel_per_regel[_is_liquide(lines)])
 
     btw_regels_op_rekening = lines[op_btw_rekening].copy()
-    sleutel = transactie_sleutel[op_btw_rekening]
+    sleutel = sleutel_per_regel[op_btw_rekening]
     uit_facturen = sleutel.isin(transacties_met_code)
     via_liquide = sleutel.isin(transacties_met_liquide) & ~uit_facturen
 

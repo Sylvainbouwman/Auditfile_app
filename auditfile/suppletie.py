@@ -36,6 +36,7 @@ import pandas as pd
 from .controls import _selecteer
 from .model import Auditfile
 from .notatie import euro
+from .parsing import transactie_sleutel
 from .vat import AFRONDINGSMARGE_EURO, btw_grootboekrekeningen
 from .vat_rubrics import AFDRACHT_CODES, VOORBELASTING_CODES
 
@@ -179,10 +180,14 @@ def _uit_facturatie(lines: pd.DataFrame) -> pd.Series:
     Een suppletie is geen facturatieboeking. Zonder deze afbakening vangt het
     woord "correctie" ook de tegenboeking van een creditnota op, want die heet
     op de btw-rekening net zo goed "btw-correctie". Het is dezelfde afbakening
-    die de rondrekening gebruikt om de facturatiestroom af te zonderen.
+    die de rondrekening gebruikt om de facturatiestroom af te zonderen, en
+    daarom ook dezelfde transactiesleutel: op dagboek plus transactienummer zou
+    een btw-code in de ene boeking de andere als facturatie laten wegvallen
+    zodra een pakket dat nummer hergebruikt, en dan verdwijnt de suppletie uit
+    de detectie. Zie ``transactie_sleutel()`` in ``parsing.py``.
     """
     heeft_code = (lines["vat_vatID"] != "") | (lines["line_vatID"] != "")
-    sleutel = lines["tx_jrnID"].astype(str) + "\x1f" + lines["tx_nr"].astype(str)
+    sleutel = transactie_sleutel(lines)
     return sleutel.isin(set(sleutel[heeft_code]))
 
 
