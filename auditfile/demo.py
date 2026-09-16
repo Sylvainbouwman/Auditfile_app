@@ -1,12 +1,14 @@
-"""Synthetische XAF-auditfiles: demodata voor de app en fixtures voor de tests.
+"""Synthetische bestanden: demodata voor de app en fixtures voor de tests.
 
 Alle gegevens die hiermee ontstaan zijn verzonnen. Er wordt nooit klantdata
 gebruikt, ook niet als voorbeeld: rekeningnamen, relaties en bedragen komen uit
 deze module en nergens anders vandaan. Daardoor kan de tool worden getoond en
 uitgeprobeerd zonder dat er een klantbestand aan te pas komt.
 
-Ondersteunt zowel XAF 3.2 als 4.0, zodat de parser tegen beide varianten kan
-worden getest.
+Het zwaartepunt ligt bij het auditfile zelf, in zowel XAF 3.2 als 4.0, zodat de
+parser tegen beide varianten kan worden getest. Daarnaast bouwt
+``build_aangifte_xbrl()`` een XBRL-bericht met een aangifte omzetbelasting, om
+``aangifte.py`` te kunnen testen zonder een echte aangifte van een klant.
 """
 from __future__ import annotations
 
@@ -1263,3 +1265,73 @@ def demopaar(
     if versie_huidig == "4.0":
         huidige_spec = vul_relatiesaldi(huidige_spec)
     return vorige_bytes, build_xaf(huidige_spec)
+
+
+# Het omzetbelastingnummer van de demo-onderneming, zodat een synthetische
+# aangifte bij het synthetische auditfile past.
+DEMO_OMZETBELASTINGNUMMER = "NL000000000B01"
+
+# De namespace van de btw-items in de taxonomie van de Belastingdienst. Welke
+# versie hier staat maakt voor de parser niet uit: die werkt op de lokale
+# elementnaam. Voor een fixture die op een echt bestand lijkt hoort er wel een.
+DEMO_OB_NAMESPACE = "http://www.nltaxonomie.nl/10.0/basis/bd/items/bd-omzetbelasting"
+
+
+def build_aangifte_xbrl(
+    *,
+    begindatum: str,
+    einddatum: str,
+    btw: dict[str, float] | None = None,
+    grondslag: dict[str, float] | None = None,
+    totalen: dict[str, float] | None = None,
+    omzetbelastingnummer: str = DEMO_OMZETBELASTINGNUMMER,
+    schema: str = "http://www.nltaxonomie.nl/nt16/bd/20220921/entrypoints/bd-rpt-ob-aangifte.xsd",
+    extra: dict[str, str] | None = None,
+) -> bytes:
+    """Een synthetisch XBRL-bericht met een aangifte omzetbelasting.
+
+    De sleutels van ``btw``, ``grondslag`` en ``totalen`` zijn elementnamen uit
+    de taxonomie, niet rubriekcodes: een fixture hoort de vorm van het echte
+    bestand na te bootsen en niet die van de tool, anders toetst de test de
+    koppeling niet maar zichzelf.
+    """
+    regels = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        "<xbrli:xbrl"
+        ' xmlns:xbrli="http://www.xbrl.org/2003/instance"'
+        ' xmlns:link="http://www.xbrl.org/2003/linkbase"'
+        ' xmlns:xlink="http://www.w3.org/1999/xlink"'
+        ' xmlns:iso4217="http://www.xbrl.org/2003/iso4217"'
+        f' xmlns:bd-ob="{DEMO_OB_NAMESPACE}">',
+    ]
+    if schema:
+        regels.append(
+            f'  <link:schemaRef xlink:type="simple" xlink:href="{escape(schema)}"/>'
+        )
+    regels += [
+        '  <xbrli:context id="tijdvak">',
+        "    <xbrli:entity>",
+        '      <xbrli:identifier scheme="http://www.belastingdienst.nl/omzetbelastingnummer">'
+        f"{escape(omzetbelastingnummer)}</xbrli:identifier>",
+        "    </xbrli:entity>",
+        "    <xbrli:period>",
+        f"      <xbrli:startDate>{begindatum}</xbrli:startDate>",
+        f"      <xbrli:endDate>{einddatum}</xbrli:endDate>",
+        "    </xbrli:period>",
+        "  </xbrli:context>",
+        '  <xbrli:unit id="EUR">',
+        "    <xbrli:measure>iso4217:EUR</xbrli:measure>",
+        "  </xbrli:unit>",
+    ]
+    for waarden in (grondslag, btw, totalen):
+        for element, bedrag in (waarden or {}).items():
+            regels.append(
+                f'  <bd-ob:{element} contextRef="tijdvak" unitRef="EUR" decimals="INF">'
+                f"{bedrag:.0f}</bd-ob:{element}>"
+            )
+    for element, waarde in (extra or {}).items():
+        regels.append(
+            f'  <bd-ob:{element} contextRef="tijdvak">{escape(waarde)}</bd-ob:{element}>'
+        )
+    regels.append("</xbrli:xbrl>")
+    return "\n".join(regels).encode("utf-8")
