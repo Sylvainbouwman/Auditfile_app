@@ -104,10 +104,14 @@ omzetbelasting 1968 (BUA). De tool signaleert alleen; zij berekent geen correcti
 
 Gebruikt in `auditfile/controls.py`.
 
-- Art. 3.14 lid 1 onderdeel c Wet IB 2001 sluit uit: geldboeten van de strafrechter,
-  geldsommen ter voorkoming van strafvervolging, bestuurlijke boeten, boeten uit
-  bij wet geregeld tuchtrecht, boeten van een instelling van de Europese Unie en
-  daarmee vergelijkbare **buitenlandse** boeten.
+- Art. 3.14 lid 1 onderdeel c Wet IB 2001 sluit uit: geldboeten van de
+  strafrechter en geldsommen ter voorkoming van strafvervolging (of een
+  daarmee vergelijkbare buitenlandse wijze van bestraffing), bestuurlijke
+  boeten **en daarmee vergelijkbare buitenlandse boeten**, boeten uit bij wet
+  geregeld tuchtrecht, en boeten van een instelling van de Europese Unie. De
+  zinsnede over het buitenland hangt in de wettekst dus aan de bestuurlijke
+  boeten, niet aan de hele opsomming; tuchtrechtboeten en EU-boeten kennen geen
+  eigen buitenlandclausule.
 - Art. 3.14 lid 1 onderdeel i sluit dwangsommen uit als bedoeld in afdeling 5.3.2
   van de Algemene wet bestuursrecht (last onder dwangsom, art. 5:31d tot en met
   5:39 Awb) en daarmee vergelijkbare buitenlandse dwangsommen. Dit onderdeel geldt
