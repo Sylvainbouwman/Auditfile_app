@@ -678,13 +678,14 @@ def build_balanspost_signalen(af: Auditfile) -> pd.DataFrame:
 # Toelichting bij boetes. De formulering is bewust genuanceerd: niet elke boete
 # is van aftrek uitgesloten. Zie docs/btw-bronnen.md voor de vindplaatsen.
 BOETE_TOELICHTING = (
-    "Geldboeten (strafrechtelijk, bestuurlijk, tuchtrechtelijk, van een instelling "
-    "van de EU en daarmee vergelijkbare buitenlandse boeten) en bestuursrechtelijke "
-    "dwangsommen zijn van aftrek uitgesloten op grond van art. 3.14 lid 1 onderdelen "
-    "c en i Wet IB 2001, dat via art. 8 lid 1 Wet Vpb 1969 ook voor de "
-    "vennootschapsbelasting geldt. Contractuele boetes tussen private partijen en "
-    "civielrechtelijke dwangsommen (art. 611a Rv) vallen daar niet onder, dus "
-    "beoordeel per boeking waar de boete vandaan komt."
+    "Geldboeten van de strafrechter; bestuurlijke boeten en daarmee vergelijkbare "
+    "buitenlandse boeten; boeten uit bij wet geregeld tuchtrecht; en boeten van een "
+    "instelling van de EU. Deze boeten en bestuursrechtelijke dwangsommen zijn van "
+    "aftrek uitgesloten op grond van art. 3.14 lid 1 onderdelen c en i Wet IB 2001, "
+    "dat via art. 8 lid 1 Wet Vpb 1969 ook voor de vennootschapsbelasting geldt. "
+    "Contractuele boetes tussen private partijen en civielrechtelijke dwangsommen "
+    "(art. 611a Rv) vallen daar niet onder, dus beoordeel per boeking waar de boete "
+    "vandaan komt."
 )
 
 FISCALE_SIGNALEN: tuple[tuple[str, str, str], ...] = (
