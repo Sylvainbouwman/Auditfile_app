@@ -466,13 +466,41 @@ def pagina_bevindingen(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.Dat
         st.caption("Geen bevindingen binnen deze selectie.")
         return
 
+    # Een bulkbeoordeling (hieronder) zet de gekozen status en notitie op de
+    # aangevinkte rijen, maar past niets aan op schijf: dat blijft de knop
+    # "Beoordeling vastleggen" doen, net als bij een losse celbewerking. De
+    # override blijft daarom in de sessie staan totdat hij is vastgelegd (of
+    # overschreven door een volgende bulkactie): st.data_editor onthoudt alleen
+    # wat de gebruiker zelf in de tabel heeft aangeklikt, niet een basiswaarde
+    # die hier één render lang is aangepast en daarna weer verdwijnt.
+    override_sleutel = f"bevindingen_bulk_override_{opslag.sleutel}"
+    override = st.session_state.get(override_sleutel)
+    zichtbaar = zichtbaar.copy()
+    if override:
+        for sleutel, waarden in override.items():
+            masker = zichtbaar["sleutel"] == sleutel
+            zichtbaar.loc[masker, "status"] = waarden["status"]
+            zichtbaar.loc[masker, "notitie"] = waarden["notitie"]
+    zichtbaar.insert(0, "geselecteerd", False)
+
+    # De widget-sleutel draagt een versienummer: na een bulkactie wordt dat
+    # verhoogd, zodat de editor zijn eigen bewaarde celbewerkingen loslaat en
+    # de nieuwe basiswaarden (met de bulkactie erin verwerkt) laat zien in
+    # plaats van de oude aanvinkjes en status opnieuw over die basis heen te
+    # leggen.
+    versie_sleutel = f"bevindingen_editor_versie_{opslag.sleutel}"
+    versie = st.session_state.get(versie_sleutel, 0)
+
     bewerkt = st.data_editor(
         zichtbaar,
         hide_index=True,
         width="stretch",
         height=560,
-        disabled=[kolom for kolom in zichtbaar.columns if kolom not in ("status", "notitie")],
+        disabled=[
+            kolom for kolom in zichtbaar.columns if kolom not in ("status", "notitie", "geselecteerd")
+        ],
         column_order=[
+            "geselecteerd",
             "ernst",
             "categorie",
             "onderwerp",
@@ -487,6 +515,9 @@ def pagina_bevindingen(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.Dat
             "pagina",
         ],
         column_config={
+            "geselecteerd": st.column_config.CheckboxColumn(
+                "", width="small", help="Aanvinken om mee te nemen in de bulkbeoordeling hieronder."
+            ),
             "ernst": st.column_config.TextColumn("Ernst", width="small"),
             "categorie": st.column_config.TextColumn("Categorie", width="small"),
             "onderwerp": st.column_config.TextColumn("Onderwerp", width="large"),
@@ -504,8 +535,38 @@ def pagina_bevindingen(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.Dat
             "toelichting": st.column_config.TextColumn("Toelichting", width="large"),
             "pagina": st.column_config.TextColumn("Te vinden op", width="small"),
         },
-        key=f"bevindingen_editor_{opslag.sleutel}",
+        key=f"bevindingen_editor_{opslag.sleutel}_{versie}",
     )
+
+    aangevinkt = bewerkt[bewerkt["geselecteerd"]]
+    bulk_status, bulk_notitie, bulk_knop = st.columns([1, 2, 1])
+    gekozen_status = bulk_status.selectbox(
+        "Beoordeling voor aangevinkte rijen",
+        options=list(REVIEWSTATUSSEN),
+        key=f"bulk_status_{opslag.sleutel}",
+    )
+    gekozen_notitie = bulk_notitie.text_input(
+        "Notitie voor aangevinkte rijen (optioneel)", key=f"bulk_notitie_{opslag.sleutel}"
+    )
+    with bulk_knop:
+        st.write("")
+        if st.button(
+            f"Toepassen op {len(aangevinkt)} aangevinkte",
+            disabled=aangevinkt.empty,
+            help="Zet de gekozen beoordeling en notitie op alle aangevinkte bevindingen. "
+            "Legt nog niets vast; dat doet u daarna met 'Beoordeling vastleggen'.",
+        ):
+            # Samenvoegen met een eerdere, nog niet vastgelegde bulkactie, zodat
+            # een tweede bulkactie op andere rijen de eerste niet ongedaan maakt.
+            st.session_state[override_sleutel] = {
+                **(override or {}),
+                **{
+                    str(sleutel): {"status": gekozen_status, "notitie": gekozen_notitie}
+                    for sleutel in aangevinkt["sleutel"]
+                },
+            }
+            st.session_state[versie_sleutel] = versie + 1
+            st.rerun()
 
     # Alleen wat de gebruiker heeft ingevuld wordt bewaard, op sleutel. Een
     # bevinding op "Te beoordelen" zonder notitie is geen invoer en hoort niet in
@@ -531,8 +592,12 @@ def pagina_bevindingen(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.Dat
     ):
         if not opslag.schrijf_review(nieuwe_review):
             st.warning(f"De beoordeling kon niet worden bewaard in {opslag.map}.")
-        elif not opslag.schrijf_label(huidig.bedrijfsnaam, huidig.boekjaar):
-            st.warning(f"Het dossierlabel kon niet worden bewaard in {opslag.map}.")
+        else:
+            if not opslag.schrijf_label(huidig.bedrijfsnaam, huidig.boekjaar):
+                st.warning(f"Het dossierlabel kon niet worden bewaard in {opslag.map}.")
+            # Nu verwerkt in de opgeslagen review; als losse override zou hij
+            # anders bij een volgend bezoek nog eens overheen worden gelegd.
+            st.session_state.pop(override_sleutel, None)
         st.rerun()
 
     with melding:
@@ -916,6 +981,10 @@ def stel_dossier_in(huidig: Auditfile) -> DossierOpslag:
                 "btw_mapping_editor",
                 "btw_aftrek_editor",
                 "bevindingen_editor",
+                "bevindingen_editor_versie_",
+                "bevindingen_bulk_override_",
+                "bulk_status_",
+                "bulk_notitie_",
                 "aangifte_",
                 "grondslag_",
                 "el_",
