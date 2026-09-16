@@ -50,6 +50,73 @@ Let op bij onderhoud:
 - Per 1 januari 2026 gaat het tarief voor logies naar 21%. Dat raakt alleen de
   verdeling tussen 1a en 1b, niet de rubriekindeling zelf.
 
+## De aangifte als XBRL-bestand: welk element hoort bij welke rubriek
+
+Vastgelegd in `auditfile/aangifte.py`. Geraadpleegd op 17 september 2026 (CEST).
+
+De btw-aangifte gaat sinds 1 januari 2014 verplicht als XBRL-bericht via Digipoort
+naar de Belastingdienst. De elementnamen komen uit het belastingdienstdeel (`bd`)
+van de Nederlandse Taxonomie. De koppeling hieronder is niet afgeleid uit de
+omschrijving maar overgenomen uit de taxonomie zelf: het schema geeft de
+elementnamen, de label-linkbase het Nederlandse label en de reference-linkbase het
+paragraafnummer van de officiële definitie.
+
+- Schema: <http://www.nltaxonomie.nl/10.0/basis/bd/items/bd-omzetbelasting.xsd>
+- Nederlandse labels: <http://www.nltaxonomie.nl/10.0/basis/bd/items/bd-omzetbelasting-lab-nl.xml>
+- Verwijzingen naar de definities: <http://www.nltaxonomie.nl/10.0/basis/bd/items/bd-omzetbelasting-ref.xml>
+- De definities zelf, per paragraafnummer: *Belastingdienst taxonomie definities*,
+  <https://www.sbr-nl.nl/sites/default/files/bestanden/taxonomie/NT16_BD_20220921%20BD%20Taxonomie%20definities.pdf>
+- Overzicht van de taxonomieversies: <https://www.sbr-nl.nl/>
+
+| Rubriek | Element (omzet) | Element (btw) | Paragraaf |
+|---|---|---|---|
+| 1a | `TaxedTurnoverSuppliesServicesGeneralTariff` | `ValueAddedTaxSuppliesServicesGeneralTariff` | 509382 / 509383 |
+| 1b | `TaxedTurnoverSuppliesServicesReducedTariff` | `ValueAddedTaxSuppliesServicesReducedTariff` | 509384 / 509385 |
+| 1c | `TaxedTurnoverSuppliesServicesOtherRates` | `ValueAddedTaxSuppliesServicesOtherRates` | 509386 / 509387 |
+| 1d | `TaxedTurnoverPrivateUse` | `ValueAddedTaxPrivateUse` | 509388 / 509389 |
+| 1e | `SuppliesServicesNotTaxed` | — | 509390 |
+| 2a | `TurnoverSuppliesServicesByWhichVATTaxationIsTransferred` | `ValueAddedTaxSuppliesServicesByWhichVATTaxationIsTransferred` | 509393 / 509395 |
+| 3a | `SuppliesToCountriesOutsideTheEC` | — | 509400 |
+| 3b | `SuppliesToCountriesWithinTheEC` | — | 509398 |
+| 3c | `InstallationDistanceSalesWithinTheEC` | — | 509401 |
+| 4a | `TurnoverFromTaxedSuppliesFromCountriesOutsideTheEC` | `ValueAddedTaxOnSuppliesFromCountriesOutsideTheEC` | 509402 / 509403 |
+| 4b | `TurnoverFromTaxedSuppliesFromCountriesWithinTheEC` | `ValueAddedTaxOnSuppliesFromCountriesWithinTheEC` | 509404 / 509405 |
+| 5a | — | `ValueAddedTaxOwed` | 509406 |
+| 5b | — | `ValueAddedTaxOnInput` | 509407 |
+
+Daarnaast, buiten de rubrieken om:
+
+| Element | Betekenis | Paragraaf |
+|---|---|---|
+| `ValueAddedTaxOwedToBePaidBack` | Totaal te betalen of terug te vragen | 509408 |
+| `SmallEntrepreneurProvisionReduction` | Vermindering volgens de kleineondernemersregeling | 516662 |
+| `ValueAddedTaxAmountTotalOld` | Suppletie: wat er eerder over dat tijdvak was aangegeven | 637579 |
+| `ValueAddedTaxAmountTotalNew` | Suppletie: het nieuwe totaal | 637578 |
+| `ValueAddedTaxToBePaidAdditionalToBePaidBack` | Suppletie: bij te betalen of terug te vragen | 643303 |
+
+Let op bij onderhoud:
+
+- **Koppel op de elementnaam, niet op het rubrieknummer.** Het nummer op het
+  formulier is presentatie en is eerder gewijzigd; de elementnaam is de vaste
+  identiteit van het gegeven. Dat is bij 3a en 3b het scherpst te zien: welke van
+  de twee "binnen de EU" is, volgt uit `WithinTheEC` in de naam en niet uit het
+  nummer.
+- **Een suppletie gebruikt dezelfde rubriekelementen als een aangifte**, met de
+  gecorrigeerde standen erin. De definitie bij paragraaf 509383 zegt dat met
+  zoveel woorden ("in de periode waarover aangifte of suppletie wordt gedaan").
+  De twee soorten mogen daarom niet bij elkaar worden opgeteld: dat telt hetzelfde
+  tijdvak dubbel. Het onderscheid volgt uit de verwijzing naar het taxonomieschema
+  bovenin het bericht, en anders uit de aanwezige velden: paragraaf 509408 komt
+  volgens zijn eigen definitie alleen in een aangifte voor en niet in een suppletie.
+- **De elementnamen zijn stabiel over taxonomieversies.** Tussen versie 9.0 en 10.0
+  is geen rubriekelement hernoemd of verdwenen; er kwamen er vijf bij, alle voor de
+  buitenlandregelingen (MOSS en VOES). De parser werkt daarom op de lokale
+  elementnaam en negeert de namespace, net als bij XAF. Wat hij niet herkent, meldt
+  hij per elementnaam, zodat een echte wijziging opvalt in plaats van weg te vallen.
+- `SmallEntrepreneurProvisionReduction` hoort bij de oude rubriek 5d, die verviel
+  toen de KOR per 2020 een omzetgerelateerde vrijstelling werd. Het element bestaat
+  nog in de taxonomie; oudere aangiften kunnen het bevatten.
+
 ## Verleggingsregeling
 
 - Art. 12 lid 5 Wet OB 1968 (delegatiegrondslag): <https://wetten.overheid.nl/BWBR0002629/2026-01-01>

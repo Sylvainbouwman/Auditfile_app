@@ -27,6 +27,7 @@ BEDRAG_FRAGMENTEN = (
     "grondslag",
     "openstaand",
     "btw",
+    "voorbelasting",
     "totaal",
     "verschil",
     "omzet",
