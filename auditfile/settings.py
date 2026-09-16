@@ -49,6 +49,7 @@ GRONDSLAG_BESTAND = "btw_grondslagen.json"
 DOSSIER_BESTAND = "dossier.json"
 REVIEW_BESTAND = "bevindingen_review.json"
 EXCESSIEF_BESTAND = "excessief_lenen.json"
+EXCESSIEF_REKENINGEN_BESTAND = "excessief_lenen_rekeningen.json"
 
 # De paden van vóór de scheiding per dossier. Ze worden niet meer geschreven,
 # alleen nog gelezen om invoer uit een oudere versie te kunnen overnemen.
@@ -204,6 +205,24 @@ class DossierOpslag:
     def schrijf_excessief_lenen(self, gegevens: dict) -> bool:
         return self._schrijf_bestand(gegevens, EXCESSIEF_BESTAND)
 
+    def lees_handmatige_rc_rekeningen(self) -> list[str]:
+        """Rekeningnummers die de gebruiker zelf aan de drempeltoets toevoegde.
+
+        Bijvoorbeeld een rekening-courant met de dga die op de RGS-code als
+        "overigen" is gecodeerd en daardoor buiten de automatische selectie
+        van ``excessief_lenen.py`` valt.
+        """
+        rekeningen = self._lees_bestand(EXCESSIEF_REKENINGEN_BESTAND).get("rekeningen", [])
+        if not isinstance(rekeningen, list):
+            return []
+        return [str(nummer) for nummer in rekeningen if str(nummer).strip()]
+
+    def schrijf_handmatige_rc_rekeningen(self, rekeningen: list[str]) -> bool:
+        return self._schrijf_bestand(
+            {"rekeningen": [str(nummer) for nummer in rekeningen]},
+            EXCESSIEF_REKENINGEN_BESTAND,
+        )
+
     # --- Dossiergegevens ----------------------------------------------------
 
     def lees_label(self) -> dict[str, str]:
@@ -231,6 +250,8 @@ class DossierOpslag:
                 AFTREK_BESTAND,
                 GRONDSLAG_BESTAND,
                 REVIEW_BESTAND,
+                EXCESSIEF_BESTAND,
+                EXCESSIEF_REKENINGEN_BESTAND,
             )
         )
 

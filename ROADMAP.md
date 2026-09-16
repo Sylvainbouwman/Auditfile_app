@@ -2,7 +2,9 @@
 
 ## Besluiten en hercontrole — 9 september 2026
 
-Sylvain heeft de volgende uitbreidingen goedgekeurd; ze zijn nog niet gebouwd:
+Sylvain heeft de volgende uitbreidingen goedgekeurd. **Beide zijn gebouwd op
+15 september 2026**; zie de vaknoten bij punt 5 en punt 8 hieronder voor de
+implementatie.
 
 - **Handmatige rekeningselectie bij excessief lenen:** de gebruiker mag een
   ontbrekende DGA-rekening aan de selectie toevoegen. Toon welke rekening automatisch
@@ -13,7 +15,7 @@ Sylvain heeft de volgende uitbreidingen goedgekeurd; ze zijn nog niet gebouwd:
   Controleer volledigheid, leesbaarheid en paginaovergangen met synthetische data.
 
 Deze besluiten beantwoorden de keuze over handmatige rekeningselectie bij punt 5
-en de gewenste uitvoervorm bij punt 8 hieronder. De implementatie blijft open.
+en de gewenste uitvoervorm bij punt 8 hieronder.
 
 Bij hercontrole van punt 4 blijkt een deel van de genoemde ontbrekende tests al
 aanwezig: `tests/test_openstaand.py` controleert een ontbrekende vervaldatum,
@@ -262,26 +264,25 @@ als einddoel stond:
 
 `memorandum.py` bouwt uit de bevindingen een document in twee lagen:
 `bouw_memorandum()` maakt de secties en de punten zonder opmaak,
-`naar_markdown()` en `naar_docx()` zetten die om naar tekst en naar een
-Word-bestand. De indeling is kop, uitgangspunten met
-de materialiteitsdrempel en haar opbouw, samenvatting, de aandachtspunten per
-ernst op volgorde van gewicht, wat niet kon worden vastgesteld, de al beoordeelde
-bevindingen en de verantwoording. Elk punt heeft één doorlopend nummer. Op de
-pagina Memorandum staat het stuk met een downloadknop voor Word en een voor
-Markdown.
+`naar_markdown()`, `naar_docx()` en `naar_pdf()` zetten die om naar tekst, naar
+een Word-bestand en naar een PDF-bestand. De indeling is kop, uitgangspunten
+met de materialiteitsdrempel en haar opbouw, samenvatting, de aandachtspunten
+per ernst op volgorde van gewicht, wat niet kon worden vastgesteld, de al
+beoordeelde bevindingen en de verantwoording. Elk punt heeft één doorlopend
+nummer. Op de pagina Memorandum staat het stuk met een downloadknop voor elk
+van de drie vormen.
 
-De Word-uitvoer is een tweede renderer op hetzelfde `Memorandum` en geen tweede
-versie van dezelfde zinnen: de koppen, de kenmerkenlijst, de genummerde
-samenvatting, de punten als kop en de cursieve herkomstregel zijn opmaak, en
-elke formulering blijft in `bouw_memorandum()` staan. Wat rest is PDF; zie
-"Toekomstige mogelijkheden".
+De Word- en de PDF-uitvoer zijn allebei een tweede renderer op hetzelfde
+`Memorandum` en geen tweede versie van dezelfde zinnen: de koppen, de
+kenmerkenlijst, de genummerde samenvatting, de punten als kop en de cursieve
+herkomstregel zijn opmaak, en elke formulering blijft in `bouw_memorandum()`
+staan. **PDF is gereed sinds 15 september 2026**, met `reportlab`; zie punt 8
+onder "Wat als eerste te doen staat" voor de opzet en het font-voorbehoud bij
+het eurosymbool.
 
 ### Toekomstige mogelijkheden
 - Koppeling met AFAS (GetConnector) voor automatische import jaarrekening
 - Vergelijking met branchegemiddelden (SBI-code)
-- Exporteren naar PDF voor dossiervorming. Word is gereed via `naar_docx()`
-  (`python-docx`); PDF is opnieuw een renderer op dezelfde `Memorandum` en
-  vraagt een eigen afhankelijkheid
 
 ---
 
@@ -300,7 +301,7 @@ Bijgewerkt op 3 september 2026.
 | 7 | Lease- en huurdetectie | Gereed als periodieke controle |
 | 8 | AI-reviewpunten | Gereed: bevindingen met materialiteit, en de formulering in het memorandum |
 | 9 | Ratio-analyse | Gereed |
-| 10 | Automatisch reviewmemorandum | Gereed als Markdown en Word (.docx), met downloadknoppen; PDF nog niet |
+| 10 | Automatisch reviewmemorandum | Gereed als Markdown, Word (.docx) en PDF, met downloadknoppen |
 
 ### Wat als eerste te doen staat
 
@@ -356,12 +357,27 @@ verfijning open staat.
    aandeelhouders en bestuurders, en geeft de opbouw met per regel de bron. De
    uitkomst staat op de pagina Fiscale signalen, in de bevindingen en in de
    Excel-export; de eigen invoer staat in `excessief_lenen.json` in de
-   dossiermap. **Wat rest**: de rekeningselectie gebruikt de codes voor
-   aandeelhouders en bestuurders en laat commissarissen en "overigen" buiten de
-   toets. Een rekening-courant met de dga die als "overigen" is gecodeerd valt
-   daarmee buiten het bedrag; `build_afwijkende_codering()` meldt dat wel, maar
-   corrigeert het niet. Te beslissen of de gebruiker een rekening handmatig aan
-   de toets moet kunnen toevoegen.
+   dossiermap. De rekeningselectie gebruikt de codes voor aandeelhouders en
+   bestuurders en laat commissarissen en "overigen" buiten de toets. Een
+   rekening-courant met de dga die als "overigen" is gecodeerd valt daarmee
+   buiten het bedrag; `build_afwijkende_codering()` meldt dat, en sinds
+   15 september 2026 kan de gebruiker zo'n rekening op de pagina zelf aan de
+   toets toevoegen. **Handmatige rekeningselectie, gebouwd op 15 september
+   2026.** `build_rc_rekeningen()` neemt naast de RGS-selectie ook
+   `extra_rekeningen` op: rekeningnummers die de gebruiker zelf heeft
+   aangewezen, mits ze op de balans voorkomen en nog niet automatisch zijn
+   geselecteerd. De kolom `herkomst` (`HERKOMST_AUTOMATISCH` of
+   `HERKOMST_HANDMATIG`) maakt per rekening zichtbaar waarop de selectie
+   berust, en de opbouwtabel telt het aantal automatisch en handmatig
+   geselecteerde rekeningen apart. De keuze verandert de RGS-selectie zelf
+   niet: zij geldt alleen voor dit dossier, staat in
+   `excessief_lenen_rekeningen.json` naast de bestaande dossierinvoer, en werkt
+   door in de bevindingen (`verzamel_bevindingen(..., excessief_lenen_rekeningen=...)`)
+   en de Excel-export, zodat memorandum en werkboek dezelfde selectie tonen als
+   de pagina Fiscale signalen. Getest in `tests/test_excessief_lenen.py`: een
+   eigen herkomst per rekening, geen dubbele selectie bij een al automatisch
+   gevonden rekening, een onbekend rekeningnummer dat genegeerd wordt, en de
+   doorwerking naar de opbouwtekst en de bevinding.
 6. **Ratio-analyse.** Gereed. `ratios.py` deelt de rekeningen in bij de eerste
    rubrieksgroep die ze herkent, meet de dekking van die indeling en geeft de
    ratio's van beide jaren met hun opbouw. De uitkomsten staan op de pagina
@@ -395,13 +411,32 @@ verfijning open staat.
    uitgangspunten, samenvatting, de aandachtspunten per ernst, een eigen sectie
    voor wat niet kon worden vastgesteld, de al beoordeelde bevindingen achteraan
    en een verantwoording met het bewijsniveau en de RGS-dekking. De opbouw
-   (`bouw_memorandum()`) staat los van de uitvoer (`naar_markdown()` en
-   `naar_docx()`), zodat een vorm erbij een renderer is en niet een tweede
-   versie van dezelfde zinnen; de herkomst- en de beoordelingsregel staan daarom
-   als property bij `Punt`. Het document sorteert zelf op ernst, dan boven de
-   drempel vóór eronder, dan bedrag: `naar_frame()` sorteert op ernst en bedrag,
-   waardoor een bevinding zonder bedrag onderaan haar ernstgroep zou zakken
-   terwijl zij juist altijd meetelt. **Wat rest**: de uitvoer naar PDF.
+   (`bouw_memorandum()`) staat los van de uitvoer (`naar_markdown()`,
+   `naar_docx()` en `naar_pdf()`), zodat een vorm erbij een renderer is en niet
+   een tweede versie van dezelfde zinnen; de herkomst- en de beoordelingsregel
+   staan daarom als property bij `Punt`. Het document sorteert zelf op ernst,
+   dan boven de drempel vóór eronder, dan bedrag: `naar_frame()` sorteert op
+   ernst en bedrag, waardoor een bevinding zonder bedrag onderaan haar
+   ernstgroep zou zakken terwijl zij juist altijd meetelt.
+
+   **PDF-uitvoer, gebouwd op 15 september 2026.** `naar_pdf()` is de derde
+   renderer op dezelfde `Memorandum`, met `reportlab` (`SimpleDocTemplate`),
+   lokaal en zonder externe dienst. `KeepTogether` houdt de kop van een punt en
+   zijn eerste alinea samen, zodat een paginaovergang nooit tussen die twee
+   invoegt. Reportlabs ingebouwde Helvetica tekent het eurosymbool goed maar
+   levert er geen ToUnicode-tabel bij mee, waardoor het teken bij kopiëren of
+   doorzoeken van de PDF wegvalt terwijl de rest van het bedrag blijft staan;
+   nagemeten met `pypdf`, `pdfplumber`, `pymupdf` en `poppler`s `pdftotext`,
+   alle vier met hetzelfde resultaat. `_pdf_escape()` vervangt het teken daarom
+   door `EUR`, wat in elk PDF-programma leesbaar én doorzoekbaar blijft; de
+   andere Nederlandse tekens (ë, ï, “ ”, •) heeft dit lettertype wel met een
+   geldige codering. Getest in `tests/test_memorandum.py` op dezelfde manier
+   als de Word-uitvoer: elk onderwerp komt terug in de PDF-tekst, de volledige
+   analyse (niet alleen een handvol zelfgemaakte punten) levert een geldig
+   document op, een memorandum zonder bevindingen blijft geldig, en een
+   langere analyse (het aantal bevindingen in de demo) levert meerdere
+   pagina's op waarvan geen enkele leeg blijft. Op de pagina Memorandum staat
+   de downloadknop tussen Word en Markdown in.
 
 ### Kleinere punten uit de review die nog openstaan
 

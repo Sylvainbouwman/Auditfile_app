@@ -841,7 +841,7 @@ def _uit_openstaande_posten(af: Auditfile, top: int = 10) -> list[Bevinding]:
     return bevindingen
 
 
-def _uit_excessief_lenen(af: Auditfile, invoer=None) -> list[Bevinding]:
+def _uit_excessief_lenen(af: Auditfile, invoer=None, extra_rekeningen=()) -> list[Bevinding]:
     """De drempeltoets bij de Wet excessief lenen bij eigen vennootschap.
 
     De ernst is een waarschuwing en geen kritieke bevinding, ook boven de
@@ -858,7 +858,7 @@ def _uit_excessief_lenen(af: Auditfile, invoer=None) -> list[Bevinding]:
         conclusie,
     )
 
-    toets = beoordeel(af, invoer)
+    toets = beoordeel(af, invoer, extra_rekeningen)
     if toets.status == STATUS_GEEN_REKENING:
         # Geen rekening-courant gevonden is geen bevinding: er is niets gezien.
         # Dat de selectie een afwijkend gecodeerde rekening kan missen, staat op
@@ -872,7 +872,7 @@ def _uit_excessief_lenen(af: Auditfile, invoer=None) -> list[Bevinding]:
 
     bedrag = toets.bovenmatig if toets.status == STATUS_BOVEN else toets.te_toetsen
     rekeningen = ", ".join(
-        str(rekening) for rekening in build_rc_rekeningnummers(af)
+        str(rekening) for rekening in build_rc_rekeningnummers(af, extra_rekeningen)
     )
     return [
         Bevinding(
@@ -889,11 +889,11 @@ def _uit_excessief_lenen(af: Auditfile, invoer=None) -> list[Bevinding]:
     ]
 
 
-def build_rc_rekeningnummers(af: Auditfile) -> list[str]:
+def build_rc_rekeningnummers(af: Auditfile, extra_rekeningen=()) -> list[str]:
     """De rekeningnummers achter de drempeltoets, voor de bevinding."""
     from .excessief_lenen import build_rc_rekeningen
 
-    rekeningen = build_rc_rekeningen(af)
+    rekeningen = build_rc_rekeningen(af, extra_rekeningen)
     if rekeningen.empty:
         return []
     return [str(nummer) for nummer in rekeningen["rekening"]]
@@ -1014,6 +1014,7 @@ def verzamel_bevindingen(
     grondslagen: dict[str, float] | None = None,
     materialiteit: Materialiteit | None = None,
     excessief_lenen=None,
+    excessief_lenen_rekeningen=(),
 ) -> pd.DataFrame:
     """Alle bevindingen van alle controles in één tabel.
 
@@ -1042,7 +1043,7 @@ def verzamel_bevindingen(
     bevindingen += _uit_controles(huidig)
     bevindingen += _uit_relatiesaldi(huidig)
     bevindingen += _uit_openstaande_posten(huidig)
-    bevindingen += _uit_excessief_lenen(huidig, excessief_lenen)
+    bevindingen += _uit_excessief_lenen(huidig, excessief_lenen, excessief_lenen_rekeningen)
     bevindingen += _uit_ratios(huidig, vorig)
 
     return naar_frame(bevindingen, materialiteit)

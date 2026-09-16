@@ -57,6 +57,7 @@ from auditfile.memorandum import (
     memorandumnaam,
     naar_docx,
     naar_markdown,
+    naar_pdf,
 )
 from auditfile.model import Auditfile
 from auditfile.parsing import parse_auditfile
@@ -383,6 +384,7 @@ def bevindingen_met_review(
         grondslagen=huidige_grondslagen(),
         materialiteit=materialiteit,
         excessief_lenen=huidige_excessief_lenen(),
+        excessief_lenen_rekeningen=huidige_handmatige_rc_rekeningen(),
     )
     return pas_review_toe(bevindingen, huidige_opslag().lees_review())
 
@@ -591,14 +593,21 @@ def pagina_memorandum(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.Data
     )
     # Word staat vooraan en is de primaire knop: dat is de vorm die in het
     # dossier terechtkomt. De weergave eronder blijft de Markdown-tekst, want
-    # dezelfde secties en punten staan in beide vormen.
-    woord, markdown = st.columns(2)
+    # dezelfde secties en punten staan in alle drie de vormen.
+    woord, pdf, markdown = st.columns(3)
     woord.download_button(
         "Download als Word (.docx)",
         data=naar_docx(memo),
         file_name=memorandumnaam(huidig, "docx"),
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         type="primary",
+        width="stretch",
+    )
+    pdf.download_button(
+        "Download als PDF",
+        data=naar_pdf(memo),
+        file_name=memorandumnaam(huidig, "pdf"),
+        mime="application/pdf",
         width="stretch",
     )
     markdown.download_button(
@@ -875,6 +884,11 @@ def huidige_excessief_lenen() -> excessief_lenen.Invoer:
     )
 
 
+def huidige_handmatige_rc_rekeningen() -> list[str]:
+    """Rekeningnummers die de gebruiker zelf aan de drempeltoets toevoegde."""
+    return list(st.session_state.get("excessief_lenen_rekeningen", []))
+
+
 def stel_dossier_in(huidig: Auditfile) -> DossierOpslag:
     """Laad de invoer van dit dossier, en niets van een ander.
 
@@ -892,6 +906,7 @@ def stel_dossier_in(huidig: Auditfile) -> DossierOpslag:
     st.session_state["btw_aftrekbaarheid"] = opslag.lees_aftrekbaarheid()
     st.session_state["btw_grondslagen"] = opslag.lees_grondslagen()
     st.session_state["excessief_lenen"] = opslag.lees_excessief_lenen()
+    st.session_state["excessief_lenen_rekeningen"] = opslag.lees_handmatige_rc_rekeningen()
     # De widgets houden hun eigen waarde vast; die moet mee met het dossier.
     for sleutel in [
         naam
@@ -926,6 +941,7 @@ def bewaar_invoer(opslag: DossierOpslag, huidig: Auditfile, **onderdelen) -> boo
         "aangifte": opslag.schrijf_aangifte,
         "grondslagen": opslag.schrijf_grondslagen,
         "excessief_lenen": opslag.schrijf_excessief_lenen,
+        "excessief_lenen_rekeningen": opslag.schrijf_handmatige_rc_rekeningen,
     }
     for naam, inhoud in onderdelen.items():
         gelukt = schrijvers[naam](inhoud) and gelukt
@@ -1690,8 +1706,9 @@ def toon_excessief_lenen(huidig: Auditfile) -> None:
 
     opslag = huidige_opslag()
     invoer = huidige_excessief_lenen()
-    toets = excessief_lenen.beoordeel(huidig, invoer)
-    rekeningen = excessief_lenen.build_rc_rekeningen(huidig)
+    handmatig = huidige_handmatige_rc_rekeningen()
+    toets = excessief_lenen.beoordeel(huidig, invoer, handmatig)
+    rekeningen = excessief_lenen.build_rc_rekeningen(huidig, handmatig)
     afwijkend = excessief_lenen.build_afwijkende_codering(huidig)
 
     with st.expander("Wat deze toets wel en niet zegt"):
@@ -1791,7 +1808,11 @@ def toon_excessief_lenen(huidig: Auditfile) -> None:
         kop("Opbouw van de toets")
         toon_tabel(excessief_lenen.opbouw(toets))
 
-    with st.expander(f"Geselecteerde rekeningen ({len(rekeningen)})"):
+    with st.expander(f"Geselecteerde rekeningen ({len(rekeningen)})", expanded=True):
+        st.caption(
+            "Kolom “herkomst” zegt per rekening of zij op de RGS-code of omschrijving is "
+            "gevonden, of dat u haar zelf hebt toegevoegd."
+        )
         toon_tabel(
             rekeningen,
             leegmelding="Geen rekening-courant of lening met een aandeelhouder of bestuurder gevonden.",
@@ -1801,9 +1822,80 @@ def toon_excessief_lenen(huidig: Auditfile) -> None:
         st.warning(
             "Er staan rekeningen in het schema waarvan de omschrijving op een "
             "rekening-courant wijst, terwijl de RGS-code ze buiten de toets houdt. "
-            "Beoordeel of ze in de opbouw thuishoren."
+            "Hoort zo'n rekening in de toets thuis, voeg haar dan hieronder toe."
         )
         toon_tabel(afwijkend)
+
+    toon_handmatige_rekeningselectie(huidig, opslag, rekeningen, handmatig)
+
+
+def toon_handmatige_rekeningselectie(
+    huidig: Auditfile,
+    opslag: DossierOpslag,
+    geselecteerd: pd.DataFrame,
+    handmatig: list[str],
+) -> None:
+    """Een rekening toevoegen aan of verwijderen uit de drempeltoets.
+
+    Een rekening-courant die de RGS-selectie mist — bijvoorbeeld doordat zij
+    als "overigen" of bij een commissaris is gecodeerd — kan hier alsnog worden
+    aangewezen. De keuze verandert de RGS-selectie zelf niet: zij geldt alleen
+    voor dit dossier en staat in de opbouw en de tabel hierboven met
+    "handmatig toegevoegd" als herkomst.
+    """
+    kop(
+        "Rekening toevoegen of verwijderen",
+        "Mist er een rekening-courant of lening met de dga in de selectie hierboven, dan "
+        "voegt u haar hier toe. Dit wijzigt de RGS-selectie niet en geldt alleen voor dit "
+        "dossier.",
+    )
+    beschikbaar = excessief_lenen.beschikbare_rekeningen(huidig, geselecteerd)
+
+    toevoegen, verwijderen = st.columns(2)
+
+    with toevoegen:
+        st.markdown("**Toevoegen**")
+        if beschikbaar.empty:
+            st.caption("Alle balansrekeningen staan al in de toets.")
+        else:
+            opties = {
+                (
+                    f"{rij['rekening']} — {rij['omschrijving']}"
+                    if rij["omschrijving"]
+                    else str(rij["rekening"])
+                ): str(rij["rekening"])
+                for _, rij in beschikbaar.iterrows()
+            }
+            keuze = st.selectbox(
+                "Rekening om toe te voegen",
+                options=list(opties.keys()),
+                key=f"el_toevoegen_keuze_{opslag.sleutel}",
+                label_visibility="collapsed",
+            )
+            if st.button("Toevoegen aan de toets", key=f"el_toevoegen_knop_{opslag.sleutel}"):
+                nieuw = sorted(set(handmatig) | {opties[keuze]})
+                st.session_state["excessief_lenen_rekeningen"] = nieuw
+                if not bewaar_invoer(opslag, huidig, excessief_lenen_rekeningen=nieuw):
+                    st.warning(f"De rekening kon niet worden bewaard in {opslag.map}.")
+                st.rerun()
+
+    with verwijderen:
+        st.markdown("**Verwijderen**")
+        if not handmatig:
+            st.caption("Er zijn geen handmatig toegevoegde rekeningen.")
+        else:
+            te_verwijderen = st.selectbox(
+                "Rekening om te verwijderen",
+                options=handmatig,
+                key=f"el_verwijderen_keuze_{opslag.sleutel}",
+                label_visibility="collapsed",
+            )
+            if st.button("Verwijderen uit de toets", key=f"el_verwijderen_knop_{opslag.sleutel}"):
+                nieuw = [rekening for rekening in handmatig if rekening != te_verwijderen]
+                st.session_state["excessief_lenen_rekeningen"] = nieuw
+                if not bewaar_invoer(opslag, huidig, excessief_lenen_rekeningen=nieuw):
+                    st.warning(f"De rekening kon niet worden verwijderd in {opslag.map}.")
+                st.rerun()
 
 
 def pagina_fiscale_signalen(huidig: Auditfile) -> None:
@@ -1893,6 +1985,7 @@ def pagina_export(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataFram
                 huidige_materialiteit(huidig),
                 huidige_opslag().lees_review(),
                 huidige_excessief_lenen(),
+                huidige_handmatige_rc_rekeningen(),
             )
         st.download_button(
             "Download het werkboek",

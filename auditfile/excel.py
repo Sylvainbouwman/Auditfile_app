@@ -151,6 +151,7 @@ def bouw_werkbladen(
     materialiteit: Materialiteit | None = None,
     review: dict | None = None,
     excessief_lenen: ExcessiefLenenInvoer | None = None,
+    excessief_lenen_rekeningen: list[str] | tuple[str, ...] = (),
 ) -> dict[str, pd.DataFrame]:
     """Stel alle werkbladen samen die in de export komen."""
     jaar_huidig = _jaarlabel(huidig)
@@ -169,6 +170,7 @@ def bouw_werkbladen(
             grondslagen=grondslagen,
             materialiteit=materialiteit,
             excessief_lenen=excessief_lenen,
+            excessief_lenen_rekeningen=excessief_lenen_rekeningen,
         ),
         review,
     )
@@ -245,8 +247,10 @@ def bouw_werkbladen(
         "Openstaande posten": build_openstaande_posten(huidig),
         # De drempeltoets excessief lenen. Het blad blijft leeg wanneer er geen
         # rekening-courant met een aandeelhouder of bestuurder is gevonden.
-        "Excessief lenen": build_drempeltoets(huidig, excessief_lenen),
-        "Rekening-courant rekeningen": build_rc_rekeningen(huidig),
+        "Excessief lenen": build_drempeltoets(
+            huidig, excessief_lenen, excessief_lenen_rekeningen
+        ),
+        "Rekening-courant rekeningen": build_rc_rekeningen(huidig, excessief_lenen_rekeningen),
         "RC afwijkend gecodeerd": build_afwijkende_codering(huidig),
     }
 
@@ -262,6 +266,7 @@ def build_excel_export(
     materialiteit: Materialiteit | None = None,
     review: dict | None = None,
     excessief_lenen: ExcessiefLenenInvoer | None = None,
+    excessief_lenen_rekeningen: list[str] | tuple[str, ...] = (),
 ) -> bytes:
     """Bouw het Excelbestand met alle werkbladen."""
     werkbladen = bouw_werkbladen(
@@ -275,6 +280,7 @@ def build_excel_export(
         materialiteit,
         review,
         excessief_lenen,
+        excessief_lenen_rekeningen,
     )
     uitvoer = BytesIO()
     gebruikte_namen: set[str] = set()

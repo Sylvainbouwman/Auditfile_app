@@ -36,8 +36,9 @@ zodat de hoofdlijst overhoudt wat nog aandacht vraagt. Onderaan staat de
 verantwoording: het bewijsniveau voor de openstaande posten, de RGS-dekking van
 het rekeningschema, hoeveel bevindingen onder de drempel liggen en hoeveel er
 nog geen beoordeling hebben. Het stuk is te downloaden als Word-document
-(`.docx`) en als Markdown-bestand. Beide komen uit dezelfde opbouw, dus de
-formulering staat maar op één plek en de twee vormen kunnen niet uiteenlopen.
+(`.docx`), als PDF en als Markdown-bestand. Alle drie komen uit dezelfde
+opbouw, dus de formulering staat maar op één plek en de vormen kunnen niet
+uiteenlopen.
 
 **Overzicht.** Een telling van de signalen per categorie, met de pagina waar ze
 staan. Een leeg blok op het overzicht betekende eerder niet dat er niets was: de
@@ -170,7 +171,13 @@ de dossiermap en pas op de bewaarknop. Eindigt het boekjaar niet op 31 december,
 of is voor die peildatum geen bedrag vastgesteld, dan geeft de tool de gemeten
 stand wel maar noemt zij de toets niet mogelijk. Een rekening-courant met een
 RGS-code buiten de selectie, zoals "rekening-courant overigen", telt niet mee in
-het bedrag maar wordt apart gemeld.
+het bedrag maar wordt apart gemeld — en is daar met een knop alsnog aan de
+toets toe te voegen. De tabel met geselecteerde rekeningen laat per rekening
+zien of zij automatisch (op de RGS-code of de omschrijving) of handmatig is
+gevonden; een handmatig toegevoegde rekening is ook weer te verwijderen. Deze
+keuze verandert de RGS-selectie zelf niet en geldt alleen voor dit dossier; zij
+werkt door in de bevindingen, het memorandum en de Excel-export, zodat die
+dezelfde selectie tonen als deze pagina.
 
 **Excel-export.** Ruim twintig werkbladen met Nederlandse getalnotatie, filters
 en vastgezette koppen. Bedragen zijn getallen, dus optelbaar.
@@ -224,7 +231,7 @@ opgebouwd; er wordt nooit klantdata gelezen.
 | `auditfile/openstaand.py` | Openstaande posten en ouderdom (XAF 3.2) |
 | `auditfile/excessief_lenen.py` | Drempeltoets excessief lenen |
 | `auditfile/findings.py` | Bevindingen, materialiteit en beoordeling |
-| `auditfile/memorandum.py` | Het reviewmemorandum als document (Markdown en Word) |
+| `auditfile/memorandum.py` | Het reviewmemorandum als document (Markdown, Word en PDF) |
 | `auditfile/capability.py` | Wat het bestand toelaat en met welk bewijsniveau |
 | `auditfile/excel.py` | Excel-export |
 | `auditfile/formatting.py` | Presentatie van tabellen |
@@ -241,8 +248,9 @@ staan in [`docs/btw-bronnen.md`](docs/btw-bronnen.md).
 De repository is publiek. Er staat geen klantdata in en die mag er ook niet in
 komen, ook niet als voorbeeld. Eigen invoer (aangiftebedragen, grondslagen, de
 koppeling van btw-codes aan rubrieken, het aftrekbare aandeel per code, de
-beoordeling per bevinding en de dossiergegevens bij de drempeltoets excessief
-lenen) wordt bewaard in `.local-testdata/`, dat door Git wordt genegeerd.
+beoordeling per bevinding, de dossiergegevens bij de drempeltoets excessief
+lenen en de daar handmatig toegevoegde rekeningen) wordt bewaard in
+`.local-testdata/`, dat door Git wordt genegeerd.
 `tests/test_runtime_data_not_tracked.py` bewaakt die scheiding.
 
 Die invoer staat per dossier apart, in `.local-testdata/dossiers/<sleutel>`. De
