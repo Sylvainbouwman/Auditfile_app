@@ -77,6 +77,8 @@ def test_alle_schrijfpaden_van_een_dossier_zijn_genegeerd() -> None:
         settings.DOSSIER_BESTAND,
         settings.REVIEW_BESTAND,
         settings.EXCESSIEF_BESTAND,
+        settings.EXCESSIEF_REKENINGEN_BESTAND,
+        settings.CONTRACTEN_BESTAND,
     )
     for bestand in bestanden:
         _controleer_pad(opslag.pad(bestand))
@@ -153,10 +155,20 @@ def test_synthetische_write_read_zonder_git_wijziging() -> None:
         f"'git status' faalde (returncode={status_voor.returncode})."
     )
 
+    contracten = [
+        {
+            "omschrijving": "Synthetisch testcontract",
+            "jaarbedrag": 12_000.0,
+            "ingangsdatum": "2023-01-01",
+            "einddatum": "2028-01-01",
+        }
+    ]
+
     try:
         assert opslag.schrijf_aangifte(aangifte)
         assert opslag.schrijf_mapping(mapping)
         assert opslag.schrijf_label("Synthetisch Testdossier", "2025")
+        assert opslag.schrijf_contracten(contracten)
 
         # 1) Er is daadwerkelijk naar de dossiermap geschreven.
         assert opslag.pad(settings.AANGIFTE_BESTAND).exists()
@@ -166,12 +178,14 @@ def test_synthetische_write_read_zonder_git_wijziging() -> None:
         assert opslag.lees_aangifte() == aangifte
         assert opslag.lees_mapping() == mapping
         assert opslag.lees_label()["boekjaar"] == "2025"
+        assert opslag.lees_contracten() == contracten
 
         # 3) Elk geschreven bestand blijft buiten Git.
         for bestand in (
             settings.AANGIFTE_BESTAND,
             settings.MAPPING_BESTAND,
             settings.DOSSIER_BESTAND,
+            settings.CONTRACTEN_BESTAND,
         ):
             _controleer_pad(opslag.pad(bestand))
 

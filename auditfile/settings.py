@@ -50,6 +50,7 @@ DOSSIER_BESTAND = "dossier.json"
 REVIEW_BESTAND = "bevindingen_review.json"
 EXCESSIEF_BESTAND = "excessief_lenen.json"
 EXCESSIEF_REKENINGEN_BESTAND = "excessief_lenen_rekeningen.json"
+CONTRACTEN_BESTAND = "contracten.json"
 
 # De paden van vóór de scheiding per dossier. Ze worden niet meer geschreven,
 # alleen nog gelezen om invoer uit een oudere versie te kunnen overnemen.
@@ -223,6 +224,21 @@ class DossierOpslag:
             EXCESSIEF_REKENINGEN_BESTAND,
         )
 
+    def lees_contracten(self) -> list[dict]:
+        """De vastgelegde lease- en huurcontracten, ruw (nog geen ``Contract``).
+
+        De omzetting naar ``Contract``-objecten, met datums in plaats van
+        ISO-tekst, staat in ``auditfile/contracten.py`` en niet hier: deze
+        module kent alleen JSON-opslag, geen contractlogica.
+        """
+        ruw = self._lees_bestand(CONTRACTEN_BESTAND).get("contracten", [])
+        if not isinstance(ruw, list):
+            return []
+        return [item for item in ruw if isinstance(item, dict)]
+
+    def schrijf_contracten(self, contracten: list[dict]) -> bool:
+        return self._schrijf_bestand({"contracten": contracten}, CONTRACTEN_BESTAND)
+
     # --- Dossiergegevens ----------------------------------------------------
 
     def lees_label(self) -> dict[str, str]:
@@ -252,6 +268,7 @@ class DossierOpslag:
                 REVIEW_BESTAND,
                 EXCESSIEF_BESTAND,
                 EXCESSIEF_REKENINGEN_BESTAND,
+                CONTRACTEN_BESTAND,
             )
         )
 

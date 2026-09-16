@@ -30,6 +30,7 @@ from auditfile.comparison import (
     controleer_bestandenpaar,
     jaarovergang_sluit_aan,
 )
+from auditfile import contracten as contracten_module
 from auditfile import excessief_lenen
 from auditfile.excel import build_excel_export, exportnaam
 from auditfile.findings import (
@@ -44,6 +45,7 @@ from auditfile.findings import (
     verzamel_bevindingen,
 )
 from auditfile.formatting import euro, euro_kort, procent, toon_tabel
+from auditfile.notatie import datum_nl
 from auditfile.integrity import (
     IN_ORDE,
     KRITIEK,
@@ -97,6 +99,7 @@ PAGINAS = [
     "Analytische controles",
     "Relaties",
     "Fiscale signalen",
+    "Contracten",
     "Grootboekkaarten",
     "Export",
 ]
@@ -954,6 +957,11 @@ def huidige_handmatige_rc_rekeningen() -> list[str]:
     return list(st.session_state.get("excessief_lenen_rekeningen", []))
 
 
+def huidige_contracten_ruw() -> list[dict]:
+    """De vastgelegde lease- en huurcontracten, nog als ruwe dicts."""
+    return list(st.session_state.get("contracten", []))
+
+
 def stel_dossier_in(huidig: Auditfile) -> DossierOpslag:
     """Laad de invoer van dit dossier, en niets van een ander.
 
@@ -972,6 +980,7 @@ def stel_dossier_in(huidig: Auditfile) -> DossierOpslag:
     st.session_state["btw_grondslagen"] = opslag.lees_grondslagen()
     st.session_state["excessief_lenen"] = opslag.lees_excessief_lenen()
     st.session_state["excessief_lenen_rekeningen"] = opslag.lees_handmatige_rc_rekeningen()
+    st.session_state["contracten"] = opslag.lees_contracten()
     # De widgets houden hun eigen waarde vast; die moet mee met het dossier.
     for sleutel in [
         naam
@@ -988,6 +997,7 @@ def stel_dossier_in(huidig: Auditfile) -> DossierOpslag:
                 "aangifte_",
                 "grondslag_",
                 "el_",
+                "contract_",
             )
         )
     ]:
@@ -1011,6 +1021,7 @@ def bewaar_invoer(opslag: DossierOpslag, huidig: Auditfile, **onderdelen) -> boo
         "grondslagen": opslag.schrijf_grondslagen,
         "excessief_lenen": opslag.schrijf_excessief_lenen,
         "excessief_lenen_rekeningen": opslag.schrijf_handmatige_rc_rekeningen,
+        "contracten": opslag.schrijf_contracten,
     }
     for naam, inhoud in onderdelen.items():
         gelukt = schrijvers[naam](inhoud) and gelukt
@@ -1988,6 +1999,121 @@ def pagina_fiscale_signalen(huidig: Auditfile) -> None:
     toon_excessief_lenen(huidig)
 
 
+def pagina_contracten(huidig: Auditfile) -> None:
+    kop(
+        "Lease- en huurcontracten",
+        "Een lopende huur- of leaseverplichting staat meestal niet als schuld op de "
+        "balans, want de wederpartij heeft de toekomstige prestatie nog niet geleverd. "
+        "Wel hoort zij, als het bedrag materieel is, in de toelichting bij de "
+        "jaarrekening als niet in de balans opgenomen verplichting. Leg hier vast wat er "
+        "loopt; de tool telt op wat er per de balansdatum nog resteert.",
+    )
+    with st.expander("Wat dit wel en niet is"):
+        st.markdown(
+            """
+- Geen contante-waardeberekening: de resterende termijnen worden opgeteld
+  (jaarbedrag gedeeld door twaalf, keer het aantal resterende maanden), niet
+  contant gemaakt.
+- Geen beoordeling of het contract een operationele of financiële lease is.
+  Dat blijft aan u.
+- De resterende verplichting wordt berekend per de einddatum van het boekjaar
+  van dit auditfile, niet per vandaag.
+"""
+        )
+
+    opslag = huidige_opslag()
+    peildatum = contracten_module.balansdatum(huidig)
+    if peildatum is None:
+        st.info(
+            "Dit auditfile geeft geen bruikbare einddatum van het boekjaar, dus de "
+            "resterende verplichting is niet te berekenen. Contracten blijven wel "
+            "zichtbaar zodra u ze vastlegt."
+        )
+    else:
+        st.caption(f"Peildatum voor de resterende looptijd: {datum_nl(peildatum)}.")
+
+    with st.form(f"contract_toevoegen_formulier_{opslag.sleutel}"):
+        st.markdown("**Nieuw contract**")
+        een, twee, drie, vier = st.columns(4)
+        omschrijving = een.text_input(
+            "Omschrijving", key=f"contract_omschrijving_{opslag.sleutel}"
+        )
+        jaarbedrag = twee.number_input(
+            "Jaarbedrag",
+            min_value=0.0,
+            step=1000.0,
+            format="%.2f",
+            key=f"contract_jaarbedrag_{opslag.sleutel}",
+        )
+        ingangsdatum = drie.date_input(
+            "Ingangsdatum", format="DD-MM-YYYY", key=f"contract_ingang_{opslag.sleutel}"
+        )
+        einddatum = vier.date_input(
+            "Einddatum", format="DD-MM-YYYY", key=f"contract_eind_{opslag.sleutel}"
+        )
+        toevoegen = st.form_submit_button("Contract toevoegen", type="primary")
+
+    contracten_ruw = huidige_contracten_ruw()
+    if toevoegen:
+        if not omschrijving.strip():
+            st.warning("Geef een omschrijving op.")
+        elif einddatum <= ingangsdatum:
+            st.warning("De einddatum moet na de ingangsdatum liggen.")
+        else:
+            nieuw = contracten_module.Contract(
+                omschrijving=omschrijving.strip(),
+                jaarbedrag=float(jaarbedrag),
+                ingangsdatum=ingangsdatum,
+                einddatum=einddatum,
+            )
+            contracten_ruw = contracten_ruw + [contracten_module.contract_naar_dict(nieuw)]
+            st.session_state["contracten"] = contracten_ruw
+            if not bewaar_invoer(opslag, huidig, contracten=contracten_ruw):
+                st.warning(f"Het contract kon niet worden bewaard in {opslag.map}.")
+            st.rerun()
+
+    contracten = contracten_module.contracten_van_ruw(contracten_ruw)
+    if not contracten:
+        st.caption("Nog geen contracten vastgelegd.")
+        return
+
+    kop("Vastgelegde contracten")
+    overzicht = contracten_module.build_contractenoverzicht(contracten, peildatum)
+    toon_tabel(
+        overzicht,
+        overrides={
+            "resterende_maanden": st.column_config.NumberColumn(
+                "Resterende maanden", format="plain"
+            ),
+            "resterende_verplichting": st.column_config.NumberColumn(
+                "Resterende verplichting", format="euro"
+            ),
+        },
+    )
+    totaal = contracten_module.totaal_resterende_verplichting(overzicht)
+    st.metric(
+        "Totaal resterende verplichting",
+        euro(totaal) if peildatum is not None else "niet te berekenen",
+    )
+
+    verwijderen, knop = st.columns([3, 1])
+    keuzes = [contract.omschrijving for contract in contracten]
+    te_verwijderen = verwijderen.selectbox(
+        "Contract om te verwijderen",
+        keuzes,
+        key=f"contract_verwijderen_keuze_{opslag.sleutel}",
+    )
+    with knop:
+        st.write("")
+        if st.button("Verwijderen", key=f"contract_verwijderen_knop_{opslag.sleutel}"):
+            index = keuzes.index(te_verwijderen)
+            nieuwe_lijst = contracten_ruw[:index] + contracten_ruw[index + 1 :]
+            st.session_state["contracten"] = nieuwe_lijst
+            if not bewaar_invoer(opslag, huidig, contracten=nieuwe_lijst):
+                st.warning(f"Het contract kon niet worden verwijderd in {opslag.map}.")
+            st.rerun()
+
+
 def pagina_grootboekkaarten(huidig: Auditfile) -> None:
     saldo = huidig.saldo
     if saldo.empty:
@@ -2183,6 +2309,8 @@ def main() -> None:
         pagina_relaties(huidig)
     elif pagina == "Fiscale signalen":
         pagina_fiscale_signalen(huidig)
+    elif pagina == "Contracten":
+        pagina_contracten(huidig)
     elif pagina == "Grootboekkaarten":
         pagina_grootboekkaarten(huidig)
     elif pagina == "Export":
