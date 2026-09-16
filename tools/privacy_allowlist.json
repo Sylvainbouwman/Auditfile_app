@@ -14,6 +14,13 @@
       "bron": "Tweede placeholder in tests/test_dossier.py, om te toetsen dat twee ondernemingen een verschillende dossiersleutel krijgen. Uitsluitend nullen in het nummerdeel, dus geen uitgegeven btw-identificatienummer.",
       "url": null,
       "gecontroleerd": "2026-09-02"
+    },
+    {
+      "nummer": "NL999999999B01",
+      "herkomst": "synthetisch",
+      "bron": "Placeholder in tests/test_aangifte.py, om te toetsen dat de tool waarschuwt wanneer een ingelezen XBRL-aangifte bij een ander btw-nummer hoort dan dat van het auditfile. Uitsluitend negens in het nummerdeel, tegenhanger van de nullen van NL000000000B01 en dus geen uitgegeven btw-identificatienummer. De privacyscan herkent deze waarde zowel als btw-id als naar vorm als IBAN.",
+      "url": null,
+      "gecontroleerd": "2026-09-17"
     }
   ],
   "rekeningnummers": [
