@@ -9,11 +9,12 @@ niet kon worden vastgesteld.
 Twee lagen
 ----------
 ``bouw_memorandum()`` maakt uit de bevindingen een ``Memorandum``: secties met
-punten en regels, en geen opmaak. ``naar_markdown()`` en ``naar_docx()`` zetten
-dat om naar tekst en naar een Word-bestand. Alle formulering en ordening zit
-daarmee in de eerste laag en is als tekst te testen; een renderer erbij geeft
-hetzelfde stuk een andere vorm en nooit een tweede versie van dezelfde zinnen.
-Staat een zin in een renderer, dan staat zij op de verkeerde plek.
+punten en regels, en geen opmaak. ``naar_markdown()``, ``naar_docx()`` en
+``naar_pdf()`` zetten dat om naar tekst, naar een Word-bestand en naar een
+PDF-bestand. Alle formulering en ordening zit daarmee in de eerste laag en is
+als tekst te testen; een renderer erbij geeft hetzelfde stuk een andere vorm en
+nooit een tweede versie van dezelfde zinnen. Staat een zin in een renderer, dan
+staat zij op de verkeerde plek.
 
 Ordening
 --------
@@ -650,6 +651,157 @@ def naar_docx(memo: Memorandum) -> bytes:
 
     buffer = BytesIO()
     document.save(buffer)
+    return buffer.getvalue()
+
+
+def _pdf_beschikbaar() -> None:
+    """Controleer of reportlab er is, met de afhankelijkheid pas hier geladen.
+
+    Zoals bij ``_docx_document()``: een omgeving zonder reportlab verliest
+    dan alleen de PDF-uitvoer en niet de hele app.
+    """
+    try:
+        import reportlab  # noqa: F401
+    except ModuleNotFoundError as fout:  # pragma: no cover - hangt aan de omgeving
+        raise ModuleNotFoundError(
+            "De PDF-uitvoer vraagt reportlab. Die staat in requirements.txt; "
+            "installeer de afhankelijkheden met pip install -r requirements.txt."
+        ) from fout
+
+
+def _pdf_escape(tekst: str) -> str:
+    """Tekst veilig voor een reportlab-``Paragraph``.
+
+    ``Paragraph`` leest zijn tekst als een beperkte opmaaktaal met haakjes;
+    ``&``, ``<`` en ``>`` moeten daarom ontsnapt worden, ook als de tekst zelf
+    nooit opmaak bevat.
+
+    Het eurosymbool wordt vervangen door ``EUR``. Reportlabs ingebouwde
+    Helvetica tekent het teken zelf goed, maar levert er geen ToUnicode-tabel
+    bij; bij kopiëren of doorzoeken van de PDF valt het dan weg terwijl de
+    rest van het bedrag blijft staan. ``EUR`` blijft in elk PDF-programma
+    leesbaar én doorzoekbaar. Andere Nederlandse tekens (ë, ï, “ ”, •) heeft
+    dit lettertype wel met een geldige codering, dus die blijven ongemoeid.
+    """
+    from xml.sax.saxutils import escape
+
+    return escape(tekst.replace("€", "EUR"))
+
+
+def _pdf_stijlen() -> dict:
+    """De opmaak van het PDF-document, bij elkaar zoals ``DOCX_``-constanten."""
+    from reportlab.lib.colors import HexColor
+    from reportlab.lib.enums import TA_JUSTIFY
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+
+    basis = getSampleStyleSheet()
+    return {
+        "titel": basis["Title"],
+        "ondertitel": ParagraphStyle(
+            "MemoOndertitel",
+            parent=basis["Normal"],
+            fontName="Helvetica-Oblique",
+            fontSize=11,
+            spaceAfter=16,
+        ),
+        "sectiekop": ParagraphStyle(
+            "MemoSectiekop", parent=basis["Heading2"], spaceBefore=16, keepWithNext=True
+        ),
+        "tekst": ParagraphStyle(
+            "MemoTekst", parent=basis["Normal"], spaceAfter=6, alignment=TA_JUSTIFY
+        ),
+        "kenmerk": ParagraphStyle(
+            "MemoKenmerk", parent=basis["Normal"], spaceAfter=2, leftIndent=10
+        ),
+        "regel": ParagraphStyle(
+            "MemoRegel", parent=basis["Normal"], spaceAfter=4, leftIndent=10
+        ),
+        "puntkop": ParagraphStyle(
+            "MemoPuntkop",
+            parent=basis["Heading3"],
+            spaceBefore=14,
+            spaceAfter=3,
+            keepWithNext=True,
+        ),
+        "herkomst": ParagraphStyle(
+            "MemoHerkomst",
+            parent=basis["Normal"],
+            fontName="Helvetica-Oblique",
+            fontSize=9,
+            textColor=HexColor("#555555"),
+            spaceAfter=6,
+        ),
+    }
+
+
+def _pdf_punt(punt: Punt, stijlen: dict) -> list:
+    """Een punt als reeks alinea's; ``KeepTogether`` houdt kop en tekst samen.
+
+    Zonder dat zou een paginaovergang precies tussen de kop van een punt en
+    zijn toelichting kunnen vallen, wat een punt onleesbaar in tweeën knipt.
+    """
+    from reportlab.platypus import KeepTogether, Paragraph
+
+    eerste = [Paragraph(f"{punt.nummer}. {_pdf_escape(punt.aanduiding)}", stijlen["puntkop"])]
+    if punt.toelichting:
+        eerste.append(Paragraph(_pdf_escape(punt.toelichting), stijlen["tekst"]))
+    rest = []
+    if punt.herkomst:
+        rest.append(Paragraph(_pdf_escape(punt.herkomst), stijlen["herkomst"]))
+    if punt.beoordeling:
+        rest.append(Paragraph(_pdf_escape(punt.beoordeling), stijlen["tekst"]))
+    return [KeepTogether(eerste), *rest]
+
+
+def naar_pdf(memo: Memorandum) -> bytes:
+    """Het memorandum als PDF-bestand.
+
+    De derde renderer op dezelfde ``Memorandum`` en, net als bij Word, geen
+    tweede versie van dezelfde zinnen: hier staat alleen de omzetting naar
+    opmaak. ``SimpleDocTemplate.build()`` verdeelt de alinea's zelf over de
+    pagina's; een alinea die niet meer past springt naar de volgende.
+    """
+    _pdf_beschikbaar()
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+
+    stijlen = _pdf_stijlen()
+    onderdelen: list = [Paragraph(_pdf_escape(memo.titel), stijlen["titel"])]
+    if memo.ondertitel:
+        onderdelen.append(Paragraph(_pdf_escape(memo.ondertitel), stijlen["ondertitel"]))
+
+    for sectie in memo.secties:
+        onderdelen.append(Paragraph(_pdf_escape(sectie.kop), stijlen["sectiekop"]))
+        if sectie.inleiding:
+            onderdelen.append(Paragraph(_pdf_escape(sectie.inleiding), stijlen["tekst"]))
+        for label, waarde in sectie.kenmerken:
+            onderdelen.append(
+                Paragraph(
+                    f"<b>{_pdf_escape(label)}:</b> {_pdf_escape(waarde)}", stijlen["kenmerk"]
+                )
+            )
+        for index, regel in enumerate(sectie.regels, start=1):
+            voorvoegsel = f"{index}." if sectie.genummerd else "•"
+            onderdelen.append(Paragraph(f"{voorvoegsel} {_pdf_escape(regel)}", stijlen["regel"]))
+        if sectie.slot:
+            onderdelen.append(Paragraph(_pdf_escape(sectie.slot), stijlen["tekst"]))
+        for punt in sectie.punten:
+            onderdelen.extend(_pdf_punt(punt, stijlen))
+        onderdelen.append(Spacer(1, 8))
+
+    buffer = BytesIO()
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        title=memo.titel,
+        author="Auditfile Analyzer",
+        leftMargin=2.2 * cm,
+        rightMargin=2.2 * cm,
+        topMargin=2 * cm,
+        bottomMargin=2 * cm,
+    )
+    document.build(onderdelen)
     return buffer.getvalue()
 
 

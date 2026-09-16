@@ -38,6 +38,7 @@ from auditfile.memorandum import (
     memorandumnaam,
     naar_docx,
     naar_markdown,
+    naar_pdf,
     op_gewicht,
 )
 from auditfile.parsing import parse_auditfile
@@ -486,3 +487,111 @@ def test_de_bestandsnaam_kan_ook_een_docx_zijn(af_40):
     # Met of zonder punt ervoor, en nog steeds zonder klantnaam.
     assert memorandumnaam(af_40, ".docx") == memorandumnaam(af_40, "docx")
     assert af_40.bedrijfsnaam.split()[0].lower() not in memorandumnaam(af_40, "docx").lower()
+
+
+# --- PDF ----------------------------------------------------------------
+
+
+def _pdf_tekst(inhoud: bytes) -> str:
+    """De doorlopende tekst van het PDF-bestand, met witruimte genormaliseerd.
+
+    Een lange titel breekt in de PDF af over meerdere regels, net als in een
+    browser; ``extract_text()`` levert die afbreking als een newline terug op
+    een plek waar de brontekst gewoon een spatie heeft. Voor een test naar
+    aanwezigheid van tekst maakt die afbreking niets uit.
+    """
+    from pypdf import PdfReader
+
+    lezer = PdfReader(BytesIO(inhoud))
+    ruw = "\n".join(pagina.extract_text() or "" for pagina in lezer.pages)
+    return " ".join(ruw.split())
+
+
+def test_elk_onderwerp_komt_ook_in_de_pdf(af_40):
+    """Wat in de tekst staat, mag in de PDF niet stil wegvallen."""
+    beoordeeld = Bevinding("Btw", "Rondrekening sluit niet aan", KRITIEK, bedrag=90_000.0)
+    bevindingen = [
+        beoordeeld,
+        Bevinding("Fiscaal", "Rekening-courant met de dga", WAARSCHUWING, bedrag=400_000.0),
+        Bevinding("Boekingen", "Rond bedrag", SIGNAAL, bedrag=25_000.0, aantal_regels=16),
+        Bevinding("Boekingen", "Kleine post", SIGNAAL, bedrag=40.0),
+        Bevinding("Bestandsgegevens", "Openstaande posten niet te bepalen", NIET_MOGELIJK),
+    ]
+    frame = _frame(
+        *bevindingen,
+        review={beoordeeld.sleutel: {"status": "Opgelost", "notitie": "Suppletie ingediend."}},
+    )
+    memo = bouw_memorandum(af_40, frame, MATERIALITEIT)
+
+    tekst = _pdf_tekst(naar_pdf(memo))
+
+    for bevinding in bevindingen:
+        assert bevinding.onderwerp in tekst
+    assert "Suppletie ingediend." in tekst
+    assert ONDER_DREMPEL in tekst
+
+
+def test_de_volledige_analyse_levert_een_pdf_op():
+    """Op de echte bevindingenlijst en niet op een handvol zelfgemaakte punten."""
+    vorig, huidig = _demopaar()
+    materialiteit = Materialiteit(grondslag=grondslag_omzet(huidig))
+    frame = pas_review_toe(verzamel_bevindingen(huidig, vorig, materialiteit=materialiteit))
+
+    memo = bouw_memorandum(huidig, frame, materialiteit, vorig=vorig)
+    tekst = _pdf_tekst(naar_pdf(memo))
+
+    assert not frame.empty
+    for onderwerp in frame["onderwerp"]:
+        assert onderwerp in tekst
+    assert vorig.bestandsnaam in tekst
+
+
+def test_het_eurosymbool_komt_als_eur_in_de_pdf_terecht(af_40):
+    """Reportlabs Helvetica tekent € goed maar levert geen ToUnicode-tabel.
+
+    Bij kopiëren of doorzoeken van de PDF valt het teken dan weg terwijl de
+    rest van het bedrag blijft staan; "EUR" blijft in elk PDF-programma
+    leesbaar en doorzoekbaar. Zie ``_pdf_escape()``.
+    """
+    frame = _frame(Bevinding("Btw", "Grote post", KRITIEK, bedrag=50_000.0))
+    memo = bouw_memorandum(af_40, frame, MATERIALITEIT)
+
+    tekst = _pdf_tekst(naar_pdf(memo))
+
+    assert "EUR 50.000,00" in tekst
+    assert "€" not in tekst
+    assert "�" not in tekst
+
+
+def test_zonder_bevindingen_blijft_de_pdf_geldig(af_40):
+    leeg = pas_review_toe(pd.DataFrame(columns=BEVINDING_COLUMNS))
+    memo = bouw_memorandum(af_40, leeg, MATERIALITEIT)
+
+    tekst = _pdf_tekst(naar_pdf(memo))
+
+    assert memo.titel in tekst
+    assert "geen aandachtspunten" in tekst
+    assert "Verantwoording" in tekst
+
+
+def test_veel_bevindingen_leveren_meerdere_paginas_op():
+    """Paginaovergangen: een langere analyse moet over meer dan één pagina."""
+    vorig, huidig = _demopaar()
+    materialiteit = Materialiteit(grondslag=grondslag_omzet(huidig))
+    frame = pas_review_toe(verzamel_bevindingen(huidig, vorig, materialiteit=materialiteit))
+    memo = bouw_memorandum(huidig, frame, materialiteit, vorig=vorig)
+
+    from pypdf import PdfReader
+
+    lezer = PdfReader(BytesIO(naar_pdf(memo)))
+
+    assert len(frame) > 10
+    assert len(lezer.pages) > 1
+    # Geen enkele pagina blijft leeg: elke bladzijde levert tekst op.
+    assert all((pagina.extract_text() or "").strip() for pagina in lezer.pages)
+
+
+def test_de_bestandsnaam_kan_ook_een_pdf_zijn(af_40):
+    assert memorandumnaam(af_40, "pdf").endswith(".pdf")
+    assert memorandumnaam(af_40, ".pdf") == memorandumnaam(af_40, "pdf")
+    assert af_40.bedrijfsnaam.split()[0].lower() not in memorandumnaam(af_40, "pdf").lower()

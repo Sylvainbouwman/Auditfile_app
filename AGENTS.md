@@ -63,7 +63,7 @@ rekenlogica dus nooit in `app.py`.
 | `openstaand.py` | Openstaande posten en ouderdom uit de subadministratie (XAF 3.2) |
 | `excessief_lenen.py` | Drempeltoets Wet excessief lenen bij eigen vennootschap |
 | `findings.py` | Uniform bevindingenmodel, materialiteit en de verzamelaar |
-| `memorandum.py` | Het reviewmemorandum: opbouw in secties, uitvoer naar Markdown en Word |
+| `memorandum.py` | Het reviewmemorandum: opbouw in secties, uitvoer naar Markdown, Word en PDF |
 | `demo.py` | Synthetische auditfiles: demodata én testfixtures |
 
 `inspect_xaf.py` is een losse CLI om een onbekende XAF-structuur te verkennen.
@@ -109,15 +109,22 @@ rekenlogica dus nooit in `app.py`.
   in op: dan zou een gewijzigd bedrag de vastgelegde beoordeling weggooien.
 - **Het memorandum bouwt op en geeft daarna uit** — `bouw_memorandum()` maakt van
   de bevindingen een `Memorandum` met secties en punten, zonder opmaak;
-  `naar_markdown()` en `naar_docx()` zetten dat om naar tekst en naar een
-  Word-bestand. Alle formulering, ordening en nummering hoort in de eerste laag,
-  zodat zij als tekst te testen is en een renderer erbij hetzelfde stuk een
-  andere vorm geeft in plaats van een tweede versie van dezelfde zinnen. Een
-  renderer bevat dus geen enkele zin: staat er een, dan hoort zij als property
-  bij `Punt` of `Sectie`, zoals `aanduiding`, `herkomst` en `beoordeling`. De
-  Word-stijlen staan als `DOCX_`-constanten bij elkaar, en python-docx wordt pas
-  in `naar_docx()` geïmporteerd: een omgeving zonder die afhankelijkheid verliest
-  dan alleen de Word-uitvoer en niet de hele app. Het document sorteert zelf op ernst, dan
+  `naar_markdown()`, `naar_docx()` en `naar_pdf()` zetten dat om naar tekst, naar
+  een Word-bestand en naar een PDF-bestand. Alle formulering, ordening en
+  nummering hoort in de eerste laag, zodat zij als tekst te testen is en een
+  renderer erbij hetzelfde stuk een andere vorm geeft in plaats van een tweede
+  versie van dezelfde zinnen. Een renderer bevat dus geen enkele zin: staat er
+  een, dan hoort zij als property bij `Punt` of `Sectie`, zoals `aanduiding`,
+  `herkomst` en `beoordeling`. De Word-stijlen staan als `DOCX_`-constanten bij
+  elkaar en de PDF-stijlen in `_pdf_stijlen()`; python-docx en reportlab worden
+  pas in `naar_docx()` respectievelijk `naar_pdf()` geïmporteerd, zodat een
+  omgeving zonder zo'n afhankelijkheid alleen die ene uitvoervorm verliest en
+  niet de hele app. In de PDF houdt `KeepTogether` de kop van een punt en zijn
+  eerste alinea samen, zodat een paginaovergang niet tussen die twee valt; en
+  `_pdf_escape()` vervangt het eurosymbool door `EUR`, want reportlabs
+  ingebouwde Helvetica tekent het teken goed maar levert er geen ToUnicode-tabel
+  bij, waardoor het bij kopiëren of doorzoeken van de PDF wegvalt (nagemeten met
+  vier verschillende PDF-lezers). Het document sorteert zelf op ernst, dan
   boven de drempel vóór eronder, dan bedrag: op bedrag alleen zou een bevinding
   zonder bedrag achter een kleine post eindigen, terwijl zij juist altijd
   meetelt. Een bevinding met ernst `niet mogelijk` staat altijd in de sectie

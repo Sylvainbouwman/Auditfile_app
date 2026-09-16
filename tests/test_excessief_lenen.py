@@ -246,3 +246,79 @@ def test_invoer_werkt_door_in_de_bevindingen() -> None:
     ]
     assert len(fiscaal) == 1
     assert fiscaal.iloc[0]["bedrag"] == pytest.approx(100_000.0)
+
+
+# --- Handmatige rekeningselectie ---------------------------------------------
+
+
+def test_handmatige_rekening_krijgt_eigen_herkomst() -> None:
+    """Een afwijkend gecodeerde rekening-courant kan de gebruiker toevoegen."""
+    af = _auditfile(300_000.0, afwijkend=250_000.0)
+
+    rekeningen = el.build_rc_rekeningen(af, extra_rekeningen=["1410"])
+    per_rekening = rekeningen.set_index("rekening")
+
+    assert list(rekeningen.columns) == el.REKENING_COLUMNS
+    assert per_rekening.loc["1400", "herkomst"] == el.HERKOMST_AUTOMATISCH
+    assert per_rekening.loc["1410", "herkomst"] == el.HERKOMST_HANDMATIG
+    assert per_rekening.loc["1410", "eindsaldo"] == pytest.approx(250_000.0)
+
+
+def test_handmatige_rekening_telt_mee_in_het_saldo() -> None:
+    af = _auditfile(300_000.0, afwijkend=250_000.0)
+
+    zonder = el.beoordeel(af)
+    assert zonder.saldo_auditfile == pytest.approx(300_000.0)
+    assert zonder.rekeningen_automatisch == 1
+    assert zonder.rekeningen_handmatig == 0
+
+    met = el.beoordeel(af, extra_rekeningen=["1410"])
+    assert met.saldo_auditfile == pytest.approx(550_000.0)
+    assert met.rekeningen_automatisch == 1
+    assert met.rekeningen_handmatig == 1
+    assert met.status == el.STATUS_BOVEN
+
+
+def test_al_automatisch_geselecteerde_rekening_wordt_niet_dubbel_toegevoegd() -> None:
+    af = _auditfile(250_000.0)
+    rekeningen = el.build_rc_rekeningen(af, extra_rekeningen=["1400"])
+    assert list(rekeningen["rekening"]) == ["1400"]
+    assert rekeningen.iloc[0]["herkomst"] == el.HERKOMST_AUTOMATISCH
+
+
+def test_onbekend_rekeningnummer_in_extra_rekeningen_wordt_genegeerd() -> None:
+    af = _auditfile(250_000.0)
+    rekeningen = el.build_rc_rekeningen(af, extra_rekeningen=["9999"])
+    assert list(rekeningen["rekening"]) == ["1400"]
+
+
+def test_beschikbare_rekeningen_sluit_al_geselecteerde_uit() -> None:
+    af = _auditfile(250_000.0, afwijkend=100_000.0)
+    geselecteerd = el.build_rc_rekeningen(af)
+
+    beschikbaar = el.beschikbare_rekeningen(af, geselecteerd)
+
+    assert "1400" not in set(beschikbaar["rekening"])
+    assert "1410" in set(beschikbaar["rekening"])
+
+
+def test_opbouw_vermeldt_automatisch_en_handmatig_aantal() -> None:
+    af = _auditfile(200_000.0, afwijkend=100_000.0)
+    opbouw = el.build_drempeltoets(af, extra_rekeningen=["1410"])
+    regel = opbouw.set_index("onderdeel").loc[
+        "Saldo rekening-courant en leningen volgens het auditfile"
+    ]
+    assert regel["bron"] == "auditfile en gebruiker"
+    assert "1 automatisch" in regel["toelichting"]
+    assert "1 handmatig toegevoegd" in regel["toelichting"]
+
+
+def test_bevinding_vermeldt_handmatig_toegevoegde_rekening() -> None:
+    af = _auditfile(300_000.0, afwijkend=250_000.0)
+    bevindingen = verzamel_bevindingen(af, excessief_lenen_rekeningen=["1410"])
+    fiscaal = bevindingen[
+        bevindingen["onderwerp"].str.startswith("Rekening-courant en leningen aandeelhouder")
+    ]
+    assert len(fiscaal) == 1
+    assert fiscaal.iloc[0]["rekening"] == "1400, 1410"
+    assert fiscaal.iloc[0]["bedrag"] == pytest.approx(50_000.0)

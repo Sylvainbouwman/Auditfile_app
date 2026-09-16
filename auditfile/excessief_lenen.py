@@ -46,6 +46,17 @@ gecodeerd buiten de selectie valt. Daarom staat naast de toets
 ``build_afwijkende_codering()``: rekeningen waarvan de omschrijving op een
 rekening-courant wijst terwijl de RGS-code ze uitsluit. Dat is een signaal over
 de codering en geen correctie op het bedrag.
+
+Handmatige aanvulling
+---------------------
+Meldt ``build_afwijkende_codering()`` een rekening die er wel bij hoort, dan kan
+de gebruiker haar aan de toets toevoegen: ``build_rc_rekeningen()`` neemt
+``extra_rekeningen`` op als die nog niet automatisch is geselecteerd en op de
+balans voorkomt. Zo'n rekening krijgt ``herkomst`` ``HERKOMST_HANDMATIG`` in
+plaats van ``HERKOMST_AUTOMATISCH``, zodat de opbouw en de uitvoer laten zien
+welk deel van het saldo op de RGS-selectie berust en welk deel op een keuze van
+de gebruiker. De keuze zelf verandert de RGS-selectie niet en verandert dus ook
+niets aan de reikwijdte van de toets voor een volgend dossier.
 """
 from __future__ import annotations
 
@@ -113,9 +124,14 @@ OMSCHRIJVING_PATROON = (
 # overschrijdt. Dit is een werkafspraak en geen norm uit de wet.
 NABIJ_AANDEEL = 0.9
 
-REKENING_COLUMNS = ["rekening", "omschrijving", "RGScode", "methode", "eindsaldo"]
+REKENING_COLUMNS = ["rekening", "omschrijving", "RGScode", "methode", "eindsaldo", "herkomst"]
 OPBOUW_COLUMNS = ["onderdeel", "bron", "bedrag", "toelichting"]
 AFWIJKING_COLUMNS = ["rekening", "omschrijving", "RGScode", "eindsaldo", "signaal"]
+
+# Herkomst van een regel in ``build_rc_rekeningen()``: op de RGS-selectie
+# hierboven, of toegevoegd door de gebruiker via de pagina Fiscale signalen.
+HERKOMST_AUTOMATISCH = "automatisch (RGS of omschrijving)"
+HERKOMST_HANDMATIG = "handmatig toegevoegd"
 
 # De uitkomsten die de toets kan hebben.
 STATUS_GEEN_REKENING = "geen rekening gevonden"
@@ -168,6 +184,8 @@ class Toets:
     rekeningen: int
     methode: str
     invoer: Invoer
+    rekeningen_automatisch: int = 0
+    rekeningen_handmatig: int = 0
 
     @property
     def maximum(self) -> float | None:
@@ -284,8 +302,18 @@ def bepaal_peildatum(af: Auditfile) -> Peildatum:
     )
 
 
-def build_rc_rekeningen(af: Auditfile) -> pd.DataFrame:
-    """De rekeningen-courant en leningen met aandeelhouders en bestuurders."""
+def build_rc_rekeningen(
+    af: Auditfile, extra_rekeningen: tuple[str, ...] | list[str] = ()
+) -> pd.DataFrame:
+    """De rekeningen-courant en leningen met aandeelhouders en bestuurders.
+
+    ``extra_rekeningen`` zijn rekeningnummers die de gebruiker zelf heeft
+    toegevoegd, bijvoorbeeld na een melding van ``build_afwijkende_codering()``.
+    Een rekening die al automatisch is geselecteerd komt niet dubbel in de
+    tabel; een rekeningnummer dat niet op de balans van dit bestand voorkomt
+    levert geen regel op. De kolom ``herkomst`` zegt per rij welke van de twee
+    het is.
+    """
     saldo = af.saldo
     if saldo.empty:
         return pd.DataFrame(columns=REKENING_COLUMNS)
@@ -298,10 +326,8 @@ def build_rc_rekeningen(af: Auditfile) -> pd.DataFrame:
         balans, RGS_VOORVOEGSELS, OMSCHRIJVING_PATROON, rekeningtype="B"
     )
     selectie = balans[masker]
-    if selectie.empty:
-        return pd.DataFrame(columns=REKENING_COLUMNS)
 
-    return (
+    automatisch = (
         pd.DataFrame(
             {
                 "rekening": selectie["rekening"].astype(str),
@@ -309,6 +335,73 @@ def build_rc_rekeningen(af: Auditfile) -> pd.DataFrame:
                 "RGScode": selectie["RGScode"].astype(str),
                 "methode": methode,
                 "eindsaldo": selectie["eindsaldo"].astype(float),
+                "herkomst": HERKOMST_AUTOMATISCH,
+            }
+        )
+        if not selectie.empty
+        else pd.DataFrame(columns=REKENING_COLUMNS)
+    )
+
+    gevraagd = {str(nummer).strip() for nummer in extra_rekeningen if str(nummer).strip()}
+    al_automatisch = set(automatisch["rekening"]) if not automatisch.empty else set()
+    nieuw = gevraagd - al_automatisch
+    if nieuw:
+        handmatig_balans = balans[balans["rekening"].astype(str).isin(nieuw)]
+    else:
+        handmatig_balans = balans.iloc[0:0]
+
+    handmatig = (
+        pd.DataFrame(
+            {
+                "rekening": handmatig_balans["rekening"].astype(str),
+                "omschrijving": handmatig_balans["accDesc"].astype(str),
+                "RGScode": handmatig_balans["RGScode"].astype(str),
+                "methode": "handmatige selectie door de gebruiker",
+                "eindsaldo": handmatig_balans["eindsaldo"].astype(float),
+                "herkomst": HERKOMST_HANDMATIG,
+            }
+        )
+        if not handmatig_balans.empty
+        else pd.DataFrame(columns=REKENING_COLUMNS)
+    )
+
+    resultaat = pd.concat([automatisch, handmatig], ignore_index=True)
+    if resultaat.empty:
+        return pd.DataFrame(columns=REKENING_COLUMNS)
+    return resultaat.sort_values("rekening").reset_index(drop=True)
+
+
+def beschikbare_rekeningen(af: Auditfile, uitgesloten: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Balansrekeningen waaruit de gebruiker een rekening kan toevoegen.
+
+    ``uitgesloten`` is doorgaans de tabel van ``build_rc_rekeningen()``: wat
+    daar al in staat, hoort niet nogmaals in de keuzelijst. Zonder rekeningen
+    op de balans is de lijst leeg.
+    """
+    saldo = af.saldo
+    if saldo.empty:
+        return pd.DataFrame(columns=REKENING_COLUMNS[:-1])
+
+    balans = saldo[saldo["accTp"].astype(str).str.strip().str.upper().eq("B")]
+    if balans.empty:
+        return pd.DataFrame(columns=REKENING_COLUMNS[:-1])
+
+    al_geselecteerd = (
+        set(uitgesloten["rekening"].astype(str))
+        if uitgesloten is not None and not uitgesloten.empty
+        else set()
+    )
+    over = balans[~balans["rekening"].astype(str).isin(al_geselecteerd)]
+    if over.empty:
+        return pd.DataFrame(columns=REKENING_COLUMNS[:-1])
+
+    return (
+        pd.DataFrame(
+            {
+                "rekening": over["rekening"].astype(str),
+                "omschrijving": over["accDesc"].astype(str),
+                "RGScode": over["RGScode"].astype(str),
+                "eindsaldo": over["eindsaldo"].astype(float),
             }
         )
         .sort_values("rekening")
@@ -364,15 +457,29 @@ def build_afwijkende_codering(af: Auditfile) -> pd.DataFrame:
     )
 
 
-def beoordeel(af: Auditfile, invoer: Invoer | None = None) -> Toets:
-    """De drempeltoets, met de status die eruit volgt."""
+def beoordeel(
+    af: Auditfile,
+    invoer: Invoer | None = None,
+    extra_rekeningen: tuple[str, ...] | list[str] = (),
+) -> Toets:
+    """De drempeltoets, met de status die eruit volgt.
+
+    ``extra_rekeningen`` zijn rekeningnummers die de gebruiker zelf aan de
+    selectie heeft toegevoegd; zie ``build_rc_rekeningen()``.
+    """
     invoer = invoer or Invoer()
     peil = bepaal_peildatum(af)
     wettelijk, wettelijke_toelichting = maximumbedrag(peil.jaar if peil.geldig else None)
 
-    rekeningen = build_rc_rekeningen(af)
+    rekeningen = build_rc_rekeningen(af, extra_rekeningen)
     saldo = float(rekeningen["eindsaldo"].sum()) if not rekeningen.empty else 0.0
     methode = str(rekeningen.iloc[0]["methode"]) if not rekeningen.empty else "geen treffers"
+    automatisch = (
+        int((rekeningen["herkomst"] == HERKOMST_AUTOMATISCH).sum()) if not rekeningen.empty else 0
+    )
+    handmatig = (
+        int((rekeningen["herkomst"] == HERKOMST_HANDMATIG).sum()) if not rekeningen.empty else 0
+    )
 
     toets = Toets(
         status=STATUS_GEEN_REKENING,
@@ -383,6 +490,8 @@ def beoordeel(af: Auditfile, invoer: Invoer | None = None) -> Toets:
         rekeningen=int(len(rekeningen)),
         methode=methode,
         invoer=invoer,
+        rekeningen_automatisch=automatisch,
+        rekeningen_handmatig=handmatig,
     )
 
     # Zonder rekening en zonder eigen invoer is er niets te toetsen. Is er wel
@@ -416,10 +525,16 @@ def _met_status(toets: Toets, status: str) -> Toets:
         rekeningen=toets.rekeningen,
         methode=toets.methode,
         invoer=toets.invoer,
+        rekeningen_automatisch=toets.rekeningen_automatisch,
+        rekeningen_handmatig=toets.rekeningen_handmatig,
     )
 
 
-def build_drempeltoets(af: Auditfile, invoer: Invoer | None = None) -> pd.DataFrame:
+def build_drempeltoets(
+    af: Auditfile,
+    invoer: Invoer | None = None,
+    extra_rekeningen: tuple[str, ...] | list[str] = (),
+) -> pd.DataFrame:
     """De opbouw van de toets als tabel: wat uit het bestand komt en wat niet.
 
     De regels staan in de volgorde waarin de toets wordt gemaakt, en elke regel
@@ -427,7 +542,7 @@ def build_drempeltoets(af: Auditfile, invoer: Invoer | None = None) -> pd.DataFr
     of van de gebruiker. Zonder die scheiding is achteraf niet te zien waarop de
     uitkomst rust.
     """
-    toets = beoordeel(af, invoer)
+    toets = beoordeel(af, invoer, extra_rekeningen)
     if toets.status == STATUS_GEEN_REKENING:
         return pd.DataFrame(columns=OPBOUW_COLUMNS)
     return opbouw(toets)
@@ -439,12 +554,20 @@ def opbouw(toets: Toets) -> pd.DataFrame:
     rijen: list[dict[str, object]] = [
         {
             "onderdeel": "Saldo rekening-courant en leningen volgens het auditfile",
-            "bron": "auditfile",
+            "bron": "auditfile" if not toets.rekeningen_handmatig else "auditfile en gebruiker",
             "bedrag": toets.saldo_auditfile,
             "toelichting": (
-                f"Eindsaldo van {toets.rekeningen} rekening(en), geselecteerd op "
-                f"{toets.methode}. Debet is een vordering van de vennootschap en "
-                "dus een schuld van de aandeelhouder."
+                f"Eindsaldo van {toets.rekeningen} rekening(en): "
+                f"{toets.rekeningen_automatisch} automatisch geselecteerd op "
+                f"{toets.methode}"
+                + (
+                    f" en {toets.rekeningen_handmatig} handmatig toegevoegd door de "
+                    "gebruiker."
+                    if toets.rekeningen_handmatig
+                    else "."
+                )
+                + " Debet is een vordering van de vennootschap en dus een schuld "
+                "van de aandeelhouder."
             ),
         },
         {
