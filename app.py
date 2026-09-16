@@ -43,6 +43,7 @@ from auditfile.findings import (
     pas_review_toe,
     samenvatting_per_ernst,
     verzamel_bevindingen,
+    voeg_vorig_jaar_toe,
 )
 from auditfile.formatting import euro, euro_kort, procent, toon_tabel
 from auditfile.notatie import datum_nl
@@ -389,7 +390,13 @@ def bevindingen_met_review(
         excessief_lenen=huidige_excessief_lenen(),
         excessief_lenen_rekeningen=huidige_handmatige_rc_rekeningen(),
     )
-    return pas_review_toe(bevindingen, huidige_opslag().lees_review())
+    bevindingen = pas_review_toe(bevindingen, huidige_opslag().lees_review())
+    # De beoordeling van vorig jaar komt uit het dossier van dát boekjaar, dat
+    # de gebruiker toch al als "Auditfile vorig jaar" heeft geladen. Bestaat
+    # daar geen dossieropslag voor (nooit bewaard, of geen identificatie), dan
+    # levert lees_review() gewoon niets op en blijven de kolommen leeg.
+    vorige_opslag = DossierOpslag.voor(vorig.dossier_sleutel)
+    return voeg_vorig_jaar_toe(bevindingen, vorige_opslag.lees_review())
 
 
 def pagina_bevindingen(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.DataFrame) -> None:
@@ -510,6 +517,8 @@ def pagina_bevindingen(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.Dat
             "bedrag",
             "status",
             "notitie",
+            "vorig_jaar_status",
+            "vorig_jaar_notitie",
             "aantal_regels",
             "rekening",
             "boven_drempel",
@@ -530,6 +539,15 @@ def pagina_bevindingen(vorig: Auditfile, huidig: Auditfile, vergelijking: pd.Dat
             ),
             "notitie": st.column_config.TextColumn(
                 "Notitie", width="large", help="Wat u hebt vastgesteld of afgesproken."
+            ),
+            "vorig_jaar_status": st.column_config.TextColumn(
+                "Vorig jaar",
+                width="small",
+                help="De beoordeling die dezelfde bevinding vorig jaar had, ook als de "
+                "uitkomst dit jaar anders is. Alleen referentie: wordt niet overgenomen.",
+            ),
+            "vorig_jaar_notitie": st.column_config.TextColumn(
+                "Vorig jaar: notitie", width="medium"
             ),
             "aantal_regels": st.column_config.NumberColumn("Regels", format="plain"),
             "rekening": st.column_config.TextColumn("Rekening", width="small"),
