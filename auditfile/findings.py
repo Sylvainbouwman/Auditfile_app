@@ -80,6 +80,7 @@ BEVINDING_COLUMNS = [
     "toelichting",
     "pagina",
     "sleutel",
+    "identiteitssleutel",
 ]
 
 
@@ -96,10 +97,15 @@ class Bevinding:
     rekening: str = ""
     methode: str = ""
     pagina: str = ""
+    # Wat deze bevinding aanwijst, los van de uitkomst van dit jaar. Sommige
+    # onderwerpen bevatten de uitkomst zelf (bijvoorbeeld "boven de drempel"
+    # of "verschil"), en die verandert nu juist vaak van jaar op jaar. Leeg
+    # betekent: het onderwerp zelf is al stabiel genoeg. Zie identiteitssleutel.
+    identiteit: str = ""
 
     @property
     def sleutel(self) -> str:
-        """Stabiele verwijzing naar deze bevinding.
+        """Stabiele verwijzing naar deze bevinding binnen hetzelfde dossier.
 
         Nodig om er iets aan te kunnen hangen dat de gebruiker invoert, zoals
         een reviewstatus of een notitie: die moet dezelfde bevinding terugvinden
@@ -109,6 +115,21 @@ class Bevinding:
         gebruiker ziet het bedrag zelf en beoordeelt opnieuw als dat nodig is.
         """
         ruw = "|".join([self.categorie, self.onderwerp, self.rekening]).encode("utf-8")
+        return hashlib.blake2b(ruw, digest_size=6).hexdigest()
+
+    @property
+    def identiteitssleutel(self) -> str:
+        """Sleutel om dezelfde bevinding tussen twee boekjaren te herkennen.
+
+        Anders dan ``sleutel`` mag dit los staan van de uitkomst van dit jaar:
+        een rekening-courant die dit jaar boven de drempel komt en vorig jaar
+        eronder bleef, is nog steeds "dezelfde" bevinding om vorig jaar op na
+        te slaan. Gebruikt ``identiteit`` waar die is meegegeven, anders valt
+        hij terug op het onderwerp zelf (voor de meeste controles is dat al
+        stabiel, omdat de uitkomst er niet in verwerkt zit).
+        """
+        basis = self.identiteit or self.onderwerp
+        ruw = "|".join([self.categorie, basis, self.rekening]).encode("utf-8")
         return hashlib.blake2b(ruw, digest_size=6).hexdigest()
 
 
@@ -159,6 +180,7 @@ def naar_frame(bevindingen: list[Bevinding], materialiteit: Materialiteit | None
                 "toelichting": bevinding.toelichting,
                 "pagina": bevinding.pagina,
                 "sleutel": bevinding.sleutel,
+                "identiteitssleutel": bevinding.identiteitssleutel,
             }
         )
     frame = pd.DataFrame(rijen, columns=BEVINDING_COLUMNS)
@@ -200,6 +222,37 @@ def pas_review_toe(
     ]
     result["notitie"] = [
         str(review.get(str(sleutel), {}).get("notitie") or "") for sleutel in result["sleutel"]
+    ]
+    return result
+
+
+def voeg_vorig_jaar_toe(
+    bevindingen: pd.DataFrame, vorige_review: dict[str, dict[str, str]] | None = None
+) -> pd.DataFrame:
+    """Voeg de beoordeling van vorig jaar toe, als referentie naast dit jaar.
+
+    Koppelt op ``identiteitssleutel`` en niet op ``sleutel``: die laatste
+    verandert mee met de uitkomst van dit jaar (bijvoorbeeld "boven" in plaats
+    van "onder de drempel"), terwijl de vorig-jaar-referentie juist dan de
+    meeste waarde heeft. Levert twee kolommen, allebei leeg wanneer dezelfde
+    bevinding vorig jaar niet bestond of toen geen beoordeling had. Dit is
+    uitsluitend referentie: er wordt niets automatisch overgenomen in de
+    beoordeling van dit jaar.
+    """
+    vorige_review = vorige_review or {}
+    result = bevindingen.copy()
+    if result.empty:
+        result["vorig_jaar_status"] = pd.Series(dtype="object")
+        result["vorig_jaar_notitie"] = pd.Series(dtype="object")
+        return result
+
+    result["vorig_jaar_status"] = [
+        str(vorige_review.get(str(sleutel), {}).get("status") or "")
+        for sleutel in result["identiteitssleutel"]
+    ]
+    result["vorig_jaar_notitie"] = [
+        str(vorige_review.get(str(sleutel), {}).get("notitie") or "")
+        for sleutel in result["identiteitssleutel"]
     ]
     return result
 
@@ -320,6 +373,7 @@ def _uit_jaarovergang(vorig: Auditfile, huidig: Auditfile) -> list[Bevinding]:
                 Bevinding(
                     categorie="Jaarovergang",
                     onderwerp=str(rij["signaal"]),
+                    identiteit="Jaarovergang",
                     ernst=SIGNAAL,
                     toelichting=(
                         f"Rekening {rij['rekening']} {rij['accDesc']}: eindsaldo vorig jaar "
@@ -413,6 +467,7 @@ def _uit_btw(af: Auditfile, gebruik: pd.DataFrame, samenvatting: pd.DataFrame) -
             Bevinding(
                 categorie="Btw",
                 onderwerp=f"Rubriek {rij['rubriek']}: {str(rij['status']).lower()}",
+                identiteit=f"Rubriek {rij['rubriek']}",
                 ernst=ernst,
                 toelichting=toelichting,
                 bedrag=bedrag,
@@ -462,6 +517,7 @@ def _uit_suppletie(af: Auditfile, samenvatting: pd.DataFrame) -> list[Bevinding]
         Bevinding(
             categorie="Btw",
             onderwerp=f"Suppletie: {aansluiting.status.lower()}",
+            identiteit="Suppletie",
             ernst=ernst,
             toelichting=aansluiting.toelichting,
             bedrag=_getal(bedrag) if ernst != NIET_MOGELIJK else None,
@@ -485,6 +541,7 @@ def _uit_controles(af: Auditfile) -> list[Bevinding]:
                 Bevinding(
                     categorie="Periodieke lasten",
                     onderwerp=f"{rij['controle']}: {str(rij['conclusie']).lower()}",
+                    identiteit=str(rij["controle"]),
                     ernst=ernst,
                     toelichting=str(rij["toelichting"]),
                     bedrag=_getal(rij.get("totaalbedrag")),
@@ -615,6 +672,7 @@ def _uit_capability(af: Auditfile) -> list[Bevinding]:
             Bevinding(
                 categorie="Bestandsgegevens",
                 onderwerp=f"Openstaande posten alleen op niveau {niveau}: {NIVEAU_NAAM[niveau].lower()}",
+                identiteit="Openstaande posten niveau",
                 ernst=SIGNAAL if niveau < NIVEAU_RECONSTRUCTIE else WAARSCHUWING,
                 toelichting=uitleg,
                 pagina="Bestandscontrole",
@@ -878,6 +936,7 @@ def _uit_excessief_lenen(af: Auditfile, invoer=None, extra_rekeningen=()) -> lis
         Bevinding(
             categorie="Fiscaal",
             onderwerp=f"Rekening-courant en leningen aandeelhouder: {toets.status}",
+            identiteit="Rekening-courant en leningen aandeelhouder",
             ernst=ernst,
             toelichting=conclusie(toets),
             bedrag=_getal(bedrag),
@@ -911,6 +970,7 @@ def _uit_jaarvergelijking(vergelijking: pd.DataFrame, top: int = 10) -> list[Bev
             Bevinding(
                 categorie="Jaarvergelijking",
                 onderwerp=f"{rij['status'].capitalize()}: {rij['accDesc'] or rij['rekening']}",
+                identiteit="Saldo gewijzigd",
                 ernst=SIGNAAL,
                 toelichting=(
                     f"Rekening {rij['rekening']}: {euro(rij['saldo_vorig'])} vorig jaar "

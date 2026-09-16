@@ -32,6 +32,7 @@ from auditfile.findings import (
     pas_review_toe,
     samenvatting_per_ernst,
     verzamel_bevindingen,
+    voeg_vorig_jaar_toe,
 )
 from auditfile.integrity import IN_ORDE, KRITIEK, NIET_MOGELIJK, WAARSCHUWING
 from auditfile.parsing import parse_auditfile
@@ -64,6 +65,107 @@ def test_rekening_maakt_bevindingen_van_elkaar_te_onderscheiden():
     eerste = Bevinding("Balansposten", "Saldo aan de verkeerde kant", WAARSCHUWING, rekening="1300")
     tweede = Bevinding("Balansposten", "Saldo aan de verkeerde kant", WAARSCHUWING, rekening="1600")
     assert eerste.sleutel != tweede.sleutel
+
+
+# --- De identiteitssleutel: dezelfde bevinding herkennen over jaargrenzen ---
+
+
+def test_identiteitssleutel_zonder_identiteit_valt_terug_op_onderwerp():
+    """De meeste onderwerpen bevatten geen uitkomst van dit jaar en zijn zo al stabiel."""
+    eerste = Bevinding("Balansposten", "Saldo aan de verkeerde kant", WAARSCHUWING, rekening="1300")
+    tweede = Bevinding("Balansposten", "Saldo aan de verkeerde kant", KRITIEK, rekening="1300")
+    assert eerste.identiteitssleutel == tweede.identiteitssleutel
+
+
+def test_identiteitssleutel_blijft_gelijk_als_de_uitkomst_van_dit_jaar_verschilt():
+    """De kern van deze koppeling: een gewijzigde drempeluitkomst mag de link niet breken."""
+    boven = Bevinding(
+        "Fiscaal",
+        "Rekening-courant en leningen aandeelhouder: boven de drempel",
+        WAARSCHUWING,
+        rekening="1400",
+        identiteit="Rekening-courant en leningen aandeelhouder",
+    )
+    onder = Bevinding(
+        "Fiscaal",
+        "Rekening-courant en leningen aandeelhouder: onder de drempel",
+        SIGNAAL,
+        rekening="1400",
+        identiteit="Rekening-courant en leningen aandeelhouder",
+    )
+    assert boven.identiteitssleutel == onder.identiteitssleutel
+    # De gewone sleutel (voor de eigen beoordeling van dit jaar) verschilt wel,
+    # want die twee zijn voor dat doel juist andere bevindingen.
+    assert boven.sleutel != onder.sleutel
+
+
+def test_identiteitssleutel_onderscheidt_verschillende_rekeningen():
+    eerste = Bevinding(
+        "Fiscaal", "Rekening-courant: boven de drempel", WAARSCHUWING, rekening="1400",
+        identiteit="Rekening-courant",
+    )
+    tweede = Bevinding(
+        "Fiscaal", "Rekening-courant: boven de drempel", WAARSCHUWING, rekening="1450",
+        identiteit="Rekening-courant",
+    )
+    assert eerste.identiteitssleutel != tweede.identiteitssleutel
+
+
+# --- Vorig-jaar-referentie ---------------------------------------------------
+
+
+def test_vorig_jaar_beoordeling_wordt_gekoppeld_op_identiteitssleutel():
+    bevinding = Bevinding(
+        "Fiscaal",
+        "Rekening-courant en leningen aandeelhouder: boven de drempel",
+        WAARSCHUWING,
+        rekening="1400",
+        identiteit="Rekening-courant en leningen aandeelhouder",
+    )
+    frame = naar_frame([bevinding])
+    vorige_review = {
+        bevinding.identiteitssleutel: {"status": "Actie nodig", "notitie": "Vorig jaar besproken."}
+    }
+
+    resultaat = voeg_vorig_jaar_toe(frame, vorige_review)
+
+    assert resultaat.iloc[0]["vorig_jaar_status"] == "Actie nodig"
+    assert resultaat.iloc[0]["vorig_jaar_notitie"] == "Vorig jaar besproken."
+
+
+def test_vorig_jaar_beoordeling_blijft_gekoppeld_bij_een_andere_uitkomst_dit_jaar():
+    """De hoofdreden voor deze koppeling: de uitkomst mag verschillen."""
+    identiteit = "Rekening-courant en leningen aandeelhouder"
+    vorig_jaar = Bevinding(
+        "Fiscaal", f"{identiteit}: onder de drempel", SIGNAAL, rekening="1400", identiteit=identiteit
+    )
+    dit_jaar = Bevinding(
+        "Fiscaal", f"{identiteit}: boven de drempel", WAARSCHUWING, rekening="1400", identiteit=identiteit
+    )
+    vorige_review = {vorig_jaar.identiteitssleutel: {"status": "Opgelost", "notitie": ""}}
+
+    frame = naar_frame([dit_jaar])
+    resultaat = voeg_vorig_jaar_toe(frame, vorige_review)
+
+    assert resultaat.iloc[0]["vorig_jaar_status"] == "Opgelost"
+
+
+def test_zonder_vorige_beoordeling_blijven_de_kolommen_leeg():
+    bevinding = Bevinding("Btw", "Rubriek 1a: verschil", SIGNAAL, identiteit="Rubriek 1a")
+    frame = naar_frame([bevinding])
+
+    resultaat = voeg_vorig_jaar_toe(frame, {})
+
+    assert resultaat.iloc[0]["vorig_jaar_status"] == ""
+    assert resultaat.iloc[0]["vorig_jaar_notitie"] == ""
+
+
+def test_vorig_jaar_toe_op_een_lege_lijst_houdt_de_kolommen():
+    leeg = pd.DataFrame(columns=BEVINDING_COLUMNS)
+    resultaat = voeg_vorig_jaar_toe(leeg, {"iets": {"status": "Opgelost"}})
+    assert "vorig_jaar_status" in resultaat.columns
+    assert "vorig_jaar_notitie" in resultaat.columns
+    assert resultaat.empty
 
 
 def test_sortering_zet_het_zwaarste_bovenaan():

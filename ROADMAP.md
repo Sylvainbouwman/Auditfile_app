@@ -39,9 +39,24 @@ bespaart. Op volgorde van bouwen (eenvoudigste eerst):
    bestaande periodieke controle voor huur/lease — een signaal als er kosten
    zijn geboekt maar nog geen bijbehorend contract is vastgelegd. Dat raakt
    het bevindingenmodel en is expliciet niet in deze eerste stap meegenomen.
-3. **Vorig-jaar-beoordeling automatisch tonen.** Komt een bevinding dit jaar
-   terug (zelfde categorie, onderwerp en rekening) en was zij vorig jaar al
-   beoordeeld, toon die beoordeling er dan meteen bij als referentie.
+3. **Vorig-jaar-beoordeling automatisch tonen (gereed).** Op de pagina
+   Bevindingen staat een read-only kolom "Vorig jaar" die de beoordeling van
+   dezelfde bevinding uit het dossier van het vorige boekjaar toont, puur ter
+   referentie. Besluit van Sylvain bij het voorstel: deze koppeling moet juist
+   ook werken wanneer de uitkomst van dit jaar afwijkt van vorig jaar (bijvoorbeeld
+   een rekening-courant die dit jaar over de drempel gaat, terwijl dat vorig
+   jaar niet zo was) — dat is precies het moment waarop de referentie het
+   meeste waard is. De gewone `Bevinding.sleutel` is daarvoor niet bruikbaar,
+   want die verandert mee met een statuswoord in het onderwerp (zoals "boven
+   de drempel" of "verschil"). `Bevinding` heeft daarom een los veld
+   `identiteit` gekregen en een eigen `identiteitssleutel`
+   (`auditfile/findings.py`): waar het onderwerp de uitkomst van dit jaar
+   bevat, geeft de aanroeper een vaste identiteit mee (bijvoorbeeld "Rubriek
+   2a" in plaats van "Rubriek 2a: verschil"); voor de meeste bevindingen, waar
+   het onderwerp al stabiel is, blijft het veld leeg en valt de koppeling
+   terug op het onderwerp zelf. `voeg_vorig_jaar_toe()` koppelt op die sleutel
+   aan `DossierOpslag.voor(vorig.dossier_sleutel)`, het dossier dat de
+   gebruiker toch al als "Auditfile vorig jaar" laadt.
 4. **Aangifte inlezen.** Een PDF of export van de ingediende btw-aangifte
    automatisch laten inlezen in plaats van elke rubriek met de hand in te
    vullen. Grootste tijdwinst, maar vraagt eerst een keuze: welk

@@ -21,7 +21,12 @@ hetzelfde dossier weer bij. Meerdere bevindingen tegelijk beoordelen kan ook:
 vink de gewenste rijen aan, kies één beoordeling en eventueel één notitie, en
 pas die met een knop op alle aangevinkte rijen toe. Dat legt nog niets vast op
 schijf; dat blijft de knop "Beoordeling vastleggen" doen, net als bij een losse
-wijziging. Dit is de lijst waaruit het reviewmemorandum wordt opgebouwd.
+wijziging. Een kolom "Vorig jaar" laat, puur ter referentie, zien welke
+beoordeling dezelfde bevinding in het dossier van vorig jaar al had — ook als
+de uitkomst dit jaar anders is (bijvoorbeeld een rekening-courant die dit jaar
+wél over de drempel gaat): juist dan is die referentie het nuttigst. Er wordt
+niets automatisch overgenomen. Dit is de lijst waaruit het reviewmemorandum
+wordt opgebouwd.
 
 **Memorandum.** Dezelfde bevindingen als een stuk om te lezen. De kop noemt de
 onderneming, het boekjaar en beide bestanden met hun XAF-versie; daarna staan de

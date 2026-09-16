@@ -108,6 +108,18 @@ rekenlogica dus nooit in `app.py`.
   De beoordeling en de notitie van de gebruiker hangen aan `Bevinding.sleutel`, een
   hash van categorie, onderwerp en rekening. Neem daar nooit het bedrag of de ernst
   in op: dan zou een gewijzigd bedrag de vastgelegde beoordeling weggooien.
+
+  Naast `sleutel` bestaat `Bevinding.identiteitssleutel`, voor de koppeling met
+  de beoordeling van *vorig jaar* (`voeg_vorig_jaar_toe()`). Sommige onderwerpen
+  bevatten de uitkomst van dit jaar zelf, zoals "boven de drempel" of "Rubriek
+  2a: verschil"; `sleutel` verandert dan mee met die uitkomst, en dat is precies
+  goed voor de eigen beoordeling van dit jaar (een andere uitkomst is een andere
+  bevinding). Voor de vorig-jaar-referentie geldt het omgekeerde: die moet juist
+  blijven werken als de uitkomst wijzigt, want dat is het moment waarop ze het
+  meest waard is. Bevat een onderwerp zo'n statuswoord, geef dan een vast
+  `identiteit`-argument mee (bijvoorbeeld `identiteit="Rubriek 2a"`); blijft het
+  leeg, dan valt `identiteitssleutel` terug op het onderwerp, wat voor de meeste
+  bevindingen al stabiel genoeg is.
 - **Het memorandum bouwt op en geeft daarna uit** — `bouw_memorandum()` maakt van
   de bevindingen een `Memorandum` met secties en punten, zonder opmaak;
   `naar_markdown()`, `naar_docx()` en `naar_pdf()` zetten dat om naar tekst, naar
