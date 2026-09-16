@@ -28,10 +28,17 @@ bespaart. Op volgorde van bouwen (eenvoudigste eerst):
    notitie toepassen, in plaats van rij voor rij. De losse celbewerking blijft
    ernaast bestaan. Legt niets vast op schijf; dat blijft de knop "Beoordeling
    vastleggen" doen.
-2. **Contractregister voor lease en huur.** Bedrag, looptijd en escalatie per
-   dossier vastleggen, zodat de tool niet alleen signaleert dát er kosten zijn
-   maar ook kan helpen beoordelen of en hoe een verplichting in de toelichting
-   van de jaarrekening moet.
+2. **Contractregister voor lease en huur (gereed als eerste stap).** Eigen
+   pagina "Contracten" waar per dossier lease- en huurcontracten worden
+   vastgelegd: omschrijving, jaarbedrag, ingangsdatum en einddatum
+   (`auditfile/contracten.py`). De tool telt de resterende termijnen op per de
+   balansdatum (jaarbedrag gedeeld door twaalf, keer het aantal resterende
+   maanden) en toont het totaal; geen contante-waardeberekening en geen
+   kwalificatie als operationele of financiële lease, dat blijft aan de
+   gebruiker. **Wat rest (bewust een los vervolg):** koppeling met de
+   bestaande periodieke controle voor huur/lease — een signaal als er kosten
+   zijn geboekt maar nog geen bijbehorend contract is vastgelegd. Dat raakt
+   het bevindingenmodel en is expliciet niet in deze eerste stap meegenomen.
 3. **Vorig-jaar-beoordeling automatisch tonen.** Komt een bevinding dit jaar
    terug (zelfde categorie, onderwerp en rekening) en was zij vorig jaar al
    beoordeeld, toon die beoordeling er dan meteen bij als referentie.

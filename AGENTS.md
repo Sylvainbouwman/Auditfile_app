@@ -62,6 +62,7 @@ rekenlogica dus nooit in `app.py`.
 | `relatiesaldi.py` | Openstaande bedragen per relatie (XAF 4.0) en hun aansluiting |
 | `openstaand.py` | Openstaande posten en ouderdom uit de subadministratie (XAF 3.2) |
 | `excessief_lenen.py` | Drempeltoets Wet excessief lenen bij eigen vennootschap |
+| `contracten.py` | Contractregister lease en huur: resterende verplichting per de balansdatum |
 | `findings.py` | Uniform bevindingenmodel, materialiteit en de verzamelaar |
 | `memorandum.py` | Het reviewmemorandum: opbouw in secties, uitvoer naar Markdown, Word en PDF |
 | `demo.py` | Synthetische auditfiles: demodata én testfixtures |

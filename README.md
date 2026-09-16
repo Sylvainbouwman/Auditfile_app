@@ -182,6 +182,16 @@ keuze verandert de RGS-selectie zelf niet en geldt alleen voor dit dossier; zij
 werkt door in de bevindingen, het memorandum en de Excel-export, zodat die
 dezelfde selectie tonen als deze pagina.
 
+**Contracten.** Een lopende huur- of leaseverplichting staat meestal niet als
+schuld op de balans, want de wederpartij heeft de toekomstige prestatie nog
+niet geleverd; wel hoort zij, als het bedrag materieel is, in de toelichting
+bij de jaarrekening als niet in de balans opgenomen verplichting. Op deze
+pagina legt u lease- en huurcontracten vast (omschrijving, jaarbedrag,
+ingangsdatum en einddatum); de tool telt de resterende termijnen per de
+balansdatum op tot een totaalbedrag. Geen contante-waardeberekening en geen
+kwalificatie van het contract als operationele of financiële lease; dat blijft
+aan u.
+
 **Excel-export.** Ruim twintig werkbladen met Nederlandse getalnotatie, filters
 en vastgezette koppen. Bedragen zijn getallen, dus optelbaar.
 
@@ -233,6 +243,7 @@ opgebouwd; er wordt nooit klantdata gelezen.
 | `auditfile/relatiesaldi.py` | Openstaande bedragen per relatie (XAF 4.0) |
 | `auditfile/openstaand.py` | Openstaande posten en ouderdom (XAF 3.2) |
 | `auditfile/excessief_lenen.py` | Drempeltoets excessief lenen |
+| `auditfile/contracten.py` | Contractregister lease en huur |
 | `auditfile/findings.py` | Bevindingen, materialiteit en beoordeling |
 | `auditfile/memorandum.py` | Het reviewmemorandum als document (Markdown, Word en PDF) |
 | `auditfile/capability.py` | Wat het bestand toelaat en met welk bewijsniveau |
@@ -252,7 +263,8 @@ De repository is publiek. Er staat geen klantdata in en die mag er ook niet in
 komen, ook niet als voorbeeld. Eigen invoer (aangiftebedragen, grondslagen, de
 koppeling van btw-codes aan rubrieken, het aftrekbare aandeel per code, de
 beoordeling per bevinding, de dossiergegevens bij de drempeltoets excessief
-lenen en de daar handmatig toegevoegde rekeningen) wordt bewaard in
+lenen, de daar handmatig toegevoegde rekeningen en de vastgelegde lease- en
+huurcontracten) wordt bewaard in
 `.local-testdata/`, dat door Git wordt genegeerd.
 `tests/test_runtime_data_not_tracked.py` bewaakt die scheiding.
 
