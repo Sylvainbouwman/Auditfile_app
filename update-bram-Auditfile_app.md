@@ -1,8 +1,10 @@
 # Update voor Bram — Auditfile Analyzer
 
-Eerste opleverdocument voor deze tool. Dekt de periode 17 juli 2026 tot en met
-11 september 2026 (er is tussen 14 juli en 25 augustus niet aan de tool
-gewerkt).
+Eerste opleverdocument voor deze tool, op 14 september 2026. Dekt de periode
+17 juli 2026 tot en met 11 september 2026 (er is tussen 14 juli en
+25 augustus niet aan de tool gewerkt). **Bijgewerkt op 16 september 2026** met
+de twee punten die toen nog open stonden: die zijn gebouwd, getest en
+gemerged in `main`.
 
 ## Doel en waarde
 
@@ -11,7 +13,8 @@ belastingadvies. Laadt twee XAF-auditfiles (vorig jaar en huidig jaar),
 vergelijkt ze en voert fiscale controles uit: btw-rondrekening, suppletie,
 periodieke en analytische controles, jaar-op-jaar vergelijking, ratio-analyse,
 de drempeltoets excessief lenen en een Excel-export. Alles komt samen in een
-automatisch gegenereerd reviewmemorandum, als Word-document en als Markdown.
+automatisch gegenereerd reviewmemorandum, als Word-document, als PDF en als
+Markdown.
 
 Waarde voor het kantoor: de handmatige Excel-analyse bij een samenstelopdracht
 (exporteren, vergelijken met vorig jaar, de checklist doorlopen) wordt
@@ -21,6 +24,40 @@ reviewmemorandum. De tool draait lokaal; een auditfile verlaat de computer van
 de gebruiker niet.
 
 ## Wijzigingen deze ronde
+
+### Nieuw sinds 14 september 2026
+
+Op 9 september 2026 had Sylvain twee uitbreidingen goedgekeurd die toen nog
+niet gebouwd waren (zie "Open vragen" hieronder in de vorige versie van dit
+document). Beide zijn nu gereed, gebouwd op 15 september 2026 en gemerged in
+`main` op 16 september 2026.
+
+- **Handmatige rekeningselectie bij excessief lenen.** De drempeltoets
+  selecteert rekening-courant- en leningrekeningen op vaste RGS-codes voor
+  aandeelhouders en bestuurders; een rekening die de dga bijvoorbeeld als
+  "rekening-courant overigen" heeft gecodeerd, viel daardoor buiten de toets.
+  De tool meldde dat al, maar corrigeerde het niet. Op de pagina Fiscale
+  signalen kan de gebruiker zo'n rekening nu zelf aan de toets toevoegen; de
+  tabel met geselecteerde rekeningen laat er per rekening bij zien of zij
+  automatisch (op RGS-code of omschrijving) of handmatig is gevonden, en een
+  handmatig toegevoegde rekening is ook weer te verwijderen
+  (`auditfile/excessief_lenen.py`, functie `build_rc_rekeningen()`). De keuze
+  verandert de RGS-selectie zelf niet en geldt alleen voor dat ene dossier; zij
+  werkt door in de bevindingen, het reviewmemorandum en de Excel-export, zodat
+  die drie dezelfde selectie tonen als de pagina zelf.
+- **PDF-export van het reviewmemorandum.** Naast Word en Markdown staat er nu
+  een derde downloadknop voor PDF, gegenereerd met `reportlab` op dezelfde
+  opgebouwde `Memorandum` en dus met dezelfde formulering als de andere twee
+  vormen (`auditfile/memorandum.py`, functie `naar_pdf()`). Lokaal
+  gegenereerd, zonder externe dienst. Bij het bouwen kwam aan het licht dat het
+  gekozen lettertype (Helvetica) het eurosymbool wel correct tekent, maar geen
+  koppeling meelevert waarmee een PDF-lezer het teken bij kopiëren of
+  doorzoeken herkent; nagemeten met vier verschillende PDF-programma's, telkens
+  hetzelfde resultaat. Het bedrag zelf blijft daardoor onaangetast, alleen het
+  euroteken zou bij kopiëren wegvallen; de tool schrijft het teken in de PDF
+  daarom voluit als "EUR" zodat een bedrag ook na kopiëren of zoeken klopt.
+
+### 17 juli 2026 tot en met 11 september 2026
 
 In deze periode is de tool feitelijk opnieuw opgebouwd: van een los Streamlit-
 script naar een pakket `auditfile/` met een testsuite van 393 tests. Op
@@ -123,12 +160,15 @@ Wet IB 2001 daar niets over zegt.
 
 ```
 "C:\Python314\python.exe" -m pytest tests/
-418 passed in 44.11 s
+431 passed in 48.44 s
 ```
 
-Alle tests groen, gedraaid op 14 september 2026. De tests bouwen hun eigen
-synthetische auditfiles op in het geheugen (`auditfile/demo.py`); er wordt
-nooit klantdata gelezen, ook niet tijdens het testen.
+Alle tests groen, gedraaid op 16 september 2026 (418 op 14 september 2026; de
+13 nieuwe tests horen bij de twee punten hierboven, waaronder een test die
+bevestigt dat het eurosymbool in de PDF-tekst als "EUR" terugkomt en niet als
+een onleesbaar teken). De tests bouwen hun eigen synthetische auditfiles op in
+het geheugen (`auditfile/demo.py`); er wordt nooit klantdata gelezen, ook niet
+tijdens het testen.
 
 ## Testberekeningen
 
@@ -153,25 +193,19 @@ aangiftebedrag als vergelijkingsbasis.
 
 ## Open vragen
 
-Uit `ROADMAP.md`, besluiten van Sylvain op 9 september 2026, nog niet gebouwd:
+De twee punten die in de vorige versie van dit document hier stonden
+(handmatige rekeningselectie bij excessief lenen en PDF-export van het
+reviewmemorandum) zijn gebouwd; zie "Nieuw sinds 14 september 2026" hierboven.
+Uit `ROADMAP.md` staat nog open:
 
-1. **Handmatige rekeningselectie bij excessief lenen.** Een rekening-courant
-   die niet op de gebruikelijke RGS-codes staat (bijvoorbeeld gecodeerd als
-   "overigen") valt nu buiten de automatische selectie; de tool meldt dat wel,
-   maar corrigeert het niet. Goedgekeurd: de gebruiker mag zo'n rekening
-   handmatig toevoegen, met zichtbaar onderscheid tussen automatisch en
-   handmatig geselecteerd. Verandert de fiscale reikwijdte van de toets niet.
-2. **PDF-export van het reviewmemorandum.** Goedgekeurd, naast de bestaande
-   Word- en Markdown-uitvoer, op dezelfde opgebouwde `Memorandum` en lokaal
-   gegenereerd zonder externe dienst.
-3. **XSD-validatie en versie-echte fixtures.** Het gegenereerde 3.2-testbestand
+1. **XSD-validatie en versie-echte fixtures.** Het gegenereerde 3.2-testbestand
    valideert sinds 2 september 2026 tegen het schema, met de hand gecontroleerd
    en niet in een test vastgelegd, omdat het officiële schema niet in de
    repository staat en `auditfile.nl` niet meer bereikbaar is. Te beslissen: de
    XSD en het officiële testbestand van de Belastingdienst
    (`XAF_4_0_Test_100425.XAF`) alsnog opnemen, met een uitzondering in
    `.gitignore`.
-4. **Vergelijking tegen het bronmodel.** Voor tools die op een bestaand
+2. **Vergelijking tegen het bronmodel.** Voor tools die op een bestaand
    Wolters Kluwer-model zijn gebouwd geldt een verschillenbewijs; voor deze
    tool is dat niet aan de orde omdat zij uit de wet is opgebouwd en niet op
    een extern model is gebaseerd.
