@@ -17,8 +17,11 @@ Bevindingen onder de drempel worden gemarkeerd en niet weggelaten, en een
 bevinding zonder bedrag valt nooit onder de drempel. Per bevinding is een
 beoordeling en een notitie vast te leggen; die hangen aan de bevinding en niet
 aan haar plaats in de lijst, dus ze staan er bij een volgende analyse van
-hetzelfde dossier weer bij. Dit is de lijst waaruit het reviewmemorandum wordt
-opgebouwd.
+hetzelfde dossier weer bij. Meerdere bevindingen tegelijk beoordelen kan ook:
+vink de gewenste rijen aan, kies één beoordeling en eventueel één notitie, en
+pas die met een knop op alle aangevinkte rijen toe. Dat legt nog niets vast op
+schijf; dat blijft de knop "Beoordeling vastleggen" doen, net als bij een losse
+wijziging. Dit is de lijst waaruit het reviewmemorandum wordt opgebouwd.
 
 **Memorandum.** Dezelfde bevindingen als een stuk om te lezen. De kop noemt de
 onderneming, het boekjaar en beide bestanden met hun XAF-versie; daarna staan de

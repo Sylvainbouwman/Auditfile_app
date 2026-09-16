@@ -17,6 +17,35 @@ implementatie.
 Deze besluiten beantwoorden de keuze over handmatige rekeningselectie bij punt 5
 en de gewenste uitvoervorm bij punt 8 hieronder.
 
+## Wat de assistenten nog "super bruikbaar" zou maken — 16 september 2026
+
+Sylvain wil de tool verder brengen dan losse controles: een lijst met
+kandidaat-features, geprioriteerd op wat in de praktijk het meeste tijd
+bespaart. Op volgorde van bouwen (eenvoudigste eerst):
+
+1. **Bulkbeoordeling van bevindingen (gereed).** Op de pagina Bevindingen kan
+   de gebruiker meerdere rijen aanvinken en in één keer een beoordeling en een
+   notitie toepassen, in plaats van rij voor rij. De losse celbewerking blijft
+   ernaast bestaan. Legt niets vast op schijf; dat blijft de knop "Beoordeling
+   vastleggen" doen.
+2. **Contractregister voor lease en huur.** Bedrag, looptijd en escalatie per
+   dossier vastleggen, zodat de tool niet alleen signaleert dát er kosten zijn
+   maar ook kan helpen beoordelen of en hoe een verplichting in de toelichting
+   van de jaarrekening moet.
+3. **Vorig-jaar-beoordeling automatisch tonen.** Komt een bevinding dit jaar
+   terug (zelfde categorie, onderwerp en rekening) en was zij vorig jaar al
+   beoordeeld, toon die beoordeling er dan meteen bij als referentie.
+4. **Aangifte inlezen.** Een PDF of export van de ingediende btw-aangifte
+   automatisch laten inlezen in plaats van elke rubriek met de hand in te
+   vullen. Grootste tijdwinst, maar vraagt eerst een keuze: welk
+   aangifteprogramma of -formaat moet de tool herkennen.
+
+Kleinere ideeën die zijn genoemd maar niet in deze volgorde zijn opgenomen:
+meerjarenvergelijking (3–5 boekjaren in plaats van 2), instelbare vuistregels
+per kantoor (het personeelsbedrag, de materialiteitsdrempel), een korte
+samenvatting in gewone taal boven het memorandum, en een koppeling met
+KVK-nummer of SBI-code voor duiding van signalen.
+
 Bij hercontrole van punt 4 blijkt een deel van de genoemde ontbrekende tests al
 aanwezig: `tests/test_openstaand.py` controleert een ontbrekende vervaldatum,
 ontbrekende datums en een ambigue rekeningkoppeling. Dit is geen bewijs dat alle
