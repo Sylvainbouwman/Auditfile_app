@@ -51,6 +51,7 @@ rekenlogica dus nooit in `app.py`.
 | `vat_rubrics.py` | Rubrieken van de aangifte omzetbelasting |
 | `vat.py` | Btw-analyse, rubriekvoorstel, rondrekening, signalen |
 | `suppletie.py` | Geboekte suppleties en hun aansluiting op het verschil met de aangifte |
+| `aangifte.py` | De ingediende aangifte of suppletie omzetbelasting inlezen uit een XBRL-bestand |
 | `controls.py` | Periodieke, analytische en fiscale controles |
 | `comparison.py` | Jaar-op-jaar vergelijking |
 | `ratios.py` | Ratio-analyse: brutomarge, personeelsquote, solvabiliteit, liquiditeit |
@@ -172,6 +173,29 @@ rekenlogica dus nooit in `app.py`.
   een suppletie met een tijdvak van een ander jaar verklaart het verschil van
   dit boekjaar niet; die telt apart. Een boeking zonder jaartal telt wel mee,
   want zo wordt een suppletie over het eigen jaar gewoonlijk omschreven.
+
+- **De aangifte koppelt op de elementnaam, niet op het rubrieknummer** —
+  `aangifte.py` leest het XBRL-bericht waarmee de btw-aangifte naar de
+  Belastingdienst gaat. Het rubrieknummer op het formulier is presentatie en
+  is eerder gewijzigd; de elementnaam in de taxonomie is de vaste identiteit
+  van het gegeven. Bij 3a en 3b is dat het scherpst: welke van de twee
+  "binnen de EU" is, volgt uit `WithinTheEC` in de naam en niet uit het
+  nummer. Dezelfde redenering als bij `Bevinding.identiteitssleutel`. De
+  koppeling is overgenomen uit de taxonomie zelf, met het label en het
+  paragraafnummer van de officiële definitie erbij; de tabel staat in
+  `docs/btw-bronnen.md` en hoort daar te worden bijgewerkt.
+
+  Drie afbakeningen horen erbij. De namespace wordt gestript en er wordt op
+  de lokale elementnaam gewerkt, net als bij XAF: de taxonomie krijgt
+  jaarlijks een nieuwe versie terwijl de rubriekelementen al over meerdere
+  versies ongewijzigd zijn, dus een versiecontrole zou alleen een bestand
+  weigeren dat prima te lezen is. Een aangifte en een suppletie worden nooit
+  bij elkaar opgeteld, want een suppletie geeft de gecorrigeerde stand van
+  een tijdvak waarover al aangifte is gedaan en gebruikt daarvoor dezelfde
+  rubriekelementen; optellen telt dat tijdvak dubbel. En het ingelezen
+  bedrag is een voorstel dat de invoervelden vult, niet een vastlegging:
+  alleen een handeling van de gebruiker schrijft het weg, zoals overal in
+  deze app.
 
 - **Een rubriek gebruiken waarvoor zij bedoeld is** — dat `BVor` te ruim is
   voor *debiteuren* betekent niet dat de rubriek onbruikbaar is. Voor de

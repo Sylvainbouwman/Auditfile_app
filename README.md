@@ -99,6 +99,19 @@ ingevuld en is iets anders dan een aangifte van nul. Verder is er een
 rondrekening over de btw-grootboekrekeningen en een reeks signalen op
 regelniveau.
 
+Die bedragen hoeven niet te worden overgetypt. De btw-aangifte gaat elektronisch
+als XBRL-bestand naar de Belastingdienst, en pakketten als AFAS Profit en Exact
+Online kunnen dat bestand exporteren. Laad alle tijdvakken van het boekjaar
+tegelijk: de tool telt ze op en meldt het wanneer er een tijdvak ontbreekt,
+dubbel zit, buiten het boekjaar valt of bij een ander btw-nummer hoort dan dat
+van het auditfile. Ook een suppletie kan worden ingelezen; die wordt apart
+geteld, want zij geeft de gecorrigeerde stand van een tijdvak waarover al
+aangifte is gedaan. De ingelezen bedragen vullen het formulier als voorstel en
+worden pas bewaard wanneer u ze zelf vastlegt, zodat een bestand nooit
+stilzwijgend overschrijft wat er al stond. Welk veld uit de aangifte bij welke
+rubriek hoort, staat met de officiële definitie erbij in
+`docs/btw-bronnen.md`.
+
 **Suppletie.** Naast de rondrekening staat de vraag die daarop volgt: is er voor
 het verschil met de aangifte al een suppletie geboekt? De tool zoekt op de
 btw-rekeningen naar boekingen die zichzelf een suppletie, naheffing,
@@ -242,6 +255,7 @@ opgebouwd; er wordt nooit klantdata gelezen.
 | `auditfile/vat.py` | Btw-analyse en rondrekening |
 | `auditfile/vat_rubrics.py` | Rubrieken van de aangifte omzetbelasting |
 | `auditfile/suppletie.py` | Geboekte suppleties en hun aansluiting op het verschil |
+| `auditfile/aangifte.py` | De aangifte of suppletie inlezen uit een XBRL-bestand |
 | `auditfile/controls.py` | Analytische en fiscale controles |
 | `auditfile/comparison.py` | Jaar-op-jaar vergelijking |
 | `auditfile/ratios.py` | Brutomarge, personeelsquote, solvabiliteit en liquiditeit |

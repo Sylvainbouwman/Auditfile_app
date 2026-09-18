@@ -57,10 +57,33 @@ bespaart. Op volgorde van bouwen (eenvoudigste eerst):
    terug op het onderwerp zelf. `voeg_vorig_jaar_toe()` koppelt op die sleutel
    aan `DossierOpslag.voor(vorig.dossier_sleutel)`, het dossier dat de
    gebruiker toch al als "Auditfile vorig jaar" laadt.
-4. **Aangifte inlezen.** Een PDF of export van de ingediende btw-aangifte
-   automatisch laten inlezen in plaats van elke rubriek met de hand in te
-   vullen. Grootste tijdwinst, maar vraagt eerst een keuze: welk
-   aangifteprogramma of -formaat moet de tool herkennen.
+4. **Aangifte inlezen.** Gereed. De keuze die hier openstond, welk formaat de
+   tool moet herkennen, is beantwoord met onderzoek: de btw-aangifte gaat sinds
+   2014 verplicht als XBRL-bericht via Digipoort, en zowel AFAS Profit als Exact
+   Online kan dat bestand exporteren. Er was dus geen keuze tussen pakketten
+   nodig, want ze leveren alle hetzelfde gestandaardiseerde bestand; een PDF
+   inlezen is daarmee van de baan.
+
+   `auditfile/aangifte.py` leest zo'n bericht, en de nieuwe inlezer op de
+   btw-pagina vult daarmee de invoervelden. Vier keuzes daarin zijn dragend.
+   De koppeling gaat op de elementnaam uit de taxonomie en niet op het
+   rubrieknummer, want dat nummer is presentatie en is eerder gewijzigd; bij
+   3a en 3b is dat het scherpst, waar `WithinTheEC` in de naam zegt wat het
+   nummer niet zegt. De mapping is overgenomen uit de taxonomie zelf, met het
+   Nederlandse label en het paragraafnummer van de officiële definitie erbij,
+   en staat in `docs/btw-bronnen.md`. Omdat één bericht één tijdvak beslaat en
+   het boekjaar er meestal meer vraagt, kunnen alle tijdvakken tegelijk worden
+   geladen; de tool telt op en meldt een gat, een overlap, een tijdvak buiten
+   het boekjaar en een afwijkend btw-nummer. Een suppletie wordt apart geteld,
+   want zij geeft de gecorrigeerde stand van een tijdvak waarover al aangifte
+   is gedaan en gebruikt dezelfde rubriekelementen. En het ingelezen bedrag is
+   een voorstel dat pas op een handeling van de gebruiker wordt vastgelegd.
+
+   Wat rest: dit is gebouwd op de officiële taxonomie en getest met een
+   synthetisch bericht uit `demo.py`, niet met een echte export uit Profit of
+   Exact. Die toets staat nog open. De parser is er wel op ingericht: hij
+   negeert de namespace en dus de taxonomieversie, en meldt elk veld dat hij
+   niet herkent bij naam in plaats van het stil over te slaan.
 
 Kleinere ideeën die zijn genoemd maar niet in deze volgorde zijn opgenomen:
 meerjarenvergelijking (3–5 boekjaren in plaats van 2), instelbare vuistregels

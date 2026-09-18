@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from auditfile import controls, openstaand, relatiesaldi, suppletie, vat
+from auditfile import aangifte, controls, openstaand, relatiesaldi, suppletie, vat
 from auditfile.demo import demopaar
 from auditfile.capability import (
     NIVEAU_GEEN,
@@ -1084,6 +1084,100 @@ def toon_oude_invoer(opslag: DossierOpslag, huidig: Auditfile) -> None:
             st.rerun()
 
 
+def aangifte_versie() -> int:
+    """Teller die de invoervelden ververst zodra er een aangifte is ingelezen."""
+    return int(st.session_state.get("aangifte_versie", 0))
+
+
+def toon_aangifte_inlezen(huidig: Auditfile) -> dict[str, dict[str, float]]:
+    """Lees een of meer XBRL-aangiften in en bied de bedragen aan als voorstel.
+
+    Geeft terug wat er in de invoervelden moet komen te staan. Er wordt niets
+    bewaard: dat gebeurt pas wanneer de gebruiker de bedragen zelf vastlegt.
+    """
+    uploadsleutel = f"aangifte_xbrl_{huidige_opslag().sleutel}"
+    # Openklappen zodra er bestanden in zitten: elke handeling in Streamlit voert
+    # de pagina opnieuw uit, en een expander die dan dichtklapt verbergt juist
+    # het overzicht en de meldingen die na het inlezen verschijnen.
+    with st.expander(
+        "Aangifte inlezen uit een XBRL-bestand",
+        expanded=bool(st.session_state.get(uploadsleutel)),
+    ):
+        st.caption(
+            "De btw-aangifte gaat elektronisch als XBRL-bestand naar de Belastingdienst, "
+            "en pakketten als AFAS Profit en Exact Online kunnen dat bestand exporteren. "
+            "Laad hier alle tijdvakken van het boekjaar tegelijk: de tool telt ze op en "
+            "meldt het wanneer er een tijdvak ontbreekt, dubbel zit of bij een ander "
+            "btw-nummer hoort. De bedragen vullen daarna het formulier hieronder als "
+            "voorstel; vastleggen doe je zelf met de knop."
+        )
+        bestanden = st.file_uploader(
+            "Aangiften of suppleties omzetbelasting",
+            type=["xbrl", "xml"],
+            accept_multiple_files=True,
+            key=uploadsleutel,
+        )
+        if not bestanden:
+            return st.session_state.get("aangifte_voorstel", {})
+
+        stukken = [
+            aangifte.lees_aangifte(bestand.name, bestand.getvalue()) for bestand in bestanden
+        ]
+        toon_tabel(aangifte.build_overzicht(stukken))
+
+        eigen_nummer = str(huidig.company.get("taxRegIdent", "") or "")
+        aangiften = aangifte.tel_op(
+            stukken, boekjaar=huidig.boekjaar, omzetbelastingnummer=eigen_nummer
+        )
+        suppleties = aangifte.tel_op(
+            stukken,
+            boekjaar=huidig.boekjaar,
+            omzetbelastingnummer=eigen_nummer,
+            soort=aangifte.SOORT_SUPPLETIE,
+        )
+        for melding in [*aangiften.meldingen, *suppleties.meldingen]:
+            st.warning(melding)
+        for stuk in stukken:
+            for melding in stuk.meldingen:
+                st.info(f"{stuk.bestand}: {melding}")
+
+        if suppleties.aantal:
+            st.caption(
+                f"{suppleties.aantal} suppletie(s) ingelezen. Een suppletie geeft de "
+                "gecorrigeerde stand van een tijdvak waarover al aangifte is gedaan en "
+                "wordt daarom niet bij de aangiften opgeteld. Kies hieronder welke reeks "
+                "je wilt overnemen."
+            )
+        keuze = aangiften
+        if suppleties.aantal and not aangiften.aantal:
+            keuze = suppleties
+        elif suppleties.aantal and aangiften.aantal:
+            gekozen = st.radio(
+                "Welke bedragen wil je overnemen?",
+                [
+                    f"De {aangiften.aantal} aangiften",
+                    f"De {suppleties.aantal} suppleties",
+                ],
+                horizontal=True,
+                key=f"aangifte_keuze_{huidige_opslag().sleutel}",
+            )
+            keuze = suppleties if gekozen.endswith("suppleties") else aangiften
+
+        if not keuze.aantal:
+            st.warning("Er is geen bruikbare aangifte of suppletie ingelezen.")
+            return st.session_state.get("aangifte_voorstel", {})
+
+        if st.button("Bedragen overnemen in het formulier", type="primary"):
+            st.session_state["aangifte_voorstel"] = {
+                "btw": keuze.btw,
+                "grondslag": keuze.grondslag,
+            }
+            st.session_state["aangifte_versie"] = aangifte_versie() + 1
+            st.rerun()
+
+    return st.session_state.get("aangifte_voorstel", {})
+
+
 def pagina_btw(huidig: Auditfile) -> None:
     gebruik_ruw = vat.build_vat_usage(huidig)
     if gebruik_ruw.empty:
@@ -1328,6 +1422,8 @@ def pagina_btw(huidig: Auditfile) -> None:
             "bedragen worden bewaard op de computer waar de app draait en komen niet in "
             "Git terecht.",
         )
+        voorstel = toon_aangifte_inlezen(huidig)
+
         rubrieken_basis = vat.build_rubric_summary(gebruik)
         btw_per_rubriek = dict(
             zip(rubrieken_basis["rubriek"], rubrieken_basis["btw_volgens_xaf"])
@@ -1358,7 +1454,11 @@ def pagina_btw(huidig: Auditfile) -> None:
                         format="%.2f",
                         placeholder="niet ingevuld",
                         help=f"{rubriek(code).omschrijving}. {herkomst}",
-                        key=f"{soort}_{opslag.sleutel}_{code}",
+                        # Het versienummer loopt op zodra er een aangifte is
+                        # ingelezen. Zonder een nieuwe sleutel houdt Streamlit de
+                        # waarde vast die de gebruiker eerder zag, en zou het
+                        # ingelezen bedrag niet in het veld verschijnen.
+                        key=f"{soort}_{opslag.sleutel}_{aangifte_versie()}_{code}",
                     )
                     if waarde is not None:
                         ingevoerd[code] = float(waarde)
@@ -1368,8 +1468,11 @@ def pagina_btw(huidig: Auditfile) -> None:
         # van alle tabbladen uit bij elke herberekening, dus een veld dat zijn
         # eigen waarde wegschrijft doet dat ook zonder dat iemand dit tabblad
         # heeft geopend.
-        opgeslagen_aangifte = huidige_aangifte()
-        opgeslagen_grondslagen = huidige_grondslagen()
+        # Een ingelezen aangifte is een voorstel: zij vult de velden, maar pas de
+        # knop hieronder legt haar vast. Zo overschrijft een bestand nooit
+        # stilzwijgend wat er al was ingevuld.
+        opgeslagen_aangifte = {**huidige_aangifte(), **voorstel.get("btw", {})}
+        opgeslagen_grondslagen = {**huidige_grondslagen(), **voorstel.get("grondslag", {})}
         # De sleutel mag niet gelijk zijn aan de session-state-sleutel
         # "btw_aangifte": Streamlit staat niet toe dat een waarde onder de
         # sleutel van een widget zelf wordt gezet.
@@ -1400,6 +1503,10 @@ def pagina_btw(huidig: Auditfile) -> None:
                 opslag, huidig, aangifte=ingevoerd, grondslagen=ingevoerde_grondslagen
             ):
                 st.warning(f"De aangiftebedragen konden niet worden bewaard in {opslag.map}.")
+            # Het voorstel is nu vastgelegd en hoeft de velden niet opnieuw te
+            # vullen; anders zou een latere handmatige correctie er weer door
+            # worden overschreven.
+            st.session_state.pop("aangifte_voorstel", None)
             st.rerun()
 
         rubrieken = vat.build_rubric_summary(gebruik, huidige_aangifte(), huidige_grondslagen())
