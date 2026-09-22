@@ -10,6 +10,8 @@ from auditfile.demo import (
     Journal,
     Line,
     Relation,
+    SbLine,
+    Subledger,
     Transaction,
     VatCode,
     build_xaf,
@@ -18,6 +20,7 @@ from auditfile.integrity import controleer_auditfile
 from auditfile.parsing import parse_auditfile
 
 CONTROLE = "Stamgegevens zonder dubbelingen"
+SUBADMINISTRATIE_CONTROLE = "Subadministratie mutatie 1 (CS, Debiteuren)"
 
 
 def _sluitende_boeking() -> list[Journal]:
@@ -87,3 +90,46 @@ def test_zonder_dubbelingen_meldt_de_controle_in_orde():
 
     assert af.duplicaten == {}
     assert list(gevonden["ernst"]) == ["in orde"]
+
+
+def _subadministratie_bevindingen(totals_override=None):
+    """Een synthetische XAF 3.2 met één ingevulde subadministratie."""
+    spec = AuditfileSpec(
+        versie="3.2",
+        accounts=[Account("1000", "Kas", "B"), Account("8000", "Omzet", "P")],
+        journals=_sluitende_boeking(),
+        subledgers=[
+            Subledger(
+                [SbLine("MEM", "M1", "1", "100.00", "D")],
+                sbDesc="Debiteuren",
+                totals_override=totals_override,
+            )
+        ],
+    )
+    af = parse_auditfile("subadministratie.xaf", build_xaf(spec))
+    alle = controleer_auditfile(af)
+    return af, alle[alle["controle"].str.startswith(SUBADMINISTRATIE_CONTROLE)]
+
+
+def test_controletotalen_subadministratie_sluiten_aan():
+    _, gevonden = _subadministratie_bevindingen()
+
+    assert list(gevonden["ernst"]) == ["in orde", "in orde", "in orde"]
+    assert list(gevonden["aantal"].iloc[:1]) == [1]
+    assert list(gevonden["verschil"].iloc[1:]) == [0.0, 0.0]
+
+
+def test_afwijkende_controletotalen_subadministratie_geven_bevindingen():
+    _, gevonden = _subadministratie_bevindingen((9, "99.00", "7.00"))
+
+    assert list(gevonden["ernst"]) == ["waarschuwing", "kritiek", "kritiek"]
+    assert list(gevonden["aantal"].iloc[:1]) == [-8]
+    assert list(gevonden["verschil"].iloc[1:]) == [1.0, -7.0]
+    assert gevonden["bevinding"].str.contains("subadministratie volledig").all()
+
+
+def test_ontbrekende_bedragtotalen_subadministratie_zijn_niet_mogelijk():
+    _, gevonden = _subadministratie_bevindingen((1, "", ""))
+
+    assert list(gevonden["ernst"]) == ["in orde", "niet mogelijk", "niet mogelijk"]
+    assert gevonden["bevinding"].iloc[1:].str.contains("geen totaal").all()

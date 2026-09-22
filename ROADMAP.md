@@ -123,8 +123,8 @@ dagboek en nummer; subadministratietotalen hebben daar nog geen eigen toets.
   dagboek, in XAF 4.0 en in XAF 3.2 gelijkluidend. De vindplaats staat onder de
   technische aandachtspunten.
 
-Open blijft de eigen toets op de subadministratietotalen (zie hieronder onder
-de technische aandachtspunten).
+De eigen toets op de subadministratietotalen is op 22 september 2026
+toegevoegd (zie hieronder onder de technische aandachtspunten).
 
 ## Visie
 Een fiscaal-inhoudelijke auditfile-analysetool die verder gaat dan bestaande software zoals Caseware, door fiscale logica toe te voegen bovenop de XAF-data. Gebouwd voor de samenstelpraktijk en belastingadvies.
@@ -133,7 +133,7 @@ Een fiscaal-inhoudelijke auditfile-analysetool die verder gaat dan bestaande sof
 
 ## Categorie 1: BTW & fiscale controles
 
-### BTW-rondrekening (in ontwikkeling)
+### BTW-rondrekening (gereed)
 - XAF → aangifterubriek → netto BTW
 - Invoer per rubriek (1a, 1e, 2a/5b, 5b)
 - Verlegging, invoer en verwerving: verschuldigd in 2a, 4a of 4b én aftrekbaar in
@@ -326,7 +326,7 @@ bevindingen.
 
 ## Categorie 6: AI-laag
 
-### Reviewmemorandum (gereed als Markdown en Word)
+### Reviewmemorandum (gereed als Markdown, Word en PDF)
 Automatisch gegenereerd document met de bevindingen, in de vorm die hierboven
 als einddoel stond:
 
@@ -480,7 +480,7 @@ verfijning open staat.
    het pakket mét btw-code boekt, valt met de facturatie af. Dat is de prijs
    voor het uitsluiten van de creditnota's; te beslissen of een boeking in een
    memoriaaldagboek die uitsluiting mag doorbreken.
-8. **Reviewmemorandum als document.** Gereed als Markdown en Word.
+8. **Reviewmemorandum als document.** Gereed als Markdown, Word en PDF.
    `memorandum.py` bouwt de bevindingen om naar een document met kop,
    uitgangspunten, samenvatting, de aandachtspunten per ernst, een eigen sectie
    voor wat niet kon worden vastgesteld, de al beoordeelde bevindingen achteraan
@@ -595,9 +595,11 @@ verfijning open staat.
   I = Invoice, P = Payment en Z = Other (pagina's 21 en 29). De tool geeft de
   waarden nog steeds onveranderd door en leidt er niets uit af; wie er wel iets
   mee wil doen, heeft nu de omschrijving.
-- **Controletotalen van de subadministratie.** Ze worden ingelezen en naast de
-  eigen telling gezet, maar `integrity.py` toetst ze nog niet en er komt geen
-  bevinding uit.
+- **Controletotalen van de subadministratie.** **Hersteld op 22-09-2026.**
+  `integrity.py` toetst per subadministratie het aantal regels en de debet- en
+  credittotalen aan de waarden uit het bestand. Een afwijkend aantal regels is
+  een waarschuwing; afwijkende bedragen zijn kritiek. Ontbreekt een opgegeven
+  controletotaal, dan meldt de tool dat de toets niet mogelijk is.
 
 ### Gedeelde XAF-kennis met xaf-export-tool
 

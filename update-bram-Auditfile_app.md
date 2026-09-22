@@ -6,7 +6,8 @@ Eerste opleverdocument voor deze tool, op 14 september 2026. Dekt de periode
 de twee punten die toen nog open stonden: die zijn gebouwd, getest en
 gemerged in `main`. **Opnieuw bijgewerkt op 18 september 2026** met vier
 functies die zijn gebouwd naar aanleiding van de vraag wat de tool voor de
-assistenten bruikbaarder zou maken.
+assistenten bruikbaarder zou maken. **Op 22 september 2026** zijn drie
+betrouwbaarheidsverbeteringen uit de technische review verwerkt.
 
 ## Doel en waarde
 
@@ -30,6 +31,18 @@ de jaren heen een lijn houdt. De tool draait lokaal; een auditfile verlaat de
 computer van de gebruiker niet.
 
 ## Wijzigingen deze ronde
+
+### Aangescherpt op 22 september 2026
+
+- **Robuuster inlezen van de btw-aangifte.** Een bekend XBRL-veld met een
+  onleesbaar, `NaN`- of oneindig bedrag wordt nu gemeld en niet meegeteld. Ook
+  meldt de tool een ontbrekend tijdvak aan het begin of einde van het boekjaar;
+  eerder werden alleen gaten tussen twee ingelezen bestanden gezien.
+- **Controletotalen van de subadministratie.** Voor XAF 3.2 toetst de
+  integriteitscontrole nu per subadministratie het aantal regels en het debet-
+  en credittotaal aan het bestand. Een afwijkend aantal regels is een
+  waarschuwing, een afwijkend bedrag kritiek; een ontbrekend controletotaal is
+  zichtbaar als een toets die niet mogelijk is.
 
 ### Nieuw sinds 16 september 2026
 
@@ -223,12 +236,14 @@ Wet IB 2001 daar niets over zegt.
 
 ```
 "C:\Python314\python.exe" -m pytest tests/
-471 passed
+476 passed
 ```
 
-Alle tests groen. Gemeten op 18 september 2026: 451 op `main`, en 471 met de
-aangiftefunctie erbij die op dat moment nog niet was gemerged. Eerdere standen:
-431 op 16 september 2026 en 418 op 14 september 2026. De 40 tests die er deze
+Alle tests groen. Gemeten op 18 september 2026: 451 vóór het mergen van de
+aangiftefunctie en 471 daarna op `main`. Op 22 september zijn vijf gerichte
+tests aan de drie betrouwbaarheidsverbeteringen toegevoegd (476 tests in
+totaal). Eerdere standen: 431 op 16 september 2026 en 418 op 14 september
+2026. De 40 tests die er deze
 ronde bij kwamen horen bij de vier functies hierboven; 20 daarvan gaan over het
 inlezen van de aangifte, waaronder een test die vastlegt dat een bericht ook
 wordt gelezen wanneer het een nieuwere versie van de taxonomie gebruikt, en een
@@ -241,7 +256,7 @@ klantdata gelezen, ook niet tijdens het testen.
 
 ## Testberekeningen
 
-Twee representatieve gevallen, doorgerekend met de echte rekenkern op
+Representatieve gevallen, doorgerekend met de echte rekenkern op
 synthetische data.
 
 **Drempeltoets excessief lenen** (`auditfile.excessief_lenen.beoordeel`):
@@ -312,12 +327,10 @@ Uit `ROADMAP.md` staat verder nog open:
    tool is dat niet aan de orde omdat zij uit de wet is opgebouwd en niet op
    een extern model is gebaseerd.
 
-Kleinere technische restpunten uit de laatste review (zonder fiscale impact,
-zie `ROADMAP.md` voor detail): bedragen lopen nog als float door de tool in
-plaats van als `Decimal` (de transactiesleutel en de onleesbare bedragen zijn
-inmiddels wel opgelost, zie hierboven), en de controletotalen van de
-subadministratie worden wel ingelezen maar nog niet tegen een bevinding
-getoetst.
+Kleiner technisch restpunt uit de laatste review (zonder fiscale impact, zie
+`ROADMAP.md` voor detail): bedragen lopen nog als float door de tool in plaats
+van als `Decimal`. De transactiesleutel, onleesbare bedragen en
+subadministratiecontroletotalen zijn inmiddels opgelost, zie hierboven.
 
 ## Actie voor Bram
 

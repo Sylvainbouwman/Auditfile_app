@@ -152,6 +152,9 @@ def controleer_auditfile(af: Auditfile) -> pd.DataFrame:
     # --- Beginbalans ---
     bevindingen.extend(_controleer_beginbalans(af))
 
+    # --- Controletotalen van de subadministratie ---
+    bevindingen.extend(_controleer_subadministratie_totalen(af))
+
     # --- Stamgegevens ---
     bevindingen.extend(_controleer_stamgegevens(af))
 
@@ -159,6 +162,88 @@ def controleer_auditfile(af: Auditfile) -> pd.DataFrame:
     bevindingen.extend(_controleer_leesbare_bedragen(af))
 
     return pd.DataFrame(bevindingen, columns=BEVINDING_COLUMNS)
+
+
+def _controleer_subadministratie_totalen(af: Auditfile) -> list[dict]:
+    """Toets elke ingelezen subadministratie aan haar eigen controletotalen.
+
+    De subadministratie van XAF 3.2 is optioneel en heeft per ``obSubledger``
+    en ``subledger`` een afzonderlijke telling en debet- en credittotaal. De
+    parser bewaart die opgegeven waarden naast zijn eigen telling; hier wordt
+    pas bepaald of zij aansluiten. Zonder blok is er niets te toetsen, zoals
+    bij XAF 4.0 waar deze subadministratie niet bestaat.
+    """
+    totalen = af.subadministratie_totalen
+    if totalen.empty:
+        return []
+
+    bevindingen: list[dict] = []
+    for _, rij in totalen.iterrows():
+        omschrijving = str(rij["sbDesc"]).strip()
+        soort = str(rij["sbType"]).strip()
+        aanduiding = f"Subadministratie {rij['bron']} {int(rij['sb_index'])}"
+        if soort or omschrijving:
+            aanduiding += f" ({', '.join(deel for deel in (soort, omschrijving) if deel)})"
+
+        opgegeven_aantal = rij["regels_volgens_bestand"]
+        gelezen_aantal = int(rij["regels_gelezen"])
+        if pd.isna(opgegeven_aantal):
+            bevindingen.append(
+                _bevinding(
+                    NIET_MOGELIJK,
+                    f"{aanduiding}: aantal regels",
+                    "Het bestand geeft voor deze subadministratie geen linesCount op.",
+                )
+            )
+        elif int(opgegeven_aantal) == gelezen_aantal:
+            bevindingen.append(
+                _bevinding(
+                    IN_ORDE,
+                    f"{aanduiding}: aantal regels",
+                    f"{gelezen_aantal} regels, gelijk aan het bestand.",
+                    aantal=gelezen_aantal,
+                )
+            )
+        else:
+            bevindingen.append(
+                _bevinding(
+                    WAARSCHUWING,
+                    f"{aanduiding}: aantal regels",
+                    f"Het bestand meldt {int(opgegeven_aantal)} regels, gelezen zijn er "
+                    f"{gelezen_aantal}. Controleer of de subadministratie volledig is.",
+                    aantal=gelezen_aantal - int(opgegeven_aantal),
+                )
+            )
+
+        for naam, berekend_kolom, opgegeven_kolom in (
+            ("totaal debet", "totaal_debet_gelezen", "totaal_debet_volgens_bestand"),
+            ("totaal credit", "totaal_credit_gelezen", "totaal_credit_volgens_bestand"),
+        ):
+            opgegeven = rij[opgegeven_kolom]
+            controle = f"{aanduiding}: {naam}"
+            if pd.isna(opgegeven):
+                bevindingen.append(
+                    _bevinding(
+                        NIET_MOGELIJK,
+                        controle,
+                        f"Het bestand geeft voor deze subadministratie geen {naam} op.",
+                    )
+                )
+            else:
+                uitkomst = _vergelijk_totaal(
+                    controle,
+                    float(rij[berekend_kolom]),
+                    float(opgegeven),
+                    " voor deze subadministratie",
+                )
+                if uitkomst["ernst"] == KRITIEK:
+                    uitkomst["bevinding"] = (
+                        "Het berekende totaal wijkt af van het totaal dat het bestand voor deze "
+                        "subadministratie opgeeft. Controleer of de subadministratie volledig is."
+                    )
+                bevindingen.append(uitkomst)
+
+    return bevindingen
 
 
 def _controleer_transactienummers(af: Auditfile) -> list[dict]:

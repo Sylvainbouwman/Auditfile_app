@@ -171,6 +171,29 @@ def test_een_bestand_zonder_aangiftebedragen_wordt_gemeld():
     assert any("geen bedragen" in melding for melding in stuk.meldingen)
 
 
+def test_onleesbare_bekende_bedragen_worden_gemeld_en_niet_meegeteld():
+    xbrl = build_aangifte_xbrl(
+        begindatum="2025-01-01",
+        einddatum="2025-03-31",
+        grondslag={"TaxedTurnoverSuppliesServicesGeneralTariff": 100_000},
+        btw={
+            "ValueAddedTaxSuppliesServicesGeneralTariff": 21_000,
+            "ValueAddedTaxOnInput": 4_500,
+        },
+    ).replace(b">100000<", b">NaN<").replace(b">21000<", b">onleesbaar<")
+
+    stuk = lees_aangifte("onleesbaar.xbrl", xbrl)
+
+    assert stuk.btw == {"5b": 4_500.0}
+    assert stuk.grondslag == {}
+    assert any(
+        "TaxedTurnoverSuppliesServicesGeneralTariff" in melding
+        and "ValueAddedTaxSuppliesServicesGeneralTariff" in melding
+        and "niet zijn meegeteld" in melding
+        for melding in stuk.meldingen
+    )
+
+
 def test_vier_kwartalen_worden_opgeteld_tot_het_boekjaar():
     stukken = [lees_aangifte(f"Q{n}.xbrl", kwartaal(n)) for n in (1, 2, 3, 4)]
 
@@ -189,6 +212,13 @@ def test_een_ontbrekend_tijdvak_wordt_gemeld():
 
     assert totaal.aantal == 3
     assert any("gat" in melding for melding in totaal.meldingen)
+
+
+def test_een_onvolledig_boekjaar_aan_begin_en_einde_wordt_gemeld():
+    totaal = tel_op([lees_aangifte("Q2.xbrl", kwartaal(2))], boekjaar="2025")
+
+    assert any("begin van boekjaar" in melding for melding in totaal.meldingen)
+    assert any("einde van boekjaar" in melding for melding in totaal.meldingen)
 
 
 def test_overlappende_tijdvakken_worden_gemeld():
@@ -233,7 +263,7 @@ def test_het_nummer_vergelijkt_zonder_spaties_en_hoofdletterverschil():
 
     totaal = tel_op(stukken, boekjaar="2025", omzetbelastingnummer=DEMO_OMZETBELASTINGNUMMER)
 
-    assert totaal.meldingen == ()
+    assert not any("wijkt af" in melding for melding in totaal.meldingen)
 
 
 def test_een_suppletie_wordt_niet_bij_de_aangiften_opgeteld():

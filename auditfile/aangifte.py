@@ -47,6 +47,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from math import isfinite
 import xml.etree.ElementTree as ET
 
 import pandas as pd
@@ -214,9 +215,10 @@ def _tekst_naar_bedrag(tekst: str) -> float | None:
     if not schoon:
         return None
     try:
-        return float(schoon)
+        bedrag = float(schoon)
     except ValueError:
         return None
+    return bedrag if isfinite(bedrag) else None
 
 
 def _tekst_naar_datum(tekst: str) -> date | None:
@@ -300,6 +302,7 @@ def lees_aangifte(bestand: str, inhoud: bytes | str) -> Aangifte:
     grondslag: dict[str, float] = {}
     totalen: dict[str, float] = {}
     niet_herkend: list[str] = []
+    onleesbare_bedragen: list[str] = []
     gezien: set[str] = set()
     omzetbelastingnummer = ""
     perioden: set[tuple[date | None, date | None]] = set()
@@ -327,8 +330,13 @@ def lees_aangifte(bestand: str, inhoud: bytes | str) -> Aangifte:
         if naam in GENEGEERDE_ELEMENTEN:
             continue
 
+        bekend_bedrag = (
+            naam in BTW_ELEMENTEN or naam in GRONDSLAG_ELEMENTEN or naam in TOTAAL_ELEMENTEN
+        )
         bedrag = _tekst_naar_bedrag(element.text or "")
         if bedrag is None:
+            if bekend_bedrag:
+                onleesbare_bedragen.append(naam)
             continue
         if naam in BTW_ELEMENTEN:
             btw[BTW_ELEMENTEN[naam]] = btw.get(BTW_ELEMENTEN[naam], 0.0) + bedrag
@@ -352,6 +360,12 @@ def lees_aangifte(bestand: str, inhoud: bytes | str) -> Aangifte:
         meldingen.append(
             "Niet herkende velden, die dus niet zijn meegeteld: "
             + ", ".join(sorted(set(niet_herkend)))
+            + "."
+        )
+    if onleesbare_bedragen:
+        meldingen.append(
+            "Onleesbare bedragen, die dus niet zijn meegeteld: "
+            + ", ".join(sorted(set(onleesbare_bedragen)))
             + "."
         )
     if not btw and not grondslag and not totalen:
@@ -434,6 +448,8 @@ def _tijdvakmeldingen(
 
     if boekjaar.isdigit():
         jaar = int(boekjaar)
+        begin_boekjaar = date(jaar, 1, 1)
+        eind_boekjaar = date(jaar, 12, 31)
         buiten = sorted(
             {
                 stuk.bestand
@@ -445,6 +461,28 @@ def _tijdvakmeldingen(
             meldingen.append(
                 f"Tijdvak buiten boekjaar {boekjaar}, wel meegeteld: {', '.join(buiten)}."
             )
+
+        tijdvakken_boekjaar = sorted(
+            (max(stuk.begindatum, begin_boekjaar), min(stuk.einddatum, eind_boekjaar))
+            for stuk in aangiften
+            if stuk.begindatum
+            and stuk.einddatum
+            and stuk.einddatum >= begin_boekjaar
+            and stuk.begindatum <= eind_boekjaar
+        )
+        if tijdvakken_boekjaar:
+            eerste_begin = tijdvakken_boekjaar[0][0]
+            laatste_eind = tijdvakken_boekjaar[-1][1]
+            if eerste_begin > begin_boekjaar:
+                meldingen.append(
+                    f"Tussen het begin van boekjaar {boekjaar} ({begin_boekjaar.isoformat()}) "
+                    f"en {eerste_begin.isoformat()} zit een gat: er ontbreekt een tijdvak."
+                )
+            if laatste_eind < eind_boekjaar:
+                meldingen.append(
+                    f"Tussen {laatste_eind.isoformat()} en het einde van boekjaar {boekjaar} "
+                    f"({eind_boekjaar.isoformat()}) zit een gat: er ontbreekt een tijdvak."
+                )
 
     tijdvakken = sorted(
         (stuk.begindatum, stuk.einddatum, stuk.bestand)
