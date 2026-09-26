@@ -191,19 +191,33 @@ def _uit_facturatie(lines: pd.DataFrame) -> pd.Series:
     return sleutel.isin(set(sleutel[heeft_code]))
 
 
+def _is_memoriaal(lines: pd.DataFrame) -> pd.Series:
+    """Regels uit een memoriaaldagboek: ``jrnTp`` M, of een dagboek dat zo heet.
+
+    ``jrnTp`` is optioneel in XAF; de omschrijving vangt een bestand op dat het
+    veld leeg laat. Dezelfde herkenning als in ``controls.py``.
+    """
+    return lines["tx_jrn_jrnTp"].astype(str).str.upper().eq("M") | lines[
+        "tx_jrn_desc"
+    ].astype(str).str.contains("memoriaal", case=False, na=False)
+
+
 def detecteer_suppleties(af: Auditfile) -> pd.DataFrame:
     """Boekingen op een btw-rekening die zichzelf een suppletie noemen.
 
     Er wordt gezocht in de omschrijving van de transactie, van de boekingsregel,
     van het dagboek en in de documentreferentie: pakketten zetten de aanduiding
     op wisselende plekken en één daarvan is genoeg. Boekingen uit de facturatie
-    vallen af.
+    vallen af, tenzij ze in het memoriaal staan met een trefwoord van hoge
+    zekerheid.
     """
     rekeningen, _ = btw_balansrekeningen(af)
     if not rekeningen or af.lines.empty:
         return pd.DataFrame(columns=SUPPLETIE_COLUMNS)
 
-    lines = af.lines[af.lines["line_accID"].isin(rekeningen) & ~_uit_facturatie(af.lines)].copy()
+    op_rekening = af.lines["line_accID"].isin(rekeningen)
+    lines = af.lines[op_rekening].copy()
+    lines["_facturatie"] = _uit_facturatie(af.lines)[op_rekening]
     if lines.empty:
         return pd.DataFrame(columns=SUPPLETIE_COLUMNS)
 
@@ -217,7 +231,13 @@ def detecteer_suppleties(af: Auditfile) -> pd.DataFrame:
     lines["zekerheid"] = [zekerheid for _, zekerheid in treffers]
     lines["tijdvak"] = [_tijdvak(waarde)[0] for waarde in tekst]
     lines["jaar"] = [_tijdvak(waarde)[1] for waarde in tekst]
-    lines = lines[lines["trefwoord"] != ""].copy()
+    # Een boeking met btw-code valt als facturatie af, behalve in het
+    # memoriaal met een trefwoord van hoge zekerheid: sommige pakketten boeken
+    # een suppletie mét btw-code, en die zou anders onzichtbaar blijven. De
+    # "btw-correctie" doorbreekt de uitsluiting niet, want een creditnota die in
+    # het memoriaal wordt gecorrigeerd heet precies zo. Besloten op 27-09-2026.
+    doorbreekt = _is_memoriaal(lines) & (lines["zekerheid"] == HOOG)
+    lines = lines[(lines["trefwoord"] != "") & (~lines["_facturatie"] | doorbreekt)].copy()
     if lines.empty:
         return pd.DataFrame(columns=SUPPLETIE_COLUMNS)
 

@@ -169,7 +169,11 @@ rekenlogica dus nooit in `app.py`.
   dat er is gesuppleerd of nog moet worden gesuppleerd. Twee afbakeningen
   horen daarbij en mogen niet vervallen. Boekingen uit de facturatie vallen
   af, dezelfde afzondering die de rondrekening maakt, anders vangt het woord
-  "correctie" de tegenboeking van elke creditnota op de btw-rekening op. En
+  "correctie" de tegenboeking van elke creditnota op de btw-rekening op.
+  Alleen een boeking in het memoriaal met een trefwoord van hoge zekerheid
+  (suppletie, naheffing, aanvullende aangifte) doorbreekt die uitsluiting,
+  want sommige pakketten boeken de suppletie mét btw-code; een
+  "btw-correctie" doet dat nooit. En
   een suppletie met een tijdvak van een ander jaar verklaart het verschil van
   dit boekjaar niet; die telt apart. Een boeking zonder jaartal telt wel mee,
   want zo wordt een suppletie over het eigen jaar gewoonlijk omschreven.
