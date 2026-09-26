@@ -39,6 +39,9 @@ Desktop.ini
 
 # Accountancy databestanden
 *.XAF
+# Uitzondering: het officiële, fictieve testbestand van de Belastingdienst (CC0),
+# bij naam en niet per map, zodat een ander XAF-bestand in docs/ genegeerd blijft.
+!docs/xaf-schema/XAF_4_0_Test_100425.XAF
 *.xls
 *.xml
 *.pdf
