@@ -426,13 +426,19 @@ verfijning open staat.
    2026 tegen de XSD; daarvoor deed het dat niet, omdat de elementvolgorde in
    `company` afweek, `opBalDate` ontbrak en `docRef` op `trLine` leeg bleef
    terwijl 3.2 dat veld verplicht stelt. Die validatie is eenmalig met de hand
-   gedaan en staat niet in de tests: de XSD zit niet in de repository en het
-   domein `auditfile.nl` is niet meer bereikbaar. **Te beslissen**: de XSD (en
-   het officiële testbestand) in de repository opnemen en er een test op zetten. Neem ook
-   het officiële testbestand van de Belastingdienst
-   (`XAF_4_0_Test_100425.XAF` uit het productoverzicht 4.0.3) op als
-   conformance-bestand; dat is synthetisch en openbaar, maar vraagt een
-   uitzondering in `.gitignore` omdat `*.XAF` wordt genegeerd.
+   gedaan: de XSD van 3.2 zit niet in de repository en het domein
+   `auditfile.nl` is niet meer bereikbaar.
+
+   **XAF 4.0 wel in de tests, sinds 26-09-2026.** Besluit van Sylvain: de XSD
+   van 4.0 en het officiële testbestand `XAF_4_0_Test_100425.XAF` staan in
+   `docs/xaf-schema/`, ongewijzigd uit het ODB-pakket 4.0.3 (CC0), met herkomst
+   en sha256 in `docs/xaf-velden.md`. `tests/test_xsd.py` valideert het
+   testbestand en de 4.0-bestanden uit `demo.py`. Die test vond meteen twee
+   afwijkingen in de demo, beide hersteld: de velden van `company` stonden in
+   de verkeerde volgorde, en `docRef` bleef in 4.0 leeg omdat de code het daar
+   optioneel noemde, terwijl het schema en de functionele specificatie (FunHie
+   p. 10, "Document Reference R") het verplicht stellen. **Wat rest**: een
+   3.2-schema uit een betrouwbare bron.
 5. **Drempeltoets excessief lenen.** Gereed. `excessief_lenen.py` bepaalt de
    peildatum uit de einddatum van het boekjaar, haalt het maximumbedrag uit
    `MAXIMUMBEDRAGEN` (met `docs/btw-bronnen.md` als vindplaats), selecteert de
@@ -547,8 +553,9 @@ verfijning open staat.
   berekeningen blijven behouden, zodat bestaande beoordelingen geldig blijven.
 - **Bedragen als float.** De toleranties maken dat werkbaar, maar voor exact
   reproduceerbare centencontroles zijn `Decimal` of hele centen robuuster.
-- **Geen XSD-validatie.** De parser leest wat er is en wijst een bestand niet
-  af. Een validatie tegen het schema zou een kapot bestand hard afwijzen in
+- **Geen XSD-validatie van het ingelezen bestand.** De parser leest wat er is
+  en wijst een bestand niet af. (De eigen fixtures worden sinds 26-09-2026 wel
+  tegen het 4.0-schema gevalideerd, zie punt 4 hierboven.) Een validatie tegen het schema zou een kapot bestand hard afwijzen in
   plaats van half in te lezen. **Niet meer stil sinds 11-09-2026**: een bedrag dat
   wel is ingevuld maar geen getal is, wordt geteld en met vindplaats gemeld in
   de bevinding "Bedragen leesbaar".

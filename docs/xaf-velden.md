@@ -23,6 +23,28 @@ Vanaf **1 januari 2027** accepteert de Belastingdienst uitsluitend XAF 4.0 voor
 aanlevering. Voor analyse blijft 3.2 relevant: die versie is rijker, en
 historische dossiers blijven bestaan.
 
+### Schema en testbestand
+
+In `docs/xaf-schema/` staan twee ongewijzigde bestanden uit het pakket
+`XMLAuditfile-Financieel-XAF-v-4.0.3.zip` (1.127.379 bytes, sha256
+`49ba39862d10277130b170002933bfdfe804b33c145a5b4f975341c7578c9f1c`), op
+26-09-2026 opnieuw gedownload van de ODB-pagina hierboven. De teksten en
+producten op die site vallen onder CC0 (<https://odb.belastingdienst.nl/copyright/>).
+
+| Bestand | sha256 |
+|---|---|
+| `XmlAuditfileFinancieel4.0.xsd` | `a6f35d4639deb3c4a4dc1b060cbf946558c8d3291a84ff6a75de2a0f6590dd82` |
+| `XAF_4_0_Test_100425.XAF` | `e2feffd3f10c6209e8285d5a0cb3d0af73143857e8b61dbe62548c4a604cec11` |
+
+Het testbestand is fictief: bedrijf "Company", plaatsnaam "Plaats", en twee
+IBAN-vormige nummers waarvan het controlegetal niet klopt. `tests/test_xsd.py`
+valideert dit bestand en de 4.0-bestanden uit `demo.py` tegen het schema.
+
+Voor XAF 3.2 staat er geen schema in de repository. Het oorspronkelijke adres
+geeft geen antwoord meer en de enige gevonden kopie staat in de repository van
+een derde; dat is te zwak als bewijs. De 3.2-fixtures zijn op 2 september 2026
+eenmalig met de hand gevalideerd.
+
 ## Datums, en waarom ze door elkaar worden gehaald
 
 | Tag | 3.2 | 4.0 |

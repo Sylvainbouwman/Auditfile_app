@@ -23,6 +23,22 @@
       "gecontroleerd": "2026-09-17"
     }
   ],
+  "ibans": [
+    {
+      "nummer": "NL01INGB0112233444",
+      "herkomst": "openbaar voorbeeld",
+      "bron": "bankAccNr in docs/xaf-schema/XAF_4_0_Test_100425.XAF, het fictieve testbestand van de Belastingdienst uit XMLAuditfile-Financieel-XAF-v-4.0.3.zip (CC0). Controlegetal klopt niet (mod 97 = 43), dus geen bestaande rekening.",
+      "url": "https://odb.belastingdienst.nl/documentatie/xml-auditfile-financieel-xaf-4-0-3/",
+      "gecontroleerd": "2026-09-26"
+    },
+    {
+      "nummer": "NL01ABNA0443322111",
+      "herkomst": "openbaar voorbeeld",
+      "bron": "offsetBankAccNr in hetzelfde testbestand van de Belastingdienst (CC0). Controlegetal klopt niet (mod 97 = 25), dus geen bestaande rekening.",
+      "url": "https://odb.belastingdienst.nl/documentatie/xml-auditfile-financieel-xaf-4-0-3/",
+      "gecontroleerd": "2026-09-26"
+    }
+  ],
   "rekeningnummers": [
     {
       "nummer": "00000000",
