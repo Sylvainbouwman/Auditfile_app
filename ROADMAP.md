@@ -90,7 +90,15 @@ bespaart. Op volgorde van bouwen (eenvoudigste eerst):
    maandtijdvak, met btw-, grondslag- en totaalbedragen en het btw-nummer
    herkend. Twee headerelementen (`ContactTelephoneNumber`,
    `DateTimeCreation`) werden niet herkend en zijn gemeld als niet
-   meegeteld, wat het bedoelde gedrag is. Dit is niet in de geautomatiseerde
+   meegeteld, wat het bedoelde gedrag is.
+
+   **Getoetst tegen een echte suppletie op 27-09-2026.** Een tweede echt
+   bericht (`testfiles/7708DB39F0CC4D41A5E3F1E77DF89FBB.xbrl`, lokaal en niet
+   gecommit) werd herkend als suppletie en niet als aangifte, over het
+   jaartijdvak 2024, met btw-, grondslag- en totaalbedragen en het btw-nummer.
+   Niet herkend en gemeld als niet meegeteld: `DateTimeCreation` en
+   `TaxConsultantNumber`, beide kopgegevens en geen bedragen. Ook dit is niet
+   in de geautomatiseerde
    testset opgenomen, want het bestand bevat klantgegevens en mag niet in
    Git; het bewijs staat daarom hier.
 
