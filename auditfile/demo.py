@@ -785,6 +785,12 @@ def vul_rekening_courant(
     kloppen. Met ``afwijkend_gecodeerd`` komt er een tweede rekening-courant bij
     die op de omschrijving wel en op de RGS-code niet in de toets thuishoort.
 
+    ``btw_code`` zet een btw-code op de regel van de suppletierekening, zoals
+    sommige pakketten een suppletie boeken; ``dagboek`` is code, omschrijving
+    en ``jrnTp`` van het dagboek. Samen maken ze ook een creditnota mogelijk
+    die als btw-correctie in het memoriaal staat, het geval dat de detectie
+    juist niet mag meetellen.
+
     Werkt op een kopie, om dezelfde reden als ``vul_relatiesaldi()``.
     """
     kopie = deepcopy(spec)
@@ -850,6 +856,8 @@ def vul_suppletie(
     bedrag: float,
     omschrijving: str = "Suppletie omzetbelasting Q4",
     periode: int = 12,
+    btw_code: str = "",
+    dagboek: tuple[str, str, str] = ("MEM", "Memoriaal", "M"),
 ) -> AuditfileSpec:
     """Boek een btw-suppletie in de spec.
 
@@ -857,6 +865,12 @@ def vul_suppletie(
     het bestand in balans blijft. Een negatief bedrag levert een teruggaaf op.
     De omschrijving is een parameter, want juist die tekst is wat de detectie
     moet vinden: een test hoort haar zelf te kiezen.
+
+    ``btw_code`` zet een btw-code op de regel van de suppletierekening, zoals
+    sommige pakketten een suppletie boeken; ``dagboek`` is code, omschrijving
+    en ``jrnTp`` van het dagboek. Samen maken ze ook een creditnota mogelijk
+    die als btw-correctie in het memoriaal staat, het geval dat de detectie
+    juist niet mag meetellen.
 
     Werkt op een kopie, om dezelfde reden als ``vul_relatiesaldi()``.
     """
@@ -874,6 +888,7 @@ def vul_suppletie(
             omschrijving,
             effDate=datum,
             docRef="SUP001",
+            vatID=btw_code,
         ),
         Line(
             "4400",
@@ -885,11 +900,12 @@ def vul_suppletie(
         ),
     ]
     transactie = Transaction("M910", datum, periode, regels, omschrijving)
+    code, naam, soort = dagboek
     for journaal in kopie.journals:
-        if journaal.jrnID == "MEM":
+        if journaal.jrnID == code:
             journaal.transactions.append(transactie)
             return kopie
-    kopie.journals.append(Journal("MEM", "Memoriaal", [transactie]))
+    kopie.journals.append(Journal(code, naam, [transactie], jrnTp=soort))
     return kopie
 
 
@@ -1020,6 +1036,12 @@ def vul_ratioposten(spec: AuditfileSpec, met_beginbalans: bool = True) -> Auditf
     ``met_beginbalans`` uit laten staan als de beginbalans van elders komt,
     zoals bij het tweede jaar van ``demopaar()``: daar volgt de voorraad al uit
     de eindbalans van het eerste jaar.
+
+    ``btw_code`` zet een btw-code op de regel van de suppletierekening, zoals
+    sommige pakketten een suppletie boeken; ``dagboek`` is code, omschrijving
+    en ``jrnTp`` van het dagboek. Samen maken ze ook een creditnota mogelijk
+    die als btw-correctie in het memoriaal staat, het geval dat de detectie
+    juist niet mag meetellen.
 
     Werkt op een kopie, om dezelfde reden als ``vul_relatiesaldi()``.
     """

@@ -83,6 +83,37 @@ def test_correctie_zonder_btw_in_de_tekst_telt_niet_mee():
     assert sup.detecteer_suppleties(_auditfile(omschrijving="Correctie boekingsfout")).empty
 
 
+# Een verkoopdagboek met jrnTp S. Het verkoopboek van de eenvoudige spec staat
+# op de standaardwaarde M, dus daarmee is het onderscheid niet te toetsen.
+VERKOOPDAGBOEK = ("VKB", "Verkoopboek", "S")
+CREDITNOTA = "Correctie btw creditnota 2025-031"
+
+
+def test_suppletie_met_btw_code_in_het_memoriaal_telt_mee():
+    """Sommige pakketten boeken de suppletie mét btw-code; die viel eerst weg."""
+    gevonden = sup.detecteer_suppleties(_auditfile(btw_code="1"))
+    assert len(gevonden) == 1
+    assert gevonden.iloc[0]["trefwoord"] == "suppletie"
+    assert gevonden.iloc[0]["bedrag"] == pytest.approx(-SUPPLETIEBEDRAG)
+
+
+def test_suppletie_met_btw_code_buiten_het_memoriaal_valt_af():
+    af = _auditfile(btw_code="1", dagboek=VERKOOPDAGBOEK)
+    assert sup.detecteer_suppleties(af).empty
+
+
+@pytest.mark.parametrize("dagboek", [("MEM", "Memoriaal", "M"), VERKOOPDAGBOEK])
+def test_creditnota_als_btw_correctie_telt_nooit_mee(dagboek):
+    """De zwakke treffer doorbreekt de uitsluiting niet, ook niet in het memoriaal."""
+    af = _auditfile(btw_code="1", omschrijving=CREDITNOTA, dagboek=dagboek)
+    assert sup.detecteer_suppleties(af).empty
+
+
+def test_memoriaal_herkend_aan_de_omschrijving_zonder_jrntp():
+    af = _auditfile(btw_code="1", dagboek=("MMB", "Memoriaalboek", ""))
+    assert len(sup.detecteer_suppleties(af)) == 1
+
+
 @pytest.mark.parametrize(
     "omschrijving, tijdvak, jaar",
     [

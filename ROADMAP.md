@@ -485,10 +485,16 @@ verfijning open staat.
    de tegenboeking van elke creditnota op. Het tijdvak komt uit de
    omschrijving; een suppletie met het tijdvak van een ander jaar telt apart en
    niet mee in het restant. De uitkomst is een van acht statussen, met de
-   bijbehorende bevinding in het memorandum. **Wat rest**: een suppletie die
-   het pakket mét btw-code boekt, valt met de facturatie af. Dat is de prijs
-   voor het uitsluiten van de creditnota's; te beslissen of een boeking in een
-   memoriaaldagboek die uitsluiting mag doorbreken.
+   bijbehorende bevinding in het memorandum. **Suppletie met btw-code,
+   besloten op 27-09-2026**: een boeking met btw-code valt met de facturatie
+   af, behalve in een memoriaaldagboek (`jrnTp` M, of een dagboek dat zo heet)
+   met een trefwoord van hoge zekerheid (suppletie, naheffing, aanvullende
+   aangifte). Een "btw-correctie" doorbreekt de uitsluiting niet, want zo heet
+   ook een creditnota die in het memoriaal wordt gecorrigeerd; buiten het
+   memoriaal blijft een suppletie met code bewust buiten beeld. **Wat rest**:
+   de rondrekening in `vat.py` telt zo'n suppletie met code nog als
+   facturatie en niet als overige mutatie. Wat dat doet met de controleregel
+   "btw uit facturatie tegenover de btw-codes" is nog niet gemeten.
 8. **Reviewmemorandum als document.** Gereed als Markdown, Word en PDF.
    `memorandum.py` bouwt de bevindingen om naar een document met kop,
    uitgangspunten, samenvatting, de aandachtspunten per ernst, een eigen sectie
