@@ -80,10 +80,19 @@ bespaart. Op volgorde van bouwen (eenvoudigste eerst):
    een voorstel dat pas op een handeling van de gebruiker wordt vastgelegd.
 
    Wat rest: dit is gebouwd op de officiële taxonomie en getest met een
-   synthetisch bericht uit `demo.py`, niet met een echte export uit Profit of
-   Exact. Die toets staat nog open. De parser is er wel op ingericht: hij
+   synthetisch bericht uit `demo.py`. De parser is er wel op ingericht: hij
    negeert de namespace en dus de taxonomieversie, en meldt elk veld dat hij
    niet herkent bij naam in plaats van het stil over te slaan.
+
+   **Getoetst tegen een echte export op 26-09-2026.** `lees_aangifte()`
+   verwerkte `testfiles/6BA2C99A5EB645EDAE3D86DBC30EF8B5.xbrl` (een echt
+   XBRL-bericht, lokaal en niet gecommit) tot een geldige aangifte over één
+   maandtijdvak, met btw-, grondslag- en totaalbedragen en het btw-nummer
+   herkend. Twee headerelementen (`ContactTelephoneNumber`,
+   `DateTimeCreation`) werden niet herkend en zijn gemeld als niet
+   meegeteld, wat het bedoelde gedrag is. Dit is niet in de geautomatiseerde
+   testset opgenomen, want het bestand bevat klantgegevens en mag niet in
+   Git; het bewijs staat daarom hier.
 
 Kleinere ideeën die zijn genoemd maar niet in deze volgorde zijn opgenomen:
 meerjarenvergelijking (3–5 boekjaren in plaats van 2), instelbare vuistregels
