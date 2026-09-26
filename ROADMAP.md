@@ -545,8 +545,16 @@ verfijning open staat.
   uitvoer, ook bij een gemengd gecodeerd schema; een selectie uitsluitend op
   omschrijving krijgt geen RGS-toelichting. Namen, bevindingensleutels en
   berekeningen blijven behouden, zodat bestaande beoordelingen geldig blijven.
-- **Bedragen als float.** De toleranties maken dat werkbaar, maar voor exact
-  reproduceerbare centencontroles zijn `Decimal` of hele centen robuuster.
+- ~~**Bedragen als float.** De toleranties maken dat werkbaar, maar voor exact
+  reproduceerbare centencontroles zijn `Decimal` of hele centen robuuster.~~
+  **Gesloten op 27-09-2026, bewust niet omgezet**: gemeten tegen een exacte som
+  in hele centen op synthetische bedragen. Bij 1 miljoen regels tot 100.000
+  euro blijft de afwijking rond 1e-6 euro, bij 1 miljoen regels tot 10 miljoen
+  euro rond 3e-4; de marge is een halve cent. Pas bij 5 miljoen regels van elk
+  tot 100 miljoen euro nadert een oplopende som die marge. Een centenverschil
+  valt in realistische administraties dus niet weg en ontstaat er niet.
+  `tests/test_float_precisie.py` bewaakt die ruimte; gaat hij stuk, dan is
+  omzetten alsnog aan de orde.
 - **Geen XSD-validatie.** De parser leest wat er is en wijst een bestand niet
   af. Een validatie tegen het schema zou een kapot bestand hard afwijzen in
   plaats van half in te lezen. **Niet meer stil sinds 11-09-2026**: een bedrag dat
