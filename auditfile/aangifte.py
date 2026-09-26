@@ -21,7 +21,7 @@ naar rubriekcode en nooit andersom. Dezelfde redenering als bij
 
 De koppeling is niet geraden maar overgenomen uit de taxonomie zelf: elk
 element hieronder draagt zijn Nederlandse label en het paragraafnummer van de
-officiële definitie van de Belastingdienst. ``docs/xbrl-aangifte.md`` bevat de
+officiële definitie van de Belastingdienst. ``docs/btw-bronnen.md`` bevat de
 volledige tabel met die definities en de vindplaats.
 
 Namespace en versie doen niet ter zake
