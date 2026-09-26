@@ -312,16 +312,17 @@ def build_xaf(spec: AuditfileSpec) -> bytes:
     out.append("  </header>\n")
 
     out.append("  <company>\n")
+    # De XSD legt de volgorde vast: in 4.0 Commercenr, companyName,
+    # taxRegistrationCountry, taxRegIdent; in 3.2 companyIdent, companyName,
+    # taxRegistrationCountry, taxRegIdent. De parser leest elke volgorde, maar
+    # een fixture die niet tegen het schema valideert is geen representatief
+    # bestand.
     if is_40:
-        out.append(_tag("companyName", spec.company_name, 4))
         out.append(_tag("Commercenr", spec.commerce_nr, 4))
-        out.append(_tag("taxRegIdent", spec.tax_reg_ident, 4))
+        out.append(_tag("companyName", spec.company_name, 4))
         out.append(_tag("taxRegistrationCountry", "NL", 4))
+        out.append(_tag("taxRegIdent", spec.tax_reg_ident, 4))
     else:
-        # De XSD van 3.2 legt de volgorde vast als companyIdent, companyName,
-        # taxRegistrationCountry, taxRegIdent. De parser leest elke volgorde,
-        # maar een fixture die niet tegen het schema valideert is geen
-        # representatief bestand.
         out.append(_tag("companyIdent", spec.commerce_nr, 4))
         out.append(_tag("companyName", spec.company_name, 4))
         out.append(_tag("taxRegistrationCountry", "NL", 4))
@@ -448,13 +449,10 @@ def build_xaf(spec: AuditfileSpec) -> bytes:
                 out.append("          <trLine>\n")
                 out.append(_tag("nr", str(index), 12))
                 out.append(_tag("accID", line.accID, 12))
-                # docRef is in 3.2 verplicht en in 4.0 optioneel. Blijft hij
-                # in een 3.2-bestand leeg, dan valideert het bestand niet tegen
-                # het schema, en een fixture die dat niet doet is geen
-                # representatief bestand.
-                referentie = line.docRef
-                if not referentie and not is_40:
-                    referentie = f"{transaction.nr}-{index}"
+                # docRef is in beide versies verplicht (XAF 4.0: FunHie p. 10,
+                # "Document Reference R"). Een fixture die niet tegen het schema
+                # valideert is geen representatief bestand.
+                referentie = line.docRef or f"{transaction.nr}-{index}"
                 out.append(_tag("docRef", referentie, 12))
                 out.append(_tag("effDate", line.effDate, 12))
                 out.append(_tag("desc", line.desc, 12))
