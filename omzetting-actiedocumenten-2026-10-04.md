@@ -98,3 +98,14 @@ Telling: 88 oorspronkelijke punten, 2 bij een bestaand punt, 75 bij een nieuw pu
 | `update-bram-Auditfile_app.md` | 350 | aanbeveling platform: bewaring beoordeling | 40 |
 | `UC_Auditfile_app.md` | 43 | UC: client-side verwerking | 41 |
 | `README.md` | 304 | README: verwerking in het Python-proces | 41 |
+
+## Vrijgave
+
+Controle op 05-10-2026 15:00 CEST (gemeten) door de coördinerende sessie vóór de merge naar de hoofdbranch.
+
+- Geraakt: alleen `OPENSTAAND.md` en dit bestand. Geen code, geen gepubliceerd bestand en geen fiscale waarde.
+- Tests van de repository op de tip van deze branch: 490 tests (`python -m pytest tests/`), alle groen.
+- Gecontroleerd: punten genummerd en compleet, genoemde commits bestaan, oude tekst komt terug (afwijkingen zijn herindeling van de kop en van opsommingen), vindplaatsen bestaan, en minstens drie als gesloten gemarkeerde punten zijn aan hun bewijs getoetst.
+- Punten zonder eigen punt, met reden: 11 (zie de tabel hierboven). De eigenaar kan nalopen of die redenen kloppen.
+- Punten die aan Sylvain zijn toegewezen en open staan: 2 (3, 39). Dat zijn de punten die hij moet nalopen of beslissen.
+- Let op bij de eigenaar: punt 2 (kapotte documentverwijzing, gesloten) stond in het oude document op `Sylvain Bouwman` en staat nu op `sessie`. Dat is een eigenaarswijziging van een gesloten punt zonder gevolgen; de kop zegt dat de eigenaar van de twee bestaande punten niet is gewijzigd, en dat klopt voor punt 1 (genormaliseerd naar `Sylvain`) niet voor punt 2. Punt 5 (inlezen aangifte getoetst op een echte export) is gesloten op een gedateerde meting in `ROADMAP.md` zonder test op de echte bestanden, omdat die bestanden niet in Git mogen staan; de twee bestanden staan lokaal in `testfiles/` (door Git genegeerd) en de meting is vastgelegd in commit 55c17df van 27-09-2026. Een test op een synthetische suppletie dekt de herkenning. De poort heeft dat als voldoende aanvaard.
