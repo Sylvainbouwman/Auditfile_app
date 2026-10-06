@@ -852,10 +852,9 @@ def _autokosten_zonder_bijtelling(af: Auditfile) -> list[dict]:
             "bedrag": bedrag,
             "toelichting": (
                 "Er zijn autokosten geboekt, maar geen rekening of boeking noemt "
-                "bijtelling of privégebruik. De bijtelling zit voor de loonheffing "
-                "in de loonadministratie en kan dus buiten dit grootboek zijn "
-                "verwerkt; beoordeel of de bijtelling en de btw-correctie voor "
-                "privégebruik zijn toegepast."
+                "bijtelling of privégebruik. Een bijtelling hoeft niet in dit "
+                "grootboek te staan en kan dus elders zijn verwerkt; beoordeel of "
+                "de bijtelling en de btw-correctie voor privégebruik zijn toegepast."
             ),
         }
     ]

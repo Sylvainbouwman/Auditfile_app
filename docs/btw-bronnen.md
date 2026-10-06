@@ -143,7 +143,8 @@ Letterlijk uit dat artikel, voor de drie rubrieken die de tool als aftrekbaar in
 | 4a | invoer | art. 15 lid 1 onderdeel c, onder 1° |
 | 4b | intracommunautaire verwerving, art. 17a lid 1 | art. 15 lid 1 onderdeel b |
 
-De slotzin van art. 15 lid 1 stelt de voorwaarde: "een en ander voor zover de
+De slotzin van art. 15 lid 1 (ook de grondslag onder het signaal Btw op uitgaven
+die op privé wijzen in `auditfile/vat.py`) stelt de voorwaarde: "een en ander voor zover de
 goederen en de diensten door de ondernemer worden gebruikt voor belaste
 handelingen." Het aftrekbare aandeel volgt dus niet uit het auditfile. De tool
 gaat uit van 100% en laat dat per btw-code aanpassen; bij vrijgesteld of gemengd

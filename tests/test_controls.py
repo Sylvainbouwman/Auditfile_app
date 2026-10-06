@@ -592,7 +592,7 @@ def test_autokosten_zonder_bijtelling_geven_een_signaal():
     rij = signalen[signalen["onderwerp"] == "Autokosten zonder zichtbare bijtelling"].iloc[0]
     assert rij["bedrag"] == pytest.approx(1000.0)
     assert rij["rekening"] == "4100"
-    assert "loonadministratie" in rij["toelichting"]
+    assert "elders zijn verwerkt" in rij["toelichting"]
 
 
 def test_autokosten_met_een_bijtellingsrekening_geven_dat_signaal_niet():

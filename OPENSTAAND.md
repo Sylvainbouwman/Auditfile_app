@@ -354,7 +354,7 @@ Op de roadmap staat: autokosten aanwezig maar geen bijtelling geboekt. Vermoeden
 
 **Te sluiten wanneer:** aangetoond is dat het bestaande signaal dit dekt (met een test) of de toets is gebouwd of besloten is dat zij niet komt.
 
-Gebouwd 06-10-2026: het signaal Autokosten zonder zichtbare bijtelling onder de fiscale signalen (`_autokosten_zonder_bijtelling()` in `auditfile/controls.py`). De tool kan niet vaststellen dat de bijtelling ontbreekt, want zij zit in de loonadministratie; zij meldt alleen dat geen rekening en geen boeking in het grootboek op bijtelling of privégebruik wijst, en zegt dat in de toelichting. Het bestaande signaal Auto en privegebruik blijft staan. Bewijs: `tests/test_controls.py`, `test_autokosten_zonder_bijtelling_geven_een_signaal`, `test_autokosten_met_een_bijtellingsrekening_geven_dat_signaal_niet` en `test_automatisering_is_geen_autokost`.
+Gebouwd 06-10-2026: het signaal Autokosten zonder zichtbare bijtelling onder de fiscale signalen (`_autokosten_zonder_bijtelling()` in `auditfile/controls.py`). De tool kan niet vaststellen dat de bijtelling ontbreekt, want zij hoeft niet in het grootboek te staan; zij meldt alleen dat geen rekening en geen boeking in het grootboek op bijtelling of privégebruik wijst, en zegt dat in de toelichting. Het bestaande signaal Auto en privegebruik blijft staan. Bewijs: `tests/test_controls.py`, `test_autokosten_zonder_bijtelling_geven_een_signaal`, `test_autokosten_met_een_bijtellingsrekening_geven_dat_signaal_niet` en `test_automatisering_is_geen_autokost`.
 
 ### 27. Privé-opnamen en box 3-relevantie signaleren
 - **Status:** gesloten 06-10-2026, per onderdeel vastgesteld of gebouwd, één onderdeel vervalt

@@ -882,9 +882,10 @@ def build_vat_anomalies(af: Auditfile, usage_met_rubriek: pd.DataFrame | None = 
             "Btw op uitgaven die op privé wijzen",
             prive,
             "Op deze regels staat een btw-code terwijl de rekening of de omschrijving "
-            "privé noemt. Voor een privé-uitgave bestaat geen recht op aftrek van "
-            "voorbelasting; beoordeel of de btw is gecorrigeerd (rubriek 1d) of dat "
-            "de uitgave zakelijk is.",
+            "privé noemt. Voorbelasting is aftrekbaar voor zover de goederen en diensten "
+            "worden gebruikt voor belaste handelingen (art. 15 lid 1 Wet OB 1968, slotzin; "
+            "zie docs/btw-bronnen.md); beoordeel of de uitgave zakelijk is of dat de btw "
+            "is gecorrigeerd (rubriek 1d).",
             bedragkolom="btw_bedrag",
         )
 
