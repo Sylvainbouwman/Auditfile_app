@@ -300,3 +300,32 @@ def test_vul_relatiesaldi_laat_de_bron_ongemoeid():
     gevuld = vul_relatiesaldi(spec)
     assert spec.relations[0].openstaand_eind == ""
     assert gevuld.relations[0].openstaand_eind == "1210.00"
+
+
+# --- Gedeeltelijk gevulde export ----------------------------------------------
+
+
+def test_een_relatie_met_alleen_een_beginstand_krijgt_geen_verloopsignaal():
+    """Een ontbrekende eindstand is geen nul: het verloop is dan niet te toetsen.
+
+    Gemeten op 06-10-2026. De tool laat de eindstand leeg (NaN) en meldt geen
+    verloopverschil voor die relatie, terwijl de relatie met beide standen wel
+    wordt getoetst en de aansluiting op het grootboek doorgaat.
+    """
+    af = _bestand(
+        "4.0",
+        relaties=[
+            Relation("D001", "Afnemer Alfa BV", "C", openstaand_begin="100.00", openstaand_eind="1210.00"),
+            Relation("D002", "Afnemer Gamma BV", "C", openstaand_begin="50.00"),
+        ],
+        journalen=_verkoopjaar(),
+    )
+    assert heeft_relatiesaldi(af)
+    saldi = build_relatiesaldi(af).set_index("relatie")
+    assert pd.isna(saldi.at["D002", "openstaand_eind"])
+    assert pd.isna(saldi.at["D002", "verloop_verschil"])
+    assert saldi.at["D002", "signaal"] == ""
+    assert saldi.at["D001", "signaal"] != ""
+
+    debiteuren = build_relatiesaldo_aansluiting(af).set_index("soort").loc["debiteur"]
+    assert debiteuren["openstaand_eind"] == 1210.00

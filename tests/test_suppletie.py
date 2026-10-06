@@ -279,3 +279,48 @@ def test_de_demo_bevat_een_geboekte_suppletie():
     assert len(gevonden) == 1
     assert gevonden.iloc[0]["tijdvak"] == "Q3"
     assert bool(gevonden.iloc[0]["hoort_bij_boekjaar"])
+
+
+# --- De rondrekening en een suppletie met btw-code ---------------------------
+
+
+def _af_suppletie_op_btw_rekening(btw_code: str):
+    """Een suppletie in het memoriaal op de btw-rekening zelf (1800), met of
+    zonder btw-code, zodat de rondrekening haar meetelt."""
+    from copy import deepcopy
+
+    from auditfile.demo import Line, Transaction
+
+    spec = deepcopy(eenvoudige_spec("4.0"))
+    regels = [
+        Line("1800", "1500.00", "C", "Suppletie omzetbelasting Q4", docRef="SUP001", vatID=btw_code),
+        Line("4400", "1500.00", "D", "Suppletie omzetbelasting Q4", docRef="SUP001"),
+    ]
+    for dagboek in spec.journals:
+        if dagboek.jrnID == "MEM":
+            dagboek.transactions.append(Transaction("M910", "2025-12-28", 12, regels, "Suppletie"))
+    return parse_auditfile("synthetisch.xaf", build_xaf(spec))
+
+
+def _rondrekening(af):
+    verloop = vat.build_vat_ledger_flow(af, _samenvatting(af))
+    return verloop.set_index("post")["bedrag"]
+
+
+def test_suppletie_met_btw_code_staat_bij_de_overige_mutaties():
+    """Gemeten op 06-10-2026: met btw-code stond de suppletie bij de facturatie
+    en verscheen zij als verschil op de controleregel tegenover de btw-codes."""
+    zonder_code = _rondrekening(_af_suppletie_op_btw_rekening(""))
+    met_code = _rondrekening(_af_suppletie_op_btw_rekening("1"))
+
+    assert met_code["Overige mutaties"] == pytest.approx(-SUPPLETIEBEDRAG)
+    assert met_code["Btw uit facturatie"] == pytest.approx(zonder_code["Btw uit facturatie"])
+    controle = "Controle: btw uit facturatie tegenover de btw-codes"
+    assert met_code[controle] == pytest.approx(0.0)
+    assert met_code[controle] == pytest.approx(zonder_code[controle])
+
+
+def test_creditnota_met_btw_correctie_blijft_facturatie():
+    """De zwakke treffer ('btw-correctie') haalt een creditnota niet uit de facturatie."""
+    af = _auditfile(btw_code="1", omschrijving=CREDITNOTA)
+    assert sup.suppletietransacties_met_btw_code(af) == set()

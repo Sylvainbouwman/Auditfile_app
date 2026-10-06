@@ -131,3 +131,126 @@ def test_onbruikbare_rij_wordt_overgeslagen_niet_laten_crashen() -> None:
     contracten = ct.contracten_van_ruw(ruw)
     assert len(contracten) == 1
     assert contracten[0].omschrijving == "Goed contract"
+
+
+# --- Aansluiting op de geboekte huur- en leasekosten ------------------------
+#
+# Het synthetische auditfile (eenvoudige_spec) boekt twaalf maal 1.000 euro op
+# "Huur bedrijfspand" in 2025, dus 12.000 euro huur over het boekjaar.
+
+
+def _huuraf() -> Auditfile:
+    from auditfile.demo import build_xaf, eenvoudige_spec
+    from auditfile.parsing import parse_auditfile
+
+    return parse_auditfile("synthetisch.xaf", build_xaf(eenvoudige_spec()))
+
+
+def test_verwachte_kosten_van_een_heel_jaar_is_het_jaarbedrag() -> None:
+    contract = _contract(jaarbedrag=12_000.0, ingang=date(2024, 1, 1), eind=date(2030, 1, 1))
+    assert ct.verwachte_kosten(contract, date(2025, 1, 1), date(2025, 12, 31)) == pytest.approx(
+        12_000.0
+    )
+
+
+def test_verwachte_kosten_naar_dagen_bij_een_contract_dat_halverwege_ingaat() -> None:
+    contract = _contract(jaarbedrag=12_000.0, ingang=date(2025, 7, 1), eind=date(2030, 1, 1))
+    # 184 van 365 dagen.
+    assert ct.verwachte_kosten(contract, date(2025, 1, 1), date(2025, 12, 31)) == pytest.approx(
+        12_000.0 * 184 / 365
+    )
+
+
+def test_verwachte_kosten_is_nul_buiten_het_boekjaar() -> None:
+    afgelopen = _contract(ingang=date(2020, 1, 1), eind=date(2025, 1, 1))
+    toekomstig = _contract(ingang=date(2026, 1, 1), eind=date(2030, 1, 1))
+    assert ct.verwachte_kosten(afgelopen, date(2025, 1, 1), date(2025, 12, 31)) == 0.0
+    assert ct.verwachte_kosten(toekomstig, date(2025, 1, 1), date(2025, 12, 31)) == 0.0
+
+
+def test_aansluiting_sluit_aan_bij_een_passend_contract() -> None:
+    aansluiting = ct.build_contractaansluiting(
+        _huuraf(), [_contract(jaarbedrag=12_000.0, ingang=date(2024, 1, 1))]
+    )
+    assert aansluiting.status == ct.AANSLUITEND
+    assert aansluiting.geboekt == pytest.approx(12_000.0)
+    assert aansluiting.verwacht == pytest.approx(12_000.0)
+    assert "4000" in aansluiting.rekeningen
+
+
+def test_aansluiting_binnen_de_drempel_telt_als_aansluitend() -> None:
+    aansluiting = ct.build_contractaansluiting(
+        _huuraf(), [_contract(jaarbedrag=11_000.0, ingang=date(2024, 1, 1))]
+    )
+    assert aansluiting.status == ct.AANSLUITEND
+
+
+def test_aansluiting_meldt_een_verschil_boven_de_drempel() -> None:
+    aansluiting = ct.build_contractaansluiting(
+        _huuraf(), [_contract(jaarbedrag=6_000.0, ingang=date(2024, 1, 1))]
+    )
+    assert aansluiting.status == ct.VERSCHIL
+    assert aansluiting.verschil == pytest.approx(6_000.0)
+    assert "meer geboekt" in aansluiting.toelichting
+
+
+def test_kosten_zonder_vastgelegd_contract_is_een_signaal() -> None:
+    aansluiting = ct.build_contractaansluiting(_huuraf(), [])
+    assert aansluiting.status == ct.KOSTEN_ZONDER_CONTRACT
+    assert aansluiting.verwacht is None
+    assert aansluiting.geboekt == pytest.approx(12_000.0)
+
+
+def test_kosten_terwijl_geen_contract_in_het_boekjaar_loopt() -> None:
+    afgelopen = _contract(ingang=date(2020, 1, 1), eind=date(2024, 12, 31))
+    aansluiting = ct.build_contractaansluiting(_huuraf(), [afgelopen])
+    assert aansluiting.status == ct.KOSTEN_ZONDER_CONTRACT
+    assert aansluiting.verwacht == 0.0
+
+
+def test_contract_zonder_geboekte_kosten() -> None:
+    from auditfile.demo import build_xaf, eenvoudige_spec
+    from auditfile.parsing import parse_auditfile
+
+    spec = eenvoudige_spec()
+    for dagboek in spec.journals:
+        if dagboek.jrnID == "INK":
+            dagboek.transactions.clear()
+    af = parse_auditfile("synthetisch.xaf", build_xaf(spec))
+    aansluiting = ct.build_contractaansluiting(af, [_contract(ingang=date(2024, 1, 1))])
+    assert aansluiting.status == ct.CONTRACT_ZONDER_KOSTEN
+
+
+def test_geen_kosten_en_geen_contracten_is_geen_signaal() -> None:
+    aansluiting = ct.build_contractaansluiting(Auditfile(header={}), [])
+    assert aansluiting.status == ct.GEEN_KOSTEN_EN_CONTRACTEN
+
+
+def test_zonder_boekjaardatums_is_de_aansluiting_niet_mogelijk() -> None:
+    af = _huuraf()
+    af.header.pop("startDate", None)
+    aansluiting = ct.build_contractaansluiting(af, [_contract()])
+    assert aansluiting.status == ct.NIET_MOGELIJK_STATUS
+
+
+def test_bevinding_alleen_met_een_register_als_invoer() -> None:
+    from auditfile.findings import verzamel_bevindingen
+
+    af = _huuraf()
+    zonder = verzamel_bevindingen(af)
+    assert "Contracten" not in set(zonder["categorie"])
+
+    met_leeg_register = verzamel_bevindingen(af, contracten=[])
+    rij = met_leeg_register[met_leeg_register["categorie"] == "Contracten"].iloc[0]
+    assert rij["onderwerp"] == ct.KOSTEN_ZONDER_CONTRACT
+    assert rij["ernst"] == "signaal"
+    assert rij["bedrag"] == pytest.approx(12_000.0)
+
+
+def test_aansluitend_register_levert_geen_bevinding() -> None:
+    from auditfile.findings import verzamel_bevindingen
+
+    bevindingen = verzamel_bevindingen(
+        _huuraf(), contracten=[_contract(jaarbedrag=12_000.0, ingang=date(2024, 1, 1))]
+    )
+    assert "Contracten" not in set(bevindingen["categorie"])

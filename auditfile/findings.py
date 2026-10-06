@@ -598,6 +598,7 @@ def _uit_controles(af: Auditfile) -> list[Bevinding]:
     for bouwer, categorie, kolom in (
         (controls.build_omzet_per_periode, "Omzet per periode", "omzet"),
         (controls.build_personeelskosten_per_periode, "Loonkosten per periode", "loonkosten"),
+        (controls.build_inkopen_per_periode, "Inkopen per periode", "inkopen"),
     ):
         frame = bouwer(af)
         if frame.empty:
@@ -948,6 +949,52 @@ def _uit_excessief_lenen(af: Auditfile, invoer=None, extra_rekeningen=()) -> lis
     ]
 
 
+def _uit_contracten(af: Auditfile, contracten) -> list[Bevinding]:
+    """Het contractregister naast de geboekte huur- en leasekosten.
+
+    Alleen een afwijking is een bevinding; sluiten de contracten aan op de
+    kosten, of is er niets geboekt en niets vastgelegd, dan valt er niets te
+    melden. Een signaal en geen waarschuwing: het register is handmatige invoer
+    en de tool kan niet zien of de geboekte kosten bij die contracten horen.
+    """
+    from . import contracten as ct
+
+    aansluiting = ct.build_contractaansluiting(af, contracten)
+    if aansluiting.status in (ct.AANSLUITEND, ct.GEEN_KOSTEN_EN_CONTRACTEN):
+        return []
+
+    if aansluiting.status == ct.NIET_MOGELIJK_STATUS:
+        ernst = NIET_MOGELIJK
+        bedrag = None
+    else:
+        ernst = SIGNAAL
+        bedrag = (
+            aansluiting.geboekt
+            if aansluiting.verschil is None
+            else abs(aansluiting.verschil)
+        )
+
+    toelichting = aansluiting.toelichting
+    if aansluiting.verwacht is not None:
+        toelichting += (
+            f" Geboekt: {euro(aansluiting.geboekt)}; volgens de contracten over "
+            f"dit boekjaar: {euro(aansluiting.verwacht)}."
+        )
+    return [
+        Bevinding(
+            categorie="Contracten",
+            onderwerp=aansluiting.status,
+            identiteit="Contractregister tegenover huur- en leasekosten",
+            ernst=ernst,
+            toelichting=toelichting,
+            bedrag=_getal(bedrag),
+            rekening=", ".join(aansluiting.rekeningen),
+            methode=aansluiting.methode,
+            pagina="Contracten",
+        )
+    ]
+
+
 def build_rc_rekeningnummers(af: Auditfile, extra_rekeningen=()) -> list[str]:
     """De rekeningnummers achter de drempeltoets, voor de bevinding."""
     from .excessief_lenen import build_rc_rekeningen
@@ -1075,6 +1122,7 @@ def verzamel_bevindingen(
     materialiteit: Materialiteit | None = None,
     excessief_lenen=None,
     excessief_lenen_rekeningen=(),
+    contracten=None,
 ) -> pd.DataFrame:
     """Alle bevindingen van alle controles in één tabel.
 
@@ -1105,5 +1153,9 @@ def verzamel_bevindingen(
     bevindingen += _uit_openstaande_posten(huidig)
     bevindingen += _uit_excessief_lenen(huidig, excessief_lenen, excessief_lenen_rekeningen)
     bevindingen += _uit_ratios(huidig, vorig)
+    if contracten is not None:
+        # Alleen met een register als invoer: zonder die invoer (None) zegt
+        # "geen contract vastgelegd" niets, want de aanroeper heeft er geen gekend.
+        bevindingen += _uit_contracten(huidig, contracten)
 
     return naar_frame(bevindingen, materialiteit)

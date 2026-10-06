@@ -234,6 +234,7 @@ def bouw_werkbladen(
         "Fiscale signalen": controls.build_fiscale_signalen(huidig),
         "Omzet per periode": controls.build_omzet_per_periode(huidig),
         "Loonkosten per periode": controls.build_personeelskosten_per_periode(huidig),
+        "Inkopen per periode": controls.build_inkopen_per_periode(huidig),
         "Debiteuren gefactureerd": controls.build_relatie_analyse(huidig, "debiteur", top=100),
         "Crediteuren gefactureerd": controls.build_relatie_analyse(huidig, "crediteur", top=100),
         # Alleen gevuld bij XAF 4.0 met openstaande bedragen per relatie; bij een

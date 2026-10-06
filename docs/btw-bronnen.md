@@ -195,9 +195,41 @@ civielrechtelijke dwangsommen (art. 611a Rv), en ontnemingsvorderingen en
 schadevergoeding bij misdrijven (art. 3.14 lid 3). De tool moet daarom signaleren
 en niet concluderen.
 
-Nog te onderzoeken: de behandeling van belastingrente en invorderingsrente. Art.
-3.14 zegt daar niets over; die beoordeling loopt langs andere bepalingen. Neem
-hierover geen uitspraak op in de tool zonder aanvullend onderzoek.
+## Belastingrente en invorderingsrente
+
+Gebruikt in `auditfile/controls.py` (`BELASTINGRENTE_TOELICHTING`). Onderzocht op
+06-10-2026 door de agent `bron-controleur`, tegen de geconsolideerde teksten per
+1 januari 2026.
+
+Bevestigd:
+
+- Art. 3.14 lid 1 onderdelen c en i Wet IB 2001 noemen belastingrente en
+  invorderingsrente niet; ze vallen niet onder het aftrekverbod. Voor de Vpb
+  geldt dat via de verwijzing in art. 8 lid 1 Wet Vpb 1969. Art. 10 lid 1
+  onderdeel e Wet Vpb 1969 (de vennootschapsbelasting zelf) noemt de rente
+  evenmin.
+- Belastingrente (art. 30f, 30h en 30ha AWR) is geen boete; een verzuim- of
+  vergrijpboete (art. 67a, 67c en 67d AWR) is een bestuurlijke boete en valt
+  dus wel onder art. 3.14 lid 1 onderdeel c. Rente en boete staan afzonderlijk
+  op het aanslagbiljet (art. 30j lid 1 en 2 en art. 67a lid 1 en 67d lid 1 AWR).
+- Invorderingsrente: art. 28 lid 1 Invorderingswet 1990. Revisierente (art. 30i
+  AWR) bestaat alleen bij de inkomstenbelasting.
+- Privé, box 3: een vordering of schuld uit de AWR of de Invorderingswet telt niet
+  mee (art. 5.3 lid 2 en lid 3 onderdelen c en d Wet IB 2001); belastingrente is
+  geen persoonsgebonden aftrekpost (art. 6.1 lid 2 Wet IB 2001).
+- Vindplaatsen: <https://wetten.overheid.nl/BWBR0011353/2026-01-01> (Wet IB 2001),
+  <https://wetten.overheid.nl/BWBR0002672/2026-01-01> (Wet Vpb 1969),
+  <https://wetten.overheid.nl/BWBR0002320/2026-01-01> (AWR),
+  <https://wetten.overheid.nl/BWBR0004770/2026-01-01> (Invorderingswet 1990).
+
+Niet met een officiële bron te sluiten: of betaalde belastingrente over btw,
+loonheffing of Vpb aftrekbaar is en of ontvangen rente tot de winst behoort. De
+wet zwijgt erover en de Belastingdienst-pagina's over belastingrente ook; alleen
+secundaire bronnen zeggen "aftrekbaar". Besluit van Sylvain op 06-10-2026: de
+tool neemt de aftrekbaarheid van betaalde rente als uitgangspunt, omdat de wet
+haar niet uitsluit, en zegt er uitdrukkelijk bij dat dit een redenering is en
+geen bepaling. Over ontvangen rente doet de tool geen uitspraak. Vindt een
+beoordelaar later een officiële bron, dan hoort die hier te komen.
 
 ## Drempel excessief lenen
 

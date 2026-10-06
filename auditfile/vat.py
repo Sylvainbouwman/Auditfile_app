@@ -600,6 +600,14 @@ def build_vat_ledger_flow(af: Auditfile, samenvatting: pd.DataFrame) -> pd.DataF
     transacties_met_liquide = set(sleutel_per_regel[_is_liquide(lines)])
 
     btw_regels_op_rekening = lines[op_btw_rekening].copy()
+    # Een suppletie die een btw-code draagt is geen facturatie, ook al heeft de
+    # boeking een code: zij hoort bij de overige mutaties. Zonder deze
+    # uitzondering telde zij als facturatie en stond zij als verschil op de
+    # controleregel tegenover de btw-codes. Lokale import: suppletie.py importeert
+    # uit dit bestand. Zie suppletietransacties_met_btw_code().
+    from .suppletie import suppletietransacties_met_btw_code
+
+    transacties_met_code = transacties_met_code - suppletietransacties_met_btw_code(af)
     sleutel = sleutel_per_regel[op_btw_rekening]
     uit_facturen = sleutel.isin(transacties_met_code)
     via_liquide = sleutel.isin(transacties_met_liquide) & ~uit_facturen
@@ -849,6 +857,34 @@ def build_vat_anomalies(af: Auditfile, usage_met_rubriek: pd.DataFrame | None = 
             "Op representatie, horeca en personeelsvoorzieningen kan de aftrek "
             "beperkt of uitgesloten zijn (Besluit uitsluiting aftrek omzetbelasting 1968). "
             "Beoordeel of een correctie nodig is.",
+            bedragkolom="btw_bedrag",
+        )
+
+    # 9. Btw op uitgaven die op privé wijzen. Een privé-uitgave geeft geen recht
+    #    op aftrek van voorbelasting; staat er toch een btw-code op een rekening
+    #    of een boeking die privé heet, dan is dat iets om na te lopen. De tool
+    #    leest alleen de omschrijving en weet niet of de uitgave echt privé is.
+    #    Btw die via een code voor privégebruik (rubriek 1d) is afgedragen, is
+    #    wel goed verwerkt en valt daarom af.
+    if not regels.empty:
+        tekst = regels["accDesc"].astype(str) + " " + regels["line_desc"].astype(str)
+        prive = regels[tekst.str.contains(r"priv[eé]", case=False, na=False, regex=True)]
+        if (
+            not prive.empty
+            and usage_met_rubriek is not None
+            and "rubriek" in usage_met_rubriek.columns
+        ):
+            codes_1d = set(
+                usage_met_rubriek.loc[usage_met_rubriek["rubriek"] == "1d", "btw_code"].astype(str)
+            )
+            prive = prive[~prive["btw_code"].astype(str).isin(codes_1d)]
+        voeg_toe(
+            "Btw op uitgaven die op privé wijzen",
+            prive,
+            "Op deze regels staat een btw-code terwijl de rekening of de omschrijving "
+            "privé noemt. Voor een privé-uitgave bestaat geen recht op aftrek van "
+            "voorbelasting; beoordeel of de btw is gecorrigeerd (rubriek 1d) of dat "
+            "de uitgave zakelijk is.",
             bedragkolom="btw_bedrag",
         )
 

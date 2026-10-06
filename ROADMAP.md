@@ -35,10 +35,17 @@ bespaart. Op volgorde van bouwen (eenvoudigste eerst):
    balansdatum (jaarbedrag gedeeld door twaalf, keer het aantal resterende
    maanden) en toont het totaal; geen contante-waardeberekening en geen
    kwalificatie als operationele of financiële lease, dat blijft aan de
-   gebruiker. **Wat rest (bewust een los vervolg):** koppeling met de
-   bestaande periodieke controle voor huur/lease — een signaal als er kosten
-   zijn geboekt maar nog geen bijbehorend contract is vastgelegd. Dat raakt
-   het bevindingenmodel en is expliciet niet in deze eerste stap meegenomen.
+   gebruiker. **Aansluiting op de geboekte kosten (gereed 06-10-2026,
+   besluit van de sessie onder het mandaat van Sylvain van 05-10-2026):**
+   `build_contractaansluiting()` legt de contracten, naar dagen over het
+   boekjaar toegerekend, naast het saldo van de rekeningen die op omschrijving
+   als huur of lease zijn herkend. Signalen: kosten zonder vastgelegd
+   contract, contract zonder geboekte kosten en een verschil boven 10% van
+   het bedrag volgens de contracten. Het signaal komt als categorie Contracten
+   in het bevindingenmodel, maar alleen als de aanroeper een register meegeeft.
+   **Wat bewust niet is gebouwd:** het onderscheid operationele of financiële
+   lease en de detectie van een operationele lease die niet als verplichting
+   zichtbaar is; zie `OPENSTAAND.md`, punt 4.
 3. **Vorig-jaar-beoordeling automatisch tonen (gereed).** Op de pagina
    Bevindingen staat een read-only kolom "Vorig jaar" die de beoordeling van
    dezelfde bevinding uit het dossier van het vorige boekjaar toont, puur ter
@@ -336,7 +343,8 @@ de aangifte. De uitkomst staat op de pagina Btw onder de rondrekening en in de
 bevindingen.
 
 ### Lease- en huurdetectie
-- Operationele lease aanwezig maar niet zichtbaar als verplichting
+- Aansluiting contractregister op de geboekte huur- en leasekosten: gereed op 06-10-2026
+- Operationele lease aanwezig maar niet zichtbaar als verplichting (bewust niet gebouwd, `OPENSTAAND.md` punt 4)
 - Financiële lease versus operationele lease onderscheid op basis van boekingen
 
 ---
