@@ -496,3 +496,24 @@ def test_de_export_bevat_de_openstaande_posten():
     assert not bladen["Openstaande posten"].empty
     assert not bladen["Ouderdomsopbouw"].empty
     assert not bladen["Aansluiting openstaande posten"].empty
+
+
+# --- Gedeeltelijk gevulde export: een mutatieregel die niet oplost -------------
+
+
+def test_een_mutatieregel_met_een_onbekende_verwijzing_krijgt_geen_rekening():
+    """Een verwijzing naar een boeking die niet bestaat vult de rekening niet in.
+
+    Gemeten op 06-10-2026. De post blijft zichtbaar met de soort uit de relatie
+    en de koppeling ``niet gekoppeld``: een post op de verkeerde rekening
+    aansluiten is erger dan een post die niet aansluit.
+    """
+    af = _bestand(
+        subledgers=[Subledger([_mutatieregel(trNr="BESTAAT-NIET", matchKeyID="AFL-Y")])]
+    )
+    post = build_openstaande_posten(af).iloc[0]
+    assert post["rekening"] == ""
+    assert post["soort"] == "debiteur"
+    assert post["soort_bron"] == "custSupTp"
+    assert post["koppeling"] == "niet gekoppeld"
+    assert "Niet aan een grootboekrekening gekoppeld" in post["signaal"]

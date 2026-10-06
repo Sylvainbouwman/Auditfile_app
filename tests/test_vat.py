@@ -844,3 +844,59 @@ def test_niet_ingedeelde_codes_krijgen_een_eigen_status():
     )
     samenvatting = build_rubric_summary(pas_mapping_toe(usage))
     assert samenvatting.set_index("rubriek").loc[ONBEKEND, "status"] == "Niet ingedeeld"
+
+
+# --- Btw op uitgaven die op privé wijzen ------------------------------------
+
+
+def _af_prive_uitgave(btw_code: str, omschrijving: str = "Privé-uitgave dga"):
+    spec = AuditfileSpec(
+        accounts=[
+            Account("1600", "Crediteuren", "B"),
+            Account("1810", "Btw te vorderen", "B"),
+            Account("4900", "Overige kosten", "P"),
+        ],
+        vat_codes=[VatCode("3", "5b Voorbelasting", vatToClaimAccID="1810"), VatCode("9", "Privégebruik 1d")],
+        journals=[
+            Journal(
+                "INK",
+                "Inkoopboek",
+                [
+                    Transaction(
+                        "T1",
+                        "2025-01-01",
+                        1,
+                        [
+                            Line(
+                                "4900", "1000.00", "D", omschrijving,
+                                vatID=btw_code, vatPerc="21", vatAmnt="210.00", vatAmntTp="D",
+                            ),
+                            Line("1810", "210.00", "D", "Voorbelasting"),
+                            Line("1600", "1210.00", "C", "Crediteur"),
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    return parse_auditfile("prive.xaf", build_xaf(spec))
+
+
+def test_btw_op_een_prive_uitgave_geeft_een_signaal():
+    af = _af_prive_uitgave("3")
+    signalen = build_vat_anomalies(af, pas_mapping_toe(build_vat_usage(af))).set_index("signaal")
+    rij = signalen.loc["Btw op uitgaven die op privé wijzen"]
+    assert rij["aantal_regels"] == 1
+    assert rij["bedrag"] == pytest.approx(210.0)
+
+
+def test_btw_via_privegebruik_rubriek_1d_geeft_geen_signaal():
+    af = _af_prive_uitgave("9")
+    usage = pas_mapping_toe(build_vat_usage(af), {"9": "1d"})
+    assert "Btw op uitgaven die op privé wijzen" not in set(build_vat_anomalies(af, usage)["signaal"])
+
+
+def test_zakelijke_uitgave_geeft_geen_privesignaal():
+    af = _af_prive_uitgave("3", omschrijving="Kantoorartikelen")
+    signalen = set(build_vat_anomalies(af, pas_mapping_toe(build_vat_usage(af)))["signaal"])
+    assert "Btw op uitgaven die op privé wijzen" not in signalen

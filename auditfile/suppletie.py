@@ -202,14 +202,13 @@ def _is_memoriaal(lines: pd.DataFrame) -> pd.Series:
     ].astype(str).str.contains("memoriaal", case=False, na=False)
 
 
-def detecteer_suppleties(af: Auditfile) -> pd.DataFrame:
-    """Boekingen op een btw-rekening die zichzelf een suppletie noemen.
+def _suppletieregels(af: Auditfile) -> pd.DataFrame:
+    """De regels die als suppletie gelden, met de index van ``af.lines``.
 
-    Er wordt gezocht in de omschrijving van de transactie, van de boekingsregel,
-    van het dagboek en in de documentreferentie: pakketten zetten de aanduiding
-    op wisselende plekken en één daarvan is genoeg. Boekingen uit de facturatie
-    vallen af, tenzij ze in het memoriaal staan met een trefwoord van hoge
-    zekerheid.
+    Boekingen uit de facturatie vallen af, tenzij ze in het memoriaal staan met
+    een trefwoord van hoge zekerheid. De kolom ``_facturatie`` zegt of de
+    boeking een btw-code draagt; de index blijft die van ``af.lines``, zodat de
+    transactiesleutel van de regels op te zoeken is.
     """
     rekeningen, _ = btw_balansrekeningen(af)
     if not rekeningen or af.lines.empty:
@@ -237,7 +236,35 @@ def detecteer_suppleties(af: Auditfile) -> pd.DataFrame:
     # "btw-correctie" doorbreekt de uitsluiting niet, want een creditnota die in
     # het memoriaal wordt gecorrigeerd heet precies zo. Besloten op 27-09-2026.
     doorbreekt = _is_memoriaal(lines) & (lines["zekerheid"] == HOOG)
-    lines = lines[(lines["trefwoord"] != "") & (~lines["_facturatie"] | doorbreekt)].copy()
+    return lines[(lines["trefwoord"] != "") & (~lines["_facturatie"] | doorbreekt)].copy()
+
+
+def suppletietransacties_met_btw_code(af: Auditfile) -> set:
+    """De transactiesleutels van suppleties die een btw-code dragen.
+
+    De rondrekening in ``vat.py`` rekent een boeking met btw-code tot de
+    facturatie. Voor deze boekingen klopt dat niet: ze zijn herkend als
+    suppletie en horen bij de overige mutaties. Gemeten op 06-10-2026: zonder
+    deze uitzondering stond zo'n suppletie bij de facturatie en verscheen
+    zij als verschil op de controleregel tegenover de btw-codes.
+    """
+    lines = _suppletieregels(af)
+    if lines.empty:
+        return set()
+    sleutel = transactie_sleutel(af.lines)
+    return set(sleutel[lines.index[lines["_facturatie"]]])
+
+
+def detecteer_suppleties(af: Auditfile) -> pd.DataFrame:
+    """Boekingen op een btw-rekening die zichzelf een suppletie noemen.
+
+    Er wordt gezocht in de omschrijving van de transactie, van de boekingsregel,
+    van het dagboek en in de documentreferentie: pakketten zetten de aanduiding
+    op wisselende plekken en één daarvan is genoeg. Boekingen uit de facturatie
+    vallen af, tenzij ze in het memoriaal staan met een trefwoord van hoge
+    zekerheid.
+    """
+    lines = _suppletieregels(af)
     if lines.empty:
         return pd.DataFrame(columns=SUPPLETIE_COLUMNS)
 

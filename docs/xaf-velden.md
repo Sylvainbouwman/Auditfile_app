@@ -152,17 +152,19 @@ posten.
 |---|---|---|
 | `amntTp`, `invTp` | D, C | debet of credit |
 | `invPurSalTp` | P, S | inkoop of verkoop |
-| `sbType` | CS, CU, SU, ZZ | **niet vastgesteld** |
-| `mutTp` | I, P, Z | **niet vastgesteld** |
+| `sbType` | CS, CU, SU, ZZ | Subledger Type: CS = Customers / Suppliers, CU = Customers, SU = Suppliers, ZZ = Other |
+| `mutTp` | I, P, Z | Mutatiesoort: I = Invoice (factuur), P = Payment (ontvangst of betaling), Z = Other |
 
-De XSD geeft voor `sbType` en `mutTp` alleen de toegestane waarden en geen
-omschrijving, en de Invantive-documentatie van het 3.2-datamodel noemt ze
-"Subledger Type" en "Mutation Type" zonder waardelijst. Er is een aannemelijke
-lezing (`CU` klant, `SU` leverancier, `CS` beide, `ZZ` overig, naar analogie van
-`custSupTp` met B, C, O en S; `I` factuur, `P` betaling), maar die is niet uit
-een gezaghebbende bron te herleiden. De tool geeft beide codes daarom
-onveranderd door en leidt er niets uit af. **Open punt**: vaststellen wat deze
-codes betekenen aan de hand van de functionele documentatie van XAF 3.2.
+Vastgesteld op 11-09-2026 in de revisietabel *XMLAuditfileXAF_4.0_met_revisie_naar_XAF_3.2*
+(versie 4.0 van 06-02-2025), die de XAF 3.2-velden voluit weergeeft: `sbType`
+op pagina 19 en 20 (beginbalans) en 26 en 27 (transacties), `mutTp` op pagina 21
+en 29. Bij `mutTp` staat daar: "Geeft aan of het gaat om een factuur of
+ontvangst/betaling. Verplicht bij opboeken van een factuur". Dit document sprak
+dat eerder tegen en stelde de betekenis als niet vastgesteld; die lezing was
+een aanname naar analogie van `custSupTp` en is met deze bron vervangen. De
+tool geeft beide codes nog steeds onveranderd door en leidt er niets uit af:
+wie er wel iets mee wil doen, heeft nu de omschrijving. Zie ook de rubriek
+Kleinere punten uit de review in `ROADMAP.md`.
 
 ### Wat de bestanden in de praktijk laten zien
 

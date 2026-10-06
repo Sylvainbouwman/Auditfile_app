@@ -159,9 +159,9 @@ class SbLine:
 class ObSubledger:
     """Een subadministratie bij de beginbalans, met haar eigen controletotalen.
 
-    ``sbType`` is CS, CU, SU of ZZ volgens de XSD. Wat die codes betekenen is
-    niet uit een gezaghebbende bron vast te stellen, dus de generator schrijft de
-    code onveranderd weg en de tool leidt er niets uit af.
+    ``sbType`` is CS, CU, SU of ZZ volgens de XSD (Customers / Suppliers,
+    Customers, Suppliers, Other; zie ``docs/xaf-velden.md``). De generator
+    schrijft de code onveranderd weg en de tool leidt er niets uit af.
     """
 
     lines: list[ObSubledgerLine]
@@ -920,9 +920,9 @@ def vul_subadministratie(spec: AuditfileSpec) -> AuditfileSpec:
     niets weggeschreven. De posten worden uit de spec zelf afgeleid en niet
     ingetypt, zodat de demo blijft aansluiten wanneer de boekingen veranderen.
 
-    ``mutTp`` blijft leeg. De code is I, P of Z volgens de XSD, maar wat die
-    waarden betekenen is niet uit een gezaghebbende bron vast te stellen, en een
-    fixture hoort geen betekenis te suggereren die niet vaststaat.
+    ``mutTp`` blijft leeg. De code is I, P of Z volgens de XSD (factuur,
+    betaling, overig; zie ``docs/xaf-velden.md``), maar de tool leidt er niets uit
+    af, en een fixture hoort geen betekenis te suggereren die de tool niet gebruikt.
 
     Werkt op een kopie: de specs zijn testfixtures met sessiebereik en een
     wijziging in het ene geval zou anders in het andere opduiken.

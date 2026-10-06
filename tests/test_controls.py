@@ -569,3 +569,149 @@ def test_relatieanalyse_werkt_zonder_relatietabel():
     assert list(debiteuren["relatie"]) == ["D001"]
     assert debiteuren.iloc[0]["naam"] == ""
     assert round(debiteuren.iloc[0]["gefactureerd"], 2) == 1000.00
+
+
+# --- Autokosten zonder bijtelling en privé-opnamen ----------------------------
+
+
+def _af_met_rekeningen(rekeningen: list[tuple[str, str, str]], bedrag: str = "1000.00"):
+    """Een klein bestand met per opgegeven (nummer, omschrijving, type) een debetboeking."""
+    accounts = [Account("1100", "Bank", "B")] + [Account(*r) for r in rekeningen]
+    regels = [Line(nummer, bedrag, "D", omschrijving) for nummer, omschrijving, _ in rekeningen]
+    regels.append(Line("1100", f"{float(bedrag) * len(rekeningen):.2f}", "C", "Bank"))
+    spec = AuditfileSpec(
+        accounts=accounts,
+        journals=[Journal("MEM", "Memoriaal", [Transaction("T1", "2025-03-31", 3, regels)])],
+    )
+    return parse_auditfile("synthetisch.xaf", build_xaf(spec))
+
+
+def test_autokosten_zonder_bijtelling_geven_een_signaal():
+    af = _af_met_rekeningen([("4100", "Autokosten", "P")])
+    signalen = build_fiscale_signalen(af)
+    rij = signalen[signalen["onderwerp"] == "Autokosten zonder zichtbare bijtelling"].iloc[0]
+    assert rij["bedrag"] == pytest.approx(1000.0)
+    assert rij["rekening"] == "4100"
+    assert "elders zijn verwerkt" in rij["toelichting"]
+
+
+def test_autokosten_met_een_bijtellingsrekening_geven_dat_signaal_niet():
+    af = _af_met_rekeningen(
+        [("4100", "Autokosten", "P"), ("4110", "Bijtelling privégebruik auto", "P")]
+    )
+    onderwerpen = set(build_fiscale_signalen(af)["onderwerp"])
+    assert "Autokosten zonder zichtbare bijtelling" not in onderwerpen
+    # Het bestaande signaal Auto en privegebruik blijft wel staan.
+    assert "Auto en privegebruik" in onderwerpen
+
+
+def test_automatisering_is_geen_autokost():
+    af = _af_met_rekeningen([("4200", "Automatisering en software", "P")])
+    onderwerpen = set(build_fiscale_signalen(af)["onderwerp"])
+    assert "Autokosten zonder zichtbare bijtelling" not in onderwerpen
+
+
+def test_prive_opnamen_geven_een_signaal_maar_prive_gebruik_niet():
+    af = _af_met_rekeningen(
+        [("0600", "Privé-opnamen", "B"), ("4110", "Privégebruik auto", "P")]
+    )
+    signalen = build_fiscale_signalen(af)
+    opnamen = signalen[signalen["onderwerp"] == "Privé-opnamen en onttrekkingen"]
+    assert list(opnamen["rekening"]) == ["0600"]
+
+
+# --- Inkopen per periode en het splitsingsrisico ------------------------------
+
+
+def _af_met_maandboekingen(rekening: tuple[str, str, str], bedragen: dict[int, str], relatie: str = ""):
+    """Per opgegeven maand een kostenboeking op ``rekening`` tegen de bank."""
+    transacties = []
+    for maand, bedrag in bedragen.items():
+        transacties.append(
+            Transaction(
+                f"T{maand:03d}",
+                f"2025-{maand:02d}-15",
+                maand,
+                [
+                    Line(rekening[0], bedrag, "D", rekening[1], custSupID=relatie),
+                    Line("1100", bedrag, "C", "Bank"),
+                ],
+            )
+        )
+    spec = AuditfileSpec(
+        accounts=[Account("1100", "Bank", "B"), Account(*rekening)],
+        journals=[Journal("INK", "Inkoopboek", transacties)],
+    )
+    return parse_auditfile("synthetisch.xaf", build_xaf(spec))
+
+
+def test_maand_zonder_inkopen_wordt_gemeld():
+    from auditfile.controls import build_inkopen_per_periode
+
+    bedragen = {maand: "500.00" for maand in range(1, 13) if maand != 7}
+    af = _af_met_maandboekingen(("7000", "Inkoopwaarde handelsgoederen", "P"), bedragen)
+    inkopen = build_inkopen_per_periode(af)
+    zonder = inkopen[inkopen["signaal"] != ""]
+    assert list(zonder["periode"]) == [7]
+    assert zonder.iloc[0]["signaal"] == "Geen inkopen in deze periode"
+
+
+def test_zonder_inkooprekeningen_geen_inkoopsignalen():
+    from auditfile.controls import build_inkopen_per_periode
+
+    af = _af_met_maandboekingen(("4000", "Huur bedrijfspand", "P"), {1: "1000.00"})
+    assert build_inkopen_per_periode(af).empty
+
+
+def test_inkoopsignaal_komt_in_de_bevindingen():
+    from auditfile.findings import verzamel_bevindingen
+
+    bedragen = {maand: "500.00" for maand in range(1, 13) if maand != 7}
+    af = _af_met_maandboekingen(("7000", "Inkoopwaarde handelsgoederen", "P"), bedragen)
+    bevindingen = verzamel_bevindingen(af)
+    rij = bevindingen[bevindingen["categorie"] == "Inkopen per periode"]
+    assert list(rij["onderwerp"]) == ["Geen inkopen in deze periode"]
+
+
+def test_splitsingsrisico_bij_verschillende_bedragen_net_onder_een_drempel():
+    af = _af_met_maandboekingen(
+        ("4900", "Overige kosten", "P"),
+        {1: "980.00", 2: "950.00", 3: "990.00", 4: "400.00"},
+        relatie="C001",
+    )
+    signalen = build_ongebruikelijke_boekingen(af).set_index("signaal")
+    rij = signalen.loc["Veel boekingen net onder een drempelbedrag"]
+    assert rij["aantal_regels"] == 3
+    assert rij["bedrag"] == pytest.approx(980.0 + 950.0 + 990.0)
+
+
+def test_een_vaste_maandhuur_net_onder_de_drempel_is_geen_splitsing():
+    af = _af_met_maandboekingen(
+        ("4000", "Huur", "P"), {maand: "950.00" for maand in range(1, 13)}
+    )
+    assert "Veel boekingen net onder een drempelbedrag" not in set(
+        build_ongebruikelijke_boekingen(af)["signaal"]
+    )
+
+
+def test_twee_boekingen_net_onder_een_drempel_is_te_weinig():
+    af = _af_met_maandboekingen(
+        ("4900", "Overige kosten", "P"), {1: "980.00", 2: "950.00"}, relatie="C001"
+    )
+    assert "Veel boekingen net onder een drempelbedrag" not in set(
+        build_ongebruikelijke_boekingen(af)["signaal"]
+    )
+
+
+# --- Belastingrente en invorderingsrente ---------------------------------------
+
+
+def test_belastingrente_geeft_een_signaal_met_het_uitgangspunt_en_zonder_boete_uitsluiting():
+    af = _af_met_rekeningen([("4700", "Belastingrente en invorderingsrente", "P")], bedrag="120.00")
+    signalen = build_fiscale_signalen(af)
+    rij = signalen[signalen["onderwerp"] == "Belastingrente en invorderingsrente"].iloc[0]
+    assert rij["bedrag"] == pytest.approx(120.0)
+    assert "geen boete" in rij["toelichting"]
+    assert "redenering" in rij["toelichting"]
+    # De rente valt niet onder het boetesignaal.
+    assert "Boetes en dwangsommen" not in set(signalen["onderwerp"])

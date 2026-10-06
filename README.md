@@ -123,8 +123,10 @@ worden gedaan, blijft een oordeel van de beoordelaar.
 
 **Analytische controles.** Komen vaste lasten in elke periode voor, zijn er
 ongebruikelijke boekingen (weekend, ronde bedragen, grote memoriaalposten in de
-laatste periode, omzet aan de verkeerde kant), staan balansposten aan de
-verwachte kant, en hoe verlopen omzet en loonkosten per periode.
+laatste periode, omzet aan de verkeerde kant, veel boekingen van verschillend
+bedrag net onder een rond bedrag), staan balansposten aan de verwachte kant, en
+hoe verlopen omzet, loonkosten en inkopen per periode (een maand zonder inkopen
+wordt alleen gemeld als er inkooprekeningen zijn herkend).
 
 **Relaties.** Wat er per relatie in het boekjaar is gefactureerd en afgewikkeld
 op de debiteuren- en crediteurenrekeningen, inclusief btw, met de concentratie
@@ -172,7 +174,11 @@ relatie. Zie `ROADMAP.md` en `docs/xaf-velden.md`.
 
 **Fiscale signalen.** Posten die om een beoordeling vragen: boetes en
 dwangsommen, juridische kosten, representatie en horeca, rekening-courant met de
-directie, auto en privegebruik, giften. De tool signaleert en concludeert niet.
+directie, auto en privegebruik (met een eigen signaal als er autokosten zijn
+maar geen rekening of boeking op bijtelling of privégebruik wijst), privé-opnamen
+en giften. Op de pagina Btw staat bovendien een signaal voor btw op uitgaven
+waarvan de rekening of omschrijving privé noemt. De tool signaleert en
+concludeert niet.
 
 Op dezelfde pagina staat de **drempeltoets excessief lenen**. De tool selecteert
 de rekening-courant- en leningrekeningen met aandeelhouders en bestuurders op hun
@@ -206,9 +212,15 @@ niet geleverd; wel hoort zij, als het bedrag materieel is, in de toelichting
 bij de jaarrekening als niet in de balans opgenomen verplichting. Op deze
 pagina legt u lease- en huurcontracten vast (omschrijving, jaarbedrag,
 ingangsdatum en einddatum); de tool telt de resterende termijnen per de
-balansdatum op tot een totaalbedrag. Geen contante-waardeberekening en geen
-kwalificatie van het contract als operationele of financiële lease; dat blijft
-aan u.
+balansdatum op tot een totaalbedrag. Daarnaast legt de tool de contracten
+naast de geboekte huur- en leasekosten van het boekjaar (naar dagen
+toegerekend): een signaal als er kosten zijn geboekt zonder vastgelegd
+contract, als een contract geen kosten heeft en als het verschil boven 10% van
+het bedrag volgens de contracten ligt. Dat is een signaal en geen oordeel: de
+tool weet niet of de geboekte kosten bij die contracten horen. Geen
+contante-waardeberekening, geen kwalificatie van het contract als operationele
+of financiële lease en geen detectie van een operationele lease die niet als
+verplichting zichtbaar is; dat blijft aan u.
 
 **Excel-export.** Ruim twintig werkbladen met Nederlandse getalnotatie, filters
 en vastgezette koppen. Bedragen zijn getallen, dus optelbaar.

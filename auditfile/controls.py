@@ -373,6 +373,44 @@ def compacte_perioden(perioden: list[int], labels: dict[int, str] | None = None)
 # --- Ongebruikelijke boekingen ----------------------------------------------
 
 
+# Gebruikelijke autorisatiegrenzen voor het splitsingsrisico. Een werkafspraak van
+# de tool en geen fiscale waarde of wettelijke grens; een kantoor of klant kan een
+# eigen grens hebben die hier niet tussen staat.
+SPLITSINGSDREMPELS: tuple[float, ...] = (250.0, 500.0, 1_000.0, 2_500.0, 5_000.0, 10_000.0, 25_000.0)
+SPLITSING_BAND_PCT = 10.0
+SPLITSING_MIN_BOEKINGEN = 3
+
+
+def _splitsingsdrempels_tekst() -> str:
+    return ", ".join(f"{drempel:,.0f}".replace(",", ".") for drempel in SPLITSINGSDREMPELS)
+
+
+def _splitsingsrisico(lines: pd.DataFrame) -> pd.DataFrame:
+    """Kostenregels die net onder een drempelbedrag liggen, per relatie gegroepeerd.
+
+    Een groep telt pas mee bij minstens ``SPLITSING_MIN_BOEKINGEN`` regels van
+    minstens twee verschillende bedragen: een vaste maandhuur van 950 euro is
+    geen splitsing. Zonder relatie op de regel wordt per rekening gegroepeerd.
+    """
+    is_kosten = lines["accTp"].astype(str).str.upper().eq("P") & (lines["bedrag"] > 0)
+    kosten = lines[is_kosten]
+    if kosten.empty:
+        return kosten
+    relatie = kosten["line_custSupID"].astype(str).str.strip()
+    groep = relatie.where(relatie != "", "rekening " + kosten["line_accID"].astype(str))
+
+    gevonden = []
+    for drempel in SPLITSINGSDREMPELS:
+        ondergrens = drempel * (1 - SPLITSING_BAND_PCT / 100.0)
+        in_band = kosten[(kosten["bedrag"] >= ondergrens) & (kosten["bedrag"] < drempel)]
+        for _, deel in in_band.groupby(groep[in_band.index]):
+            if len(deel) >= SPLITSING_MIN_BOEKINGEN and deel["bedrag"].round(2).nunique() >= 2:
+                gevonden.append(deel)
+    if not gevonden:
+        return kosten.iloc[0:0]
+    return pd.concat(gevonden)
+
+
 def build_ongebruikelijke_boekingen(af: Auditfile, drempel_rond_bedrag: float = 1000.0) -> pd.DataFrame:
     """Boekingen met een patroon dat om een verklaring vraagt."""
     kolommen = ["signaal", "aantal_regels", "bedrag", "toelichting"]
@@ -441,6 +479,18 @@ def build_ongebruikelijke_boekingen(af: Auditfile, drempel_rond_bedrag: float = 
         lines[is_loon & (lines["bedrag"] < 0)],
         "Loonkosten staan normaal debet. Creditboekingen zijn terugboekingen of "
         "doorbelastingen; beoordeel de aansluiting met de salarisadministratie.",
+    )
+
+    # Veel boekingen net onder een drempelbedrag (splitsingsrisico).
+    voeg_toe(
+        "Veel boekingen net onder een drempelbedrag",
+        _splitsingsrisico(lines),
+        f"Per relatie (of per rekening zonder relatie) staan er minstens "
+        f"{SPLITSING_MIN_BOEKINGEN} kostenboekingen van verschillend bedrag binnen "
+        f"{SPLITSING_BAND_PCT:.0f}% onder een rond bedrag ({_splitsingsdrempels_tekst()}). "
+        "Dat kan wijzen op het splitsen van een uitgave onder een interne "
+        "autorisatiegrens. Het is geen wettelijke grens en geen oordeel: beoordeel "
+        "of de boekingen bij elkaar horen.",
     )
 
     if not signalen:
@@ -688,11 +738,34 @@ BOETE_TOELICHTING = (
     "vandaan komt."
 )
 
+# Belastingrente is geen boete en valt dus niet onder art. 3.14 lid 1 onderdeel c
+# Wet IB 2001 (en via art. 8 lid 1 Wet Vpb 1969 niet onder de Vpb); een fiscale
+# verzuim- of vergrijpboete is wel een bestuurlijke boete (art. 67a, 67c en 67d
+# AWR). Dat de rente aftrekbaar is, is geen bron maar een redenering: de wet
+# sluit haar niet uit. Die lezing is op 06-10-2026 door Sylvain als uitgangspunt
+# gekozen; zie docs/btw-bronnen.md, paragraaf Belastingrente en invorderingsrente.
+BELASTINGRENTE_TOELICHTING = (
+    "Belastingrente en invorderingsrente zijn geen boete en vallen daarom niet onder "
+    "het aftrekverbod van art. 3.14 lid 1 onderdeel c Wet IB 2001 (via art. 8 lid 1 "
+    "Wet Vpb 1969 ook niet voor de vennootschapsbelasting). Uitgangspunt: betaalde "
+    "rente over een aanslag van de onderneming (btw, loonheffing, vennootschapsbelasting) "
+    "is aftrekbaar, omdat de wet haar niet uitsluit; dat is een redenering en geen "
+    "uitdrukkelijke bepaling, een officiële bron die het zegt is niet gevonden. Een "
+    "verzuim- of vergrijpboete in dezelfde aanslag is wel een bestuurlijke boete en "
+    "dus niet aftrekbaar. Beoordeel ontvangen rente apart en rente over de "
+    "inkomstenbelasting van de eigenaar, die privé is."
+)
+
 FISCALE_SIGNALEN: tuple[tuple[str, str, str], ...] = (
     (
         "Boetes en dwangsommen",
         r"boete|dwangsom|sanctie|bekeuring|naheffing",
         BOETE_TOELICHTING,
+    ),
+    (
+        "Belastingrente en invorderingsrente",
+        r"belastingrente|invorderingsrente|heffingsrente|revisierente",
+        BELASTINGRENTE_TOELICHTING,
     ),
     (
         "Juridische kosten",
@@ -715,6 +788,15 @@ FISCALE_SIGNALEN: tuple[tuple[str, str, str], ...] = (
         "drempel van de Wet excessief lenen bij eigen vennootschap uitkomt.",
     ),
     (
+        "Privé-opnamen en onttrekkingen",
+        r"priv[eé](?!.?gebruik)|onttrekking",
+        "Beoordeel bij een vennootschap of dit een uitdeling is, of een lening aan de "
+        "aandeelhouder die onder de Wet excessief lenen kan vallen (zie het signaal "
+        "Rekening-courant met aandeelhouder of directie), en bij een eenmanszaak of "
+        "vof of de opname goed in het eigen vermogen is verwerkt. De tool leest "
+        "alleen de omschrijving van de rekening en weet niet wat de opname is.",
+    ),
+    (
         "Auto en privegebruik",
         r"auto|bijtelling|privegebruik|prive gebruik|brandstof|leaseauto",
         "Beoordeel of de bijtelling voor de loonheffing en de btw-correctie voor "
@@ -728,6 +810,56 @@ FISCALE_SIGNALEN: tuple[tuple[str, str, str], ...] = (
 )
 
 
+# Autokosten en de aanwijzingen dat de bijtelling of het privégebruik is verwerkt.
+# "auto" als los woord, want "automatisering" is geen autokost.
+AUTOKOSTEN_PATROON = r"\bauto\b|autokosten|auto.?lease|leaseauto|brandstof|personenauto|wagenpark"
+BIJTELLING_PATROON = r"bijtelling|priv[eé].?gebruik|priv[eé] ?deel"
+
+
+def _autokosten_zonder_bijtelling(af: Auditfile) -> list[dict]:
+    """Autokosten in het grootboek zonder enige aanwijzing dat de bijtelling is verwerkt.
+
+    De bijtelling is een zaak van de loonheffing en hoeft niet in het grootboek
+    te staan; ook een correctie van de btw voor privégebruik kan buiten een
+    herkenbare rekening of omschrijving zijn geboekt. De tool kan dus niet
+    vaststellen dat de bijtelling ontbreekt, alleen dat er in dit grootboek
+    geen rekening en geen boeking is die op bijtelling of privégebruik wijst.
+    """
+    if af.saldo.empty or af.lines.empty:
+        return []
+    masker, _ = _selecteer(af.saldo, None, AUTOKOSTEN_PATROON, rekeningtype="P")
+    autokosten = af.saldo[masker]
+    bedrag = float(autokosten["mutaties_boekjaar"].sum())
+    if autokosten.empty or abs(bedrag) < 0.005:
+        return []
+
+    lines = af.lines
+    tekst = (
+        lines["accDesc"].astype(str)
+        + " "
+        + lines["line_desc"].astype(str)
+        + " "
+        + lines["tx_desc"].astype(str)
+    )
+    if tekst.str.contains(BIJTELLING_PATROON, case=False, na=False, regex=True).any():
+        return []
+    return [
+        {
+            "onderwerp": "Autokosten zonder zichtbare bijtelling",
+            "rekening": ", ".join(str(r) for r in autokosten["rekening"]),
+            "omschrijving": "Autokosten",
+            "aantal_regels": int(autokosten["aantal_boekingsregels"].sum()),
+            "bedrag": bedrag,
+            "toelichting": (
+                "Er zijn autokosten geboekt, maar geen rekening of boeking noemt "
+                "bijtelling of privégebruik. Een bijtelling hoeft niet in dit "
+                "grootboek te staan en kan dus elders zijn verwerkt; beoordeel of "
+                "de bijtelling en de btw-correctie voor privégebruik zijn toegepast."
+            ),
+        }
+    ]
+
+
 def build_fiscale_signalen(af: Auditfile) -> pd.DataFrame:
     """Posten die om een fiscale beoordeling vragen."""
     kolommen = ["onderwerp", "rekening", "omschrijving", "aantal_regels", "bedrag", "toelichting"]
@@ -735,7 +867,7 @@ def build_fiscale_signalen(af: Auditfile) -> pd.DataFrame:
     if lines.empty:
         return pd.DataFrame(columns=kolommen)
 
-    rijen = []
+    rijen = _autokosten_zonder_bijtelling(af)
     for onderwerp, patroon, toelichting in FISCALE_SIGNALEN:
         selectie = lines[
             lines["accDesc"].astype(str).str.contains(patroon, case=False, na=False, regex=True)
@@ -803,6 +935,44 @@ def build_omzet_per_periode(af: Auditfile) -> pd.DataFrame:
                 "maand": labels.get(periode, str(periode)),
                 "omzet": bedrag,
                 "signaal": "Geen omzet in deze periode" if abs(bedrag) < 0.005 else "",
+            }
+        )
+    return pd.DataFrame(rijen, columns=kolommen)
+
+
+def build_inkopen_per_periode(af: Auditfile) -> pd.DataFrame:
+    """Inkopen per periode, met signalering van perioden zonder inkopen.
+
+    Alleen zinvol voor een onderneming die inkoopt: herkent de tool geen
+    inkoop- of kostprijsrekening, dan is het resultaat leeg en meldt de tool
+    niets. Een dienstverlener zonder inkopen krijgt dus geen signaal voor elke
+    maand.
+    """
+    kolommen = ["periode", "maand", "inkopen", "signaal"]
+    lines = af.lines
+    if lines.empty:
+        return pd.DataFrame(columns=kolommen)
+
+    masker, _ = _selecteer(
+        lines, "WKpr", r"inkoop|inkopen|kostprijs|handelsgoederen|grondstoffen", rekeningtype="P"
+    )
+    inkopen = lines[masker & lines["periode"].notna()].copy()
+    if inkopen.empty:
+        return pd.DataFrame(columns=kolommen)
+
+    per_periode = inkopen.groupby(inkopen["periode"].astype(int))["bedrag"].sum()
+    regulier = boekingsperioden(af)
+    perioden = regulier if regulier else sorted(per_periode.index)
+    labels = af.period_labels
+    rijen = []
+    for periode in perioden:
+        bedrag = float(per_periode.get(periode, 0.0))
+        rijen.append(
+            {
+                "periode": periode,
+                "maand": labels.get(periode, str(periode)),
+                "inkopen": bedrag,
+                "signaal": "Geen inkopen in deze periode" if abs(bedrag) < 0.005 else "",
             }
         )
     return pd.DataFrame(rijen, columns=kolommen)

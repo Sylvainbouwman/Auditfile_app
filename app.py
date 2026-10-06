@@ -208,6 +208,7 @@ SIGNAALCATEGORIEEN: tuple[tuple[str, str], ...] = (
     ("Balansposten", "Analytische controles"),
     ("Omzet per periode", "Analytische controles"),
     ("Loonkosten per periode", "Analytische controles"),
+    ("Inkopen per periode", "Analytische controles"),
     ("Relaties", "Relaties"),
     ("Fiscaal", "Fiscale signalen"),
 )
@@ -226,6 +227,7 @@ def tel_signalen(huidig: Auditfile, gebruik: pd.DataFrame) -> pd.DataFrame:
     balans = controls.build_balanspost_signalen(huidig)
     omzet = controls.build_omzet_per_periode(huidig)
     loon = controls.build_personeelskosten_per_periode(huidig)
+    inkopen = controls.build_inkopen_per_periode(huidig)
     concentratie = controls.build_relatie_concentratie(huidig)
 
     aantallen = {
@@ -237,6 +239,7 @@ def tel_signalen(huidig: Auditfile, gebruik: pd.DataFrame) -> pd.DataFrame:
         "Balansposten": len(balans),
         "Omzet per periode": int((omzet["signaal"] != "").sum()) if not omzet.empty else 0,
         "Loonkosten per periode": int((loon["signaal"] != "").sum()) if not loon.empty else 0,
+        "Inkopen per periode": int((inkopen["signaal"] != "").sum()) if not inkopen.empty else 0,
         "Relaties": int((concentratie["signaal"] != "").sum()) if not concentratie.empty else 0,
         "Fiscaal": len(controls.build_fiscale_signalen(huidig)),
     }
@@ -389,6 +392,7 @@ def bevindingen_met_review(
         materialiteit=materialiteit,
         excessief_lenen=huidige_excessief_lenen(),
         excessief_lenen_rekeningen=huidige_handmatige_rc_rekeningen(),
+        contracten=contracten_module.contracten_van_ruw(huidige_contracten_ruw()),
     )
     bevindingen = pas_review_toe(bevindingen, huidige_opslag().lees_review())
     # De beoordeling van vorig jaar komt uit het dossier van dát boekjaar, dat
@@ -1665,6 +1669,12 @@ def pagina_controles(huidig: Auditfile) -> None:
         if not loon.empty:
             st.bar_chart(loon.set_index("maand")["loonkosten"], height=220)
 
+    inkopen = controls.build_inkopen_per_periode(huidig)
+    if not inkopen.empty:
+        kop("Inkopen per periode")
+        toon_tabel(inkopen, kleur_op="signaal")
+        st.bar_chart(inkopen.set_index("maand")["inkopen"], height=220)
+
 
 def toon_subadministratie(huidig: Auditfile) -> None:
     """De subadministratie van XAF 3.2, zoals zij is ingelezen.
@@ -2124,6 +2134,38 @@ def pagina_fiscale_signalen(huidig: Auditfile) -> None:
     toon_excessief_lenen(huidig)
 
 
+def toon_contractaansluiting(huidig: Auditfile, contracten: list) -> None:
+    """De contracten naast de geboekte huur- en leasekosten van het boekjaar."""
+    aansluiting = contracten_module.build_contractaansluiting(huidig, contracten)
+    if aansluiting.status == contracten_module.GEEN_KOSTEN_EN_CONTRACTEN:
+        return
+    kop(
+        "Aansluiting op de geboekte kosten",
+        "Het bedrag volgens de vastgelegde contracten over dit boekjaar, naast het "
+        "saldo van de rekeningen die op omschrijving als huur of lease zijn herkend.",
+    )
+    links, midden, rechts = st.columns(3)
+    links.metric("Geboekt", euro(aansluiting.geboekt))
+    midden.metric(
+        "Volgens de contracten",
+        euro(aansluiting.verwacht) if aansluiting.verwacht is not None else "niet te berekenen",
+    )
+    rechts.metric(
+        "Verschil",
+        euro(aansluiting.verschil) if aansluiting.verschil is not None else "niet te berekenen",
+    )
+    if aansluiting.status == contracten_module.AANSLUITEND:
+        st.success("De geboekte kosten sluiten aan op de vastgelegde contracten.")
+    else:
+        st.warning(f"{aansluiting.status}. {aansluiting.toelichting}")
+    if aansluiting.rekeningen:
+        st.caption(
+            f"Herkende rekeningen ({aansluiting.methode}): {', '.join(aansluiting.rekeningen)}. "
+            "Een operationele lease die niet als verplichting zichtbaar is, wordt niet "
+            "gedetecteerd."
+        )
+
+
 def pagina_contracten(huidig: Auditfile) -> None:
     kop(
         "Lease- en huurcontracten",
@@ -2198,6 +2240,7 @@ def pagina_contracten(huidig: Auditfile) -> None:
             st.rerun()
 
     contracten = contracten_module.contracten_van_ruw(contracten_ruw)
+    toon_contractaansluiting(huidig, contracten)
     if not contracten:
         st.caption("Nog geen contracten vastgelegd.")
         return

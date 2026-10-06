@@ -40,4 +40,4 @@ Auditfile-analyse gebeurt handmatig in Excel: exporteren, kolommen aanmaken, ver
 |---|---|
 | **Tijdwinst** | Automatische analyse vervangt uren handmatig Excel-werk |
 | **Kwaliteit** | Gestandaardiseerde checklist; minder kans op gemiste bevindingen |
-| **Privacy** | Volledige client-side verwerking; klantdata verlaat de browser niet |
+| **Privacy** | De verwerking gebeurt in het geheugen van het Python-proces van de app, zonder database. Bij lokale uitvoering blijft klantdata op de eigen computer; draait de app op een server, dan gaat het bestand naar die server (zie README, rubriek Privacy) |
